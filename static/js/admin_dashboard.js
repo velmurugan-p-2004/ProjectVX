@@ -1,0 +1,1647 @@
+document.addEventListener('DOMContentLoaded', function () {
+    // Helper function to get CSRF token
+    function getCSRFToken() {
+        const token = document.querySelector('input[name="csrf_token"]');
+        return token ? token.value : '';
+    }
+
+    // Helper function to enroll user on device
+    function enrollUserOnDevice(deviceIP, staffId, fullName, overwrite = false) {
+        return fetch('/enroll_biometric_user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `device_ip=${encodeURIComponent(deviceIP)}&user_id=${encodeURIComponent(staffId)}&name=${encodeURIComponent(fullName)}&overwrite=${overwrite}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json());
+    }
+
+    // Helper function to delete user from device (simple version for promises)
+    function deleteUserFromDeviceSimple(deviceIP, staffId) {
+        return fetch('/delete_biometric_user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `device_ip=${encodeURIComponent(deviceIP)}&user_id=${encodeURIComponent(staffId)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json());
+    }
+
+    // Helper function to create staff account from device user
+    function createStaffFromDeviceUser(deviceIP, deviceUserId, deviceUserName) {
+        // Show a form to collect additional staff details
+        const fullName = prompt(`Create staff account for biometric user:\n\nDevice User ID: ${deviceUserId}\nDevice Name: ${deviceUserName}\n\nEnter full name for staff account:`, deviceUserName);
+
+        if (!fullName) {
+            return; // User cancelled
+        }
+
+        const email = prompt('Enter email (optional):', '') || '';
+        const phone = prompt('Enter phone (optional):', '') || '';
+        const department = prompt('Enter department (optional):', '') || '';
+        const position = prompt('Enter position (optional):', '') || '';
+
+        // Create the staff account
+        fetch('/create_staff_from_device_user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `device_ip=${encodeURIComponent(deviceIP)}&device_user_id=${encodeURIComponent(deviceUserId)}&full_name=${encodeURIComponent(fullName)}&email=${encodeURIComponent(email)}&phone=${encodeURIComponent(phone)}&department=${encodeURIComponent(department)}&position=${encodeURIComponent(position)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`✅ Success!\n\n${data.message}\n\nThe staff member can now:\n• Login to the system using Staff ID: ${deviceUserId}\n• Use biometric attendance (already enrolled)\n• Access their dashboard and profile`);
+                location.reload(); // Refresh to show new staff in dashboard
+            } else {
+                alert(`❌ Failed to create staff account:\n\n${data.error}\n\nPlease try again or contact administrator.`);
+            }
+        })
+        .catch(error => {
+            alert(`❌ Error creating staff account:\n\n${error.message}`);
+        });
+    }
+    // Initialize Chart
+    const ctx = document.getElementById('attendanceChart')?.getContext('2d');
+    if (ctx) {
+        const attendanceChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Present', 'Absent', 'Late'],
+                datasets: [{
+                    data: [85, 10, 5], // Placeholder
+                    backgroundColor: ['#198754', '#dc3545', '#ffc107'],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+    }
+
+    // Initialize weekly calendar for staff profile modal
+    let adminStaffWeeklyCalendar = null;
+
+    function initializeStaffWeeklyCalendar(staffId) {
+        const calendarEl = document.getElementById('adminStaffWeeklyCalendar');
+        if (calendarEl) {
+            // Destroy existing calendar if it exists
+            if (adminStaffWeeklyCalendar) {
+                calendarEl.innerHTML = '';
+            }
+
+            // Create new weekly calendar instance
+            adminStaffWeeklyCalendar = new WeeklyAttendanceCalendar('adminStaffWeeklyCalendar', {
+                staffId: staffId,
+                isAdminView: true
+            });
+        }
+    }
+
+    // Live Staff Search
+    document.getElementById('staffSearch')?.addEventListener('input', function () {
+        const searchTerm = this.value.toLowerCase();
+        const rows = document.querySelectorAll('.table tbody tr');
+        rows.forEach(row => {
+            const match = Array.from(row.querySelectorAll('td')).some(cell => cell.textContent.toLowerCase().includes(searchTerm));
+            if (match) {
+                row.classList.remove('hidden');
+            } else {
+                row.classList.add('hidden');
+            }
+        });
+    });
+
+    // View Staff Profile Handler
+    document.querySelector('.table tbody')?.addEventListener('click', function (e) {
+        const target = e.target.closest('.staff-profile-link, .staff-profile-btn');
+        if (!target) return;
+        e.preventDefault();
+        const staffId = target.getAttribute('data-staff-id');
+        loadComprehensiveStaffProfile(staffId);
+    });
+
+    function loadComprehensiveStaffProfile(staffId) {
+        // Show loading state
+        const modalContent = document.getElementById('staffProfileModalContent');
+        const modalTitle = document.getElementById('staffProfileModalTitle');
+
+        modalContent.innerHTML = `
+            <div class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading comprehensive staff profile...</p>
+            </div>
+        `;
+
+        // Load comprehensive staff profile data
+        fetch(`/get_comprehensive_staff_profile?id=${staffId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    modalTitle.textContent = `Staff Profile - ${data.staff.full_name}`;
+                    renderComprehensiveStaffProfile(data);
+
+                    // Set up modal buttons
+                    setupStaffProfileButtons(staffId, data.staff);
+                } else {
+                    modalContent.innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="bi bi-exclamation-triangle"></i> ${data.error}
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                console.error('Error loading staff profile:', error);
+                modalContent.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i> Failed to load staff profile: ${error.message}
+                    </div>
+                `;
+            });
+    }
+
+    function renderComprehensiveStaffProfile(data) {
+        const modalContent = document.getElementById('staffProfileModalContent');
+        const staff = data.staff;
+        const stats = data.attendance_stats;
+
+    modalContent.innerHTML = `
+        <!-- Staff Information Section -->
+        <div class="row mb-4">
+            <div class="col-md-3 text-center">
+                <img src="/static/${staff.photo_url || 'images/default_profile.png'}"
+                     class="img-thumbnail mb-3" alt="Staff Photo" style="max-height: 200px;">
+                <!-- Change Photo button removed -->
+            </div>
+            <div class="col-md-9">
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <h5 class="mb-0"><i class="bi bi-person-badge"></i> Personal Information</h5>
+                    </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <p><strong>Full Name:</strong> ${staff.full_name}</p>
+                                    <p><strong>Staff ID:</strong> <span class="badge bg-primary">${staff.staff_id}</span></p>
+                                    <p><strong>Department:</strong> ${staff.department || 'Not assigned'}</p>
+                                    <p><strong>Position:</strong> ${staff.position || 'Not assigned'}</p>
+                                </div>
+                                <div class="col-md-6">
+                                    <p><strong>Email:</strong> ${staff.email || 'Not provided'}</p>
+                                    <p><strong>Phone:</strong> ${staff.phone || 'Not provided'}</p>
+                                    <p><strong>School:</strong> ${staff.school_name || 'Not assigned'}</p>
+                                    <p><strong>Status:</strong> <span class="badge bg-success">Active</span></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attendance Statistics -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0"><i class="bi bi-graph-up"></i> Attendance Statistics (Last 30 Days)</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-md-3">
+                                    <div class="card bg-primary text-white">
+                                        <div class="card-body">
+                                            <h3>${stats.total_days}</h3>
+                                            <p class="mb-0">Total Days</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-success text-white">
+                                        <div class="card-body">
+                                            <h3>${stats.present_days}</h3>
+                                            <p class="mb-0">Present</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-warning text-white">
+                                        <div class="card-body">
+                                            <h3>${stats.late_days}</h3>
+                                            <p class="mb-0">Late</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-danger text-white">
+                                        <div class="card-body">
+                                            <h3>${stats.absent_days}</h3>
+                                            <p class="mb-0">Absent</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <div class="progress">
+                                    <div class="progress-bar bg-success" role="progressbar"
+                                         style="width: ${stats.attendance_rate}%"
+                                         aria-valuenow="${stats.attendance_rate}" aria-valuemin="0" aria-valuemax="100">
+                                        ${stats.attendance_rate}% Attendance Rate
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabs for detailed information -->
+            <ul class="nav nav-tabs" id="staffProfileTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="attendance-tab" data-bs-toggle="tab"
+                            data-bs-target="#attendance-pane" type="button" role="tab">
+                        <i class="bi bi-calendar-check"></i> Attendance Records
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="biometric-tab" data-bs-toggle="tab"
+                            data-bs-target="#biometric-pane" type="button" role="tab">
+                        <i class="bi bi-fingerprint"></i> Biometric Verifications
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="leaves-tab" data-bs-toggle="tab"
+                            data-bs-target="#leaves-pane" type="button" role="tab">
+                        <i class="bi bi-calendar-x"></i> Leave Applications
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="on-duty-tab" data-bs-toggle="tab"
+                            data-bs-target="#on-duty-pane" type="button" role="tab">
+                        <i class="bi bi-briefcase"></i> On Duty Applications
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="permissions-tab" data-bs-toggle="tab"
+                            data-bs-target="#permissions-pane" type="button" role="tab">
+                        <i class="bi bi-clock"></i> Permission Applications
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="weekly-calendar-tab" data-bs-toggle="tab"
+                            data-bs-target="#weekly-calendar-pane" type="button" role="tab">
+                        <i class="bi bi-calendar-week"></i> Weekly Calendar
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content mt-3" id="staffProfileTabContent">
+                <!-- Attendance Records Tab -->
+                <div class="tab-pane fade show active" id="attendance-pane" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Time In</th>
+                                    <th>Time Out</th>
+                                    <th>Overtime In</th>
+                                    <th>Overtime Out</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.attendance.map(record => `
+                                    <tr>
+                                        <td>${record.date}</td>
+                                        <td>${record.time_in || '--:--'}</td>
+                                        <td>${record.time_out || '--:--'}</td>
+                                        <td>${record.overtime_in || '--:--'}</td>
+                                        <td>${record.overtime_out || '--:--'}</td>
+                                        <td><span class="badge bg-${getStatusColor(record.status)}">${record.status}</span></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Biometric Verifications Tab -->
+                <div class="tab-pane fade" id="biometric-pane" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Date & Time</th>
+                                    <th>Verification Type</th>
+                                    <th>Status</th>
+                                    <th>Device IP</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.verifications.map(verification => `
+                                    <tr>
+                                        <td>${new Date(verification.verification_time).toLocaleString()}</td>
+                                        <td>
+                                            <span class="badge bg-info">
+                                                ${verification.verification_type.replace('-', ' ').toUpperCase()}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-${verification.verification_status === 'success' ? 'success' : 'danger'}">
+                                                ${verification.verification_status}
+                                            </span>
+                                        </td>
+                                        <td>${verification.device_ip}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Leave Applications Tab -->
+                <div class="tab-pane fade" id="leaves-pane" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Leave Type</th>
+                                    <th>Start Date</th>
+                                    <th>End Date</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                    <th>Applied Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.leaves.map(leave => `
+                                    <tr>
+                                        <td>${leave.leave_type}</td>
+                                        <td>${leave.start_date}</td>
+                                        <td>${leave.end_date}</td>
+                                        <td>${leave.reason}</td>
+                                        <td><span class="badge bg-${getLeaveStatusColor(leave.status)}">${leave.status}</span></td>
+                                        <td>${leave.applied_at}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- On Duty Applications Tab -->
+                <div class="tab-pane fade" id="on-duty-pane" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Duty Type</th>
+                                    <th>Start Date</th>
+                                    <th>End Date</th>
+                                    <th>Time</th>
+                                    <th>Location</th>
+                                    <th>Purpose</th>
+                                    <th>Status</th>
+                                    <th>Applied Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.on_duty_applications.map(duty => `
+                                    <tr>
+                                        <td><span class="badge bg-info">${duty.duty_type}</span></td>
+                                        <td>${duty.start_date}</td>
+                                        <td>${duty.end_date}</td>
+                                        <td>
+                                            ${duty.start_time && duty.end_time ?
+                                                `${duty.start_time} - ${duty.end_time}` :
+                                                '<span class="text-muted">All day</span>'
+                                            }
+                                        </td>
+                                        <td>${duty.location || '<span class="text-muted">Not specified</span>'}</td>
+                                        <td>
+                                            <span title="${duty.purpose}">
+                                                ${duty.purpose.length > 30 ? duty.purpose.substring(0, 30) + '...' : duty.purpose}
+                                            </span>
+                                        </td>
+                                        <td><span class="badge bg-${getLeaveStatusColor(duty.status)}">${duty.status}</span></td>
+                                        <td>${new Date(duty.applied_at).toLocaleDateString()}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ${data.on_duty_applications.length === 0 ? '<div class="alert alert-info">No on-duty applications found</div>' : ''}
+                </div>
+
+                <!-- Permission Applications Tab -->
+                <div class="tab-pane fade" id="permissions-pane" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Permission Type</th>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                    <th>Duration</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                    <th>Applied Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.permission_applications.map(permission => `
+                                    <tr>
+                                        <td><span class="badge bg-warning text-dark">${permission.permission_type}</span></td>
+                                        <td>${permission.permission_date}</td>
+                                        <td>${permission.start_time} - ${permission.end_time}</td>
+                                        <td>
+                                            <span class="badge bg-secondary">
+                                                ${permission.duration_hours.toFixed(1)} hrs
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span title="${permission.reason}">
+                                                ${permission.reason.length > 30 ? permission.reason.substring(0, 30) + '...' : permission.reason}
+                                            </span>
+                                        </td>
+                                        <td><span class="badge bg-${getLeaveStatusColor(permission.status)}">${permission.status}</span></td>
+                                        <td>${new Date(permission.applied_at).toLocaleDateString()}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ${data.permission_applications.length === 0 ? '<div class="alert alert-info">No permission applications found</div>' : ''}
+                </div>
+
+                <!-- Weekly Calendar Tab -->
+                <div class="tab-pane fade" id="weekly-calendar-pane" role="tabpanel">
+                    <div id="adminStaffWeeklyCalendar"></div>
+                </div>
+            </div>
+        `;
+
+        // Initialize the weekly calendar after the modal content is rendered
+        setTimeout(() => {
+            initializeStaffWeeklyCalendar(staff.id);
+        }, 100);
+    }
+
+    function setupStaffProfileButtons(staffId, staff) {
+        // Edit Profile Button
+        document.getElementById('editStaffProfileBtn').onclick = function() {
+            // Close the profile modal and open edit modal
+            bootstrap.Modal.getInstance(document.getElementById('staffProfileModal')).hide();
+
+            // Populate edit form
+            document.getElementById('editStaffId').value = staffId;
+            document.getElementById('editFullName').value = staff.full_name;
+            document.getElementById('editEmail').value = staff.email || '';
+            document.getElementById('editPhone').value = staff.phone || '';
+            document.getElementById('editDepartment').value = staff.department || '';
+            document.getElementById('editPosition').value = staff.position || '';
+
+            // Show edit modal
+            new bootstrap.Modal(document.getElementById('editStaffModal')).show();
+        };
+
+        // Delete Staff Button
+        document.getElementById('deleteStaffProfileBtn').onclick = function() {
+            if (confirm(`Are you sure you want to delete ${staff.full_name}? This action cannot be undone.`)) {
+                fetch('/delete_staff', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `staff_id=${staffId}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Staff deleted successfully');
+                        bootstrap.Modal.getInstance(document.getElementById('staffProfileModal')).hide();
+                        location.reload(); // Refresh the page to update the staff list
+                    } else {
+                        alert(data.error || 'Failed to delete staff');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while deleting staff');
+                });
+            }
+        };
+    }
+
+    function getStatusColor(status) {
+        const colors = {
+            'present': 'success',
+            'absent': 'danger',
+            'late': 'warning',
+            'leave': 'info'
+        };
+        return colors[status] || 'secondary';
+    }
+
+    function getLeaveStatusColor(status) {
+        const colors = {
+            'approved': 'success',
+            'pending': 'warning',
+            'rejected': 'danger'
+        };
+        return colors[status] || 'secondary';
+    }
+
+    // Wire up Change Photo button to open edit modal
+    document.getElementById('changeStaffPhotoBtn')?.addEventListener('click', function() {
+        // Populate edit form with staff info
+        document.getElementById('editStaffId').value = staffId;
+        document.getElementById('editFullName').value = staff.full_name;
+        document.getElementById('editEmail').value = staff.email || '';
+        document.getElementById('editPhone').value = staff.phone || '';
+        document.getElementById('editDepartment').value = staff.department || '';
+        document.getElementById('editPosition').value = staff.position || '';
+        // Show edit modal
+        new bootstrap.Modal(document.getElementById('editStaffModal')).show();
+    });
+
+    // Save Edited Staff
+    document.getElementById('saveEditStaff')?.addEventListener('click', function () {
+        const formData = new FormData();
+        formData.append('staff_id', document.getElementById('editStaffId').value);
+        formData.append('full_name', document.getElementById('editFullName').value);
+        formData.append('email', document.getElementById('editEmail').value);
+        formData.append('phone', document.getElementById('editPhone').value);
+        formData.append('department', document.getElementById('editDepartment').value);
+        formData.append('position', document.getElementById('editPosition').value);
+        formData.append('shift_type', document.getElementById('editShiftType').value);
+        formData.append('status', document.getElementById('editStatus').checked ? 'active' : 'inactive');
+        formData.append('csrf_token', getCSRFToken());
+
+        fetch('/update_staff', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert('Staff updated');
+                location.reload();
+            } else alert(data.error || 'Update failed');
+        });
+    });
+
+    // Staff Creation - Step Navigation
+    document.getElementById('nextStepBtn')?.addEventListener('click', function () {
+        const staffId = document.getElementById('staffId').value;
+        const fullName = document.getElementById('fullName').value;
+        const password = document.getElementById('password').value;
+
+        if (!staffId || !fullName || !password) {
+            alert('Staff ID, Name, and Password are required');
+            return;
+        }
+
+        // Move to biometric enrollment step
+        document.getElementById('staffDetailsStep').classList.add('hidden');
+        document.getElementById('biometricEnrollmentStep').classList.remove('hidden');
+        document.getElementById('nextStepBtn').classList.add('hidden');
+        document.getElementById('saveStaff').classList.remove('hidden');
+
+        // Update progress bar
+        document.getElementById('staffCreationProgress').style.width = '100%';
+    });
+
+    // Start Biometric Enrollment
+    document.getElementById('startEnrollmentBtn')?.addEventListener('click', function () {
+        const staffId = document.getElementById('staffId').value;
+        const fullName = document.getElementById('fullName').value;
+        const deviceIP = '192.168.1.201'; // Default device IP
+
+        if (!staffId || !fullName) {
+            alert('Please complete staff details first');
+            return;
+        }
+
+        const startBtn = document.getElementById('startEnrollmentBtn');
+        const statusDiv = document.getElementById('enrollmentDeviceStatus');
+        const progressDiv = document.getElementById('staffEnrollmentProgress');
+        const progressBar = document.getElementById('staffEnrollmentProgressBar');
+        const statusText = document.getElementById('staffEnrollmentStatus');
+
+        startBtn.disabled = true;
+        startBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Starting...';
+
+        statusDiv.className = 'alert alert-info';
+        statusDiv.innerHTML = '<i class="bi bi-hourglass-split"></i> Preparing device for enrollment...';
+
+        progressDiv.classList.remove('hidden');
+        progressBar.style.width = '25%';
+        statusText.textContent = 'Checking existing users...';
+
+        // Step 1: Check if user already exists
+        fetch('/check_biometric_user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `device_ip=${encodeURIComponent(deviceIP)}&user_id=${encodeURIComponent(staffId)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.user_exists) {
+                // User already exists, show conflict resolution modal
+                const existingUser = data.user_data;
+
+                // Reset enrollment UI
+                startBtn.disabled = false;
+                startBtn.innerHTML = '<i class="bi bi-fingerprint"></i> Start Enrollment';
+                progressDiv.classList.add('hidden');
+
+                // Show conflict resolution modal
+                showUserConflictModal({
+                    user_id: staffId,
+                    name: fullName,
+                    existing_user: existingUser
+                });
+
+                // Set up callbacks for conflict resolution
+                window.continueEnrollmentCallback = function() {
+                    // Continue with enrollment after overwrite
+                    startBtn.click(); // Restart the enrollment process
+                };
+
+                window.updateUserIdCallback = function(newUserId) {
+                    // Update the form with new user ID
+                    document.getElementById('staffId').value = newUserId;
+                    alert(`Staff ID updated to: ${newUserId}\nYou can now proceed with biometric enrollment.`);
+                };
+
+                return Promise.reject(new Error('User conflict - showing resolution modal'));
+            } else {
+                // User doesn't exist, proceed with normal enrollment
+                statusText.textContent = 'Enrolling new user...';
+                return enrollUserOnDevice(deviceIP, staffId, fullName, false);
+            }
+        })
+        .then(enrollResult => {
+            if (enrollResult && enrollResult.success) {
+                progressBar.style.width = '50%';
+                statusText.textContent = 'User enrolled. Starting enrollment mode...';
+
+                // Step 2: Start enrollment mode
+                return fetch('/start_biometric_enrollment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `device_ip=${encodeURIComponent(deviceIP)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+                });
+            } else if (enrollResult) {
+                throw new Error(enrollResult.message || 'Failed to enroll user');
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                progressBar.style.width = '75%';
+                statusText.textContent = 'Device ready. Please capture biometric data...';
+
+                statusDiv.className = 'alert alert-warning';
+                statusDiv.innerHTML = `
+                    <i class="bi bi-fingerprint"></i>
+                    <strong>Device Ready!</strong><br>
+                    Please ask ${fullName} to place their finger on the biometric device and follow the device prompts.<br>
+                    <br><strong>✅ Biometric enrollment is now complete!</strong><br>
+                    <small>You can now create the staff account.</small>
+                `;
+
+                startBtn.classList.add('hidden');
+                document.getElementById('triggerEnrollmentBtn').classList.remove('hidden');
+
+                // Mark enrollment as complete and enable staff creation
+                document.getElementById('biometricEnrolled').value = 'true';
+                document.getElementById('saveStaff').disabled = false;
+                document.getElementById('saveStaff').innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+
+                // Update status to success
+                setTimeout(() => {
+                    statusDiv.className = 'alert alert-success';
+                    statusDiv.innerHTML = `
+                        <i class="bi bi-check-circle"></i>
+                        <strong>Biometric Enrollment Complete!</strong><br>
+                        User ${staffId} (${fullName}) has been enrolled on the biometric device.<br>
+                        <strong>✅ Ready to create staff account!</strong>
+                    `;
+                }, 1500);
+            } else {
+                throw new Error(data.message || 'Failed to start enrollment mode');
+            }
+        })
+        .catch(error => {
+            startBtn.disabled = false;
+            startBtn.innerHTML = '<i class="bi bi-fingerprint"></i> Start Enrollment';
+            statusDiv.className = 'alert alert-danger';
+            statusDiv.innerHTML = `<i class="bi bi-x-circle"></i> Error: ${error.message}`;
+            progressDiv.classList.add('hidden');
+        });
+    });
+
+    // Trigger Biometric Enrollment
+    document.getElementById('triggerEnrollmentBtn')?.addEventListener('click', function () {
+        const staffId = document.getElementById('staffId').value;
+        const fullName = document.getElementById('fullName').value;
+        const deviceIP = '192.168.1.201';
+
+        const triggerBtn = document.getElementById('triggerEnrollmentBtn');
+        const verifyBtn = document.getElementById('verifyEnrollmentBtn');
+        const statusDiv = document.getElementById('enrollmentDeviceStatus');
+        const progressBar = document.getElementById('staffEnrollmentProgressBar');
+        const statusText = document.getElementById('staffEnrollmentStatus');
+
+        triggerBtn.disabled = true;
+        triggerBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Starting...';
+
+        statusText.textContent = 'Starting biometric enrollment...';
+        progressBar.style.width = '50%';
+
+        fetch('/verify_biometric_enrollment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `device_ip=${encodeURIComponent(deviceIP)}&user_id=${encodeURIComponent(staffId)}&name=${encodeURIComponent(fullName)}&trigger_enrollment=true&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.enrollment_started) {
+                progressBar.style.width = '75%';
+                statusText.textContent = 'Biometric enrollment started. Please scan fingerprint...';
+
+                statusDiv.className = 'alert alert-info';
+                statusDiv.innerHTML = `
+                    <i class="bi bi-fingerprint"></i>
+                    <strong>Enrollment Started!</strong><br>
+                    ${data.message}<br>
+                    ${data.manual_mode ? 'Please use the device interface to complete enrollment.' : 'Please follow the device prompts to scan your biometric data.'}
+                `;
+
+                triggerBtn.classList.add('hidden');
+                verifyBtn.classList.remove('hidden');
+                verifyBtn.disabled = false;
+            } else if (data.success && data.enrolled) {
+                // User already enrolled
+                progressBar.style.width = '100%';
+                statusText.textContent = 'Biometric enrollment verified!';
+
+                statusDiv.className = 'alert alert-success';
+                statusDiv.innerHTML = `
+                    <i class="bi bi-check-circle"></i>
+                    <strong>Already Enrolled!</strong><br>
+                    Biometric data already exists for ${fullName}.
+                `;
+
+                document.getElementById('biometricEnrolled').value = 'true';
+                triggerBtn.classList.add('hidden');
+                verifyBtn.classList.add('hidden');
+                document.getElementById('saveStaff').disabled = false;
+                document.getElementById('saveStaff').innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+            } else {
+                throw new Error(data.message || 'Failed to start enrollment');
+            }
+        })
+        .catch(error => {
+            triggerBtn.disabled = false;
+            triggerBtn.innerHTML = '<i class="bi bi-fingerprint"></i> Start Biometric Scan';
+            statusDiv.className = 'alert alert-danger';
+            statusDiv.innerHTML = `<i class="bi bi-x-circle"></i> Failed to start enrollment: ${error.message}`;
+        });
+    });
+
+    // Verify Biometric Enrollment
+    document.getElementById('verifyEnrollmentBtn')?.addEventListener('click', function () {
+        const staffId = document.getElementById('staffId').value;
+        const deviceIP = '192.168.1.201';
+
+        const verifyBtn = document.getElementById('verifyEnrollmentBtn');
+        const statusDiv = document.getElementById('enrollmentDeviceStatus');
+        const progressBar = document.getElementById('staffEnrollmentProgressBar');
+        const statusText = document.getElementById('staffEnrollmentStatus');
+
+        verifyBtn.disabled = true;
+        verifyBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Verifying...';
+
+        statusText.textContent = 'Verifying biometric enrollment...';
+
+        fetch('/verify_biometric_enrollment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `device_ip=${encodeURIComponent(deviceIP)}&user_id=${encodeURIComponent(staffId)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.enrolled) {
+                progressBar.style.width = '100%';
+                statusText.textContent = 'Biometric enrollment verified!';
+
+                statusDiv.className = 'alert alert-success';
+                statusDiv.innerHTML = `
+                    <i class="bi bi-check-circle"></i>
+                    <strong>Enrollment Complete!</strong><br>
+                    Biometric data has been successfully captured for ${document.getElementById('fullName').value}.
+                `;
+
+                // Mark as enrolled
+                document.getElementById('biometricEnrolled').value = 'true';
+
+                verifyBtn.classList.add('hidden');
+
+                // Enable save button
+                document.getElementById('saveStaff').disabled = false;
+                document.getElementById('saveStaff').innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+
+            } else {
+                statusDiv.className = 'alert alert-warning';
+                statusDiv.innerHTML = `
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Enrollment Not Complete</strong><br>
+                    Please ensure the staff member has completed biometric capture on the device.<br>
+                    <small>Try scanning again or use the device interface directly.</small>
+                `;
+
+                verifyBtn.disabled = false;
+                verifyBtn.innerHTML = '<i class="bi bi-check-circle"></i> Verify Enrollment';
+            }
+        })
+        .catch(error => {
+            verifyBtn.disabled = false;
+            verifyBtn.innerHTML = '<i class="bi bi-check-circle"></i> Verify Enrollment';
+            statusDiv.className = 'alert alert-danger';
+            statusDiv.innerHTML = `<i class="bi bi-x-circle"></i> Verification failed: ${error.message}`;
+        });
+    });
+
+    // Real-time staff ID availability checking
+    document.getElementById('staffId')?.addEventListener('blur', function() {
+        const staffId = this.value.trim();
+        const feedbackDiv = document.getElementById('staffIdFeedback');
+
+        if (!staffId) {
+            if (feedbackDiv) feedbackDiv.innerHTML = '';
+            return;
+        }
+
+        if (feedbackDiv) {
+            feedbackDiv.innerHTML = '<small class="text-info"><i class="bi bi-hourglass-split"></i> Checking availability...</small>';
+        }
+
+        fetch('/check_staff_id_availability', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `staff_id=${encodeURIComponent(staffId)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (feedbackDiv) {
+                if (data.success && data.available) {
+                    feedbackDiv.innerHTML = '<small class="text-success"><i class="bi bi-check-circle"></i> Staff ID is available</small>';
+                } else if (data.success && !data.available) {
+                    feedbackDiv.innerHTML = `<small class="text-danger"><i class="bi bi-x-circle"></i> ${data.message}</small>`;
+                } else {
+                    feedbackDiv.innerHTML = '<small class="text-warning"><i class="bi bi-exclamation-triangle"></i> Could not check availability</small>';
+                }
+            }
+        })
+        .catch(error => {
+            if (feedbackDiv) {
+                feedbackDiv.innerHTML = '<small class="text-warning"><i class="bi bi-exclamation-triangle"></i> Could not check availability</small>';
+            }
+        });
+    });
+
+    // Add Staff (Final Step)
+    document.getElementById('saveStaff')?.addEventListener('click', function () {
+        const staffId = document.getElementById('staffId').value;
+        const fullName = document.getElementById('fullName').value;
+        const password = document.getElementById('password').value;
+        const email = document.getElementById('email').value;
+        const phone = document.getElementById('phone').value;
+        const department = document.getElementById('department').value;
+        const position = document.getElementById('position').value;
+        const biometricEnrolled = document.getElementById('biometricEnrolled').value;
+
+        if (!staffId || !fullName || !password) {
+            alert('Staff ID, Name, and Password are required');
+            return;
+        }
+
+        // Check staff ID availability first
+        const saveBtn = document.getElementById('saveStaff');
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking Staff ID...';
+
+        fetch('/check_staff_id_availability', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `staff_id=${encodeURIComponent(staffId)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(availabilityData => {
+            if (availabilityData.success && !availabilityData.available) {
+                alert(`❌ Cannot create staff account:\n\n${availabilityData.message}\n\n${availabilityData.suggestion}`);
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+                return;
+            }
+
+            // Check biometric enrollment
+            if (biometricEnrolled !== 'true') {
+                alert('Biometric enrollment must be completed before creating staff account');
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+                return;
+            }
+
+            // Proceed with staff creation
+            proceedWithStaffCreation();
+        })
+        .catch(error => {
+            console.error('Error checking staff ID availability:', error);
+            // Continue with creation if check fails
+            if (biometricEnrolled !== 'true') {
+                alert('Biometric enrollment must be completed before creating staff account');
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+                return;
+            }
+            proceedWithStaffCreation();
+        });
+
+        function proceedWithStaffCreation() {
+
+            const saveBtn = document.getElementById('saveStaff');
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating Account...';
+
+            // First, enroll user on biometric device
+            enrollUserOnDevice('192.168.1.201', staffId, fullName, false)
+                .then(bioRes => {
+                    if (!bioRes.success) {
+                        alert('Failed to enroll staff on biometric device: ' + (bioRes.message || bioRes.error));
+                        saveBtn.disabled = false;
+                        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+                        return;
+                    }
+                    // If biometric enrollment succeeded, create staff account
+                    fetch('/add_staff', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: `staff_id=${staffId}&full_name=${encodeURIComponent(fullName)}&password=${encodeURIComponent(password)}&email=${email}&phone=${phone}&department=${encodeURIComponent(department)}&position=${encodeURIComponent(position)}&biometric_enrolled=true&csrf_token=${encodeURIComponent(getCSRFToken())}`
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert('Staff account created successfully with biometric enrollment!');
+                            bootstrap.Modal.getInstance(document.getElementById('addStaffModal')).hide();
+                            location.reload();
+                        } else {
+                            if (data.require_biometric) {
+                                alert('Biometric enrollment is required. Please complete the enrollment process.');
+                            } else if (data.details && data.suggestion) {
+                                alert(`❌ ${data.error}\n\n📋 Details: ${data.details}\n\n💡 ${data.suggestion}`);
+                            } else {
+                                alert(data.error || 'Failed to create staff account');
+                            }
+                            saveBtn.disabled = false;
+                            saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+                        }
+                    })
+                    .catch(error => {
+                        alert('Error creating staff account: ' + error.message);
+                        saveBtn.disabled = false;
+                        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+                    });
+                });
+        }
+    });
+
+    // Export Staff
+    document.getElementById('exportStaffBtn')?.addEventListener('click', function () {
+        const start = prompt('Start date (YYYY-MM-DD):');
+        const end = prompt('End date (YYYY-MM-DD):');
+        if (!start || !end) return;
+
+        fetch(`/export_staff_data?start_date=${start}&end_date=${end}`)
+            .then(res => res.blob())
+            .then(blob => {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `staff_data_${start}_to_${end}.csv`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+            });
+    });
+
+    // Biometric Enrollment (Fake Simulation)
+    const biometricModal = document.getElementById('biometricModal');
+    if (biometricModal) {
+        biometricModal.addEventListener('show.bs.modal', function () {
+            let count = 0;
+            const progressBar = document.getElementById('progressBar');
+            const status = document.getElementById('enrollmentStatus');
+            const done = document.getElementById('enrollmentComplete');
+            const progressWrap = document.getElementById('enrollmentProgress');
+            done.classList.add('hidden');
+            progressWrap.classList.remove('hidden');
+            const interval = setInterval(() => {
+                count++;
+                progressBar.style.width = `${(count / 5) * 100}%`;
+                status.innerHTML = `<div class="alert alert-info">Scan ${count} of 5 completed</div>`;
+                if (count >= 5) {
+                    clearInterval(interval);
+                    progressWrap.classList.add('hidden');
+                    done.classList.remove('hidden');
+                }
+            }, 2000);
+        });
+    }
+
+    // Leave Processing
+    document.querySelectorAll('.approve-btn, .reject-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const decision = this.classList.contains('approve-btn') ? 'approve' : 'reject';
+            const leaveId = this.getAttribute('data-leave-id');
+            if (!confirm(`Are you sure to ${decision} this leave?`)) return;
+
+            fetch('/process_leave', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `leave_id=${leaveId}&decision=${decision}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert(`Leave ${decision}d`);
+                    location.reload();
+                } else alert(data.error || `Failed to ${decision} leave`);
+            });
+        });
+    });
+
+    // On Duty Processing
+    document.querySelectorAll('.approve-duty-btn, .reject-duty-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const decision = this.classList.contains('approve-duty-btn') ? 'approve' : 'reject';
+            const dutyId = this.getAttribute('data-duty-id');
+
+            let adminRemarks = '';
+            if (decision === 'reject') {
+                adminRemarks = prompt('Please provide reason for rejection (optional):') || '';
+            }
+
+            if (!confirm(`Are you sure to ${decision} this on-duty application?`)) return;
+
+            fetch('/process_on_duty', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `application_id=${dutyId}&decision=${decision}&admin_remarks=${encodeURIComponent(adminRemarks)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message || `On-duty application ${decision}d successfully`);
+                    location.reload();
+                } else {
+                    alert(data.error || `Failed to ${decision} on-duty application`);
+                }
+            })
+            .catch(error => {
+                console.error('Error processing on-duty application:', error);
+                alert('Error processing on-duty application');
+            });
+        });
+    });
+
+    // Permission Processing
+    document.querySelectorAll('.approve-permission-btn, .reject-permission-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const decision = this.classList.contains('approve-permission-btn') ? 'approve' : 'reject';
+            const permissionId = this.getAttribute('data-permission-id');
+
+            let adminRemarks = '';
+            if (decision === 'reject') {
+                adminRemarks = prompt('Please provide reason for rejection (optional):') || '';
+            }
+
+            if (!confirm(`Are you sure to ${decision} this permission application?`)) return;
+
+            fetch('/process_permission', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `application_id=${permissionId}&decision=${decision}&admin_remarks=${encodeURIComponent(adminRemarks)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message || `Permission application ${decision}d successfully`);
+                    location.reload();
+                } else {
+                    alert(data.error || `Failed to ${decision} permission application`);
+                }
+            })
+            .catch(error => {
+                console.error('Error processing permission application:', error);
+                alert('Error processing permission application');
+            });
+        });
+    });
+
+    // Reset Add Staff Modal when closed
+    document.getElementById('addStaffModal')?.addEventListener('hidden.bs.modal', function () {
+        // Reset form
+        document.getElementById('staffForm').reset();
+        document.getElementById('biometricEnrolled').value = 'false';
+
+        // Reset steps
+        document.getElementById('staffDetailsStep').classList.remove('hidden');
+        document.getElementById('biometricEnrollmentStep').classList.add('hidden');
+
+        // Reset buttons
+        document.getElementById('nextStepBtn').classList.remove('hidden');
+        document.getElementById('saveStaff').classList.add('hidden');
+        document.getElementById('startEnrollmentBtn').classList.remove('hidden');
+        document.getElementById('triggerEnrollmentBtn').classList.add('hidden');
+        document.getElementById('verifyEnrollmentBtn').classList.add('hidden');
+
+        // Reset progress
+        document.getElementById('staffCreationProgress').style.width = '50%';
+        document.getElementById('staffEnrollmentProgress').classList.add('hidden');
+
+        // Reset status
+        document.getElementById('enrollmentDeviceStatus').className = 'alert alert-secondary';
+        document.getElementById('enrollmentDeviceStatus').innerHTML = '<i class="bi bi-info-circle"></i> Click "Start Biometric Scan" to begin';
+
+        // Reset button states
+        document.getElementById('startEnrollmentBtn').disabled = false;
+        document.getElementById('startEnrollmentBtn').innerHTML = '<i class="bi bi-fingerprint"></i> Start Enrollment';
+        document.getElementById('saveStaff').disabled = false;
+        document.getElementById('saveStaff').innerHTML = '<i class="bi bi-check-circle"></i> Create Staff Account';
+    });
+
+    // Biometric Device Management
+    const testConnectionBtn = document.getElementById('testConnectionBtn');
+    const syncAttendanceBtn = document.getElementById('syncAttendanceBtn');
+    const loadUsersBtn = document.getElementById('loadUsersBtn');
+    const deviceStatus = document.getElementById('deviceStatus');
+    const syncResults = document.getElementById('syncResults');
+    const deviceUsers = document.getElementById('deviceUsers');
+
+    testConnectionBtn?.addEventListener('click', function() {
+        const deviceIP = document.getElementById('deviceIP').value;
+        testConnectionBtn.disabled = true;
+        testConnectionBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Testing...';
+
+        deviceStatus.className = 'alert alert-info';
+        deviceStatus.innerHTML = '<i class="bi bi-hourglass-split"></i> Testing connection...';
+
+        fetch('/test_biometric_connection', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `device_ip=${encodeURIComponent(deviceIP)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            testConnectionBtn.disabled = false;
+            testConnectionBtn.innerHTML = '<i class="bi bi-wifi"></i> Test Connection';
+
+            if (data.success) {
+                deviceStatus.className = 'alert alert-success';
+                deviceStatus.innerHTML = `
+                    <i class="bi bi-check-circle"></i>
+                    Connection successful! Device has ${data.total_users} users.
+                `;
+            } else {
+                deviceStatus.className = 'alert alert-danger';
+                deviceStatus.innerHTML = `
+                    <i class="bi bi-x-circle"></i>
+                    Connection failed: ${data.message}
+                `;
+            }
+        })
+        .catch(error => {
+            testConnectionBtn.disabled = false;
+            testConnectionBtn.innerHTML = '<i class="bi bi-wifi"></i> Test Connection';
+            deviceStatus.className = 'alert alert-danger';
+            deviceStatus.innerHTML = `<i class="bi bi-x-circle"></i> Error: ${error.message}`;
+        });
+    });
+
+    syncAttendanceBtn?.addEventListener('click', function() {
+        const deviceIP = document.getElementById('deviceIP').value;
+        syncAttendanceBtn.disabled = true;
+        syncAttendanceBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Syncing...';
+
+        fetch('/sync_biometric_attendance', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `device_ip=${encodeURIComponent(deviceIP)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            syncAttendanceBtn.disabled = false;
+            syncAttendanceBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Sync Attendance';
+
+            // Update sync results
+            document.getElementById('totalRecords').textContent = data.total_records || 0;
+            document.getElementById('sqliteSynced').textContent = data.sqlite_synced || 0;
+            document.getElementById('mysqlSynced').textContent = data.mysql_synced || 0;
+            syncResults.classList.remove('hidden');
+
+            if (data.success) {
+                deviceStatus.className = 'alert alert-success';
+                deviceStatus.innerHTML = `<i class="bi bi-check-circle"></i> ${data.message}`;
+            } else {
+                deviceStatus.className = 'alert alert-warning';
+                deviceStatus.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${data.message}`;
+            }
+        })
+        .catch(error => {
+            syncAttendanceBtn.disabled = false;
+            syncAttendanceBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Sync Attendance';
+            deviceStatus.className = 'alert alert-danger';
+            deviceStatus.innerHTML = `<i class="bi bi-x-circle"></i> Sync error: ${error.message}`;
+        });
+    });
+
+    loadUsersBtn?.addEventListener('click', function() {
+        const deviceIP = document.getElementById('deviceIP').value;
+        loadUsersBtn.disabled = true;
+        loadUsersBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading...';
+
+        fetch(`/get_biometric_users?device_ip=${encodeURIComponent(deviceIP)}`)
+        .then(response => response.json())
+        .then(data => {
+            loadUsersBtn.disabled = false;
+            loadUsersBtn.innerHTML = '<i class="bi bi-people"></i> Load Users from Device';
+
+            if (data.success) {
+                const tbody = document.getElementById('usersTableBody');
+                const userCount = document.getElementById('userCount');
+                tbody.innerHTML = '';
+
+                data.users.forEach(user => {
+                    const row = tbody.insertRow();
+                    row.innerHTML = `
+                        <td>${user.user_id}</td>
+                        <td>${user.name || 'N/A'}</td>
+                        <td>${user.privilege}</td>
+                        <td>${user.group_id}</td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-success create-staff-btn me-1"
+                                    data-user-id="${user.user_id}" data-user-name="${user.name || 'N/A'}"
+                                    title="Create staff account for this biometric user">
+                                <i class="bi bi-person-plus"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger delete-user-btn"
+                                    data-user-id="${user.user_id}" data-user-name="${user.name || 'N/A'}"
+                                    title="Delete user from biometric device">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    `;
+                });
+
+                userCount.textContent = `${data.total_users} users`;
+                deviceUsers.classList.remove('hidden');
+                deviceStatus.className = 'alert alert-success';
+                deviceStatus.innerHTML = `<i class="bi bi-check-circle"></i> Loaded ${data.total_users} users`;
+
+                // Add create staff account event listeners
+                document.querySelectorAll('.create-staff-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const userId = this.dataset.userId;
+                        const userName = this.dataset.userName;
+                        createStaffFromDeviceUser(deviceIP, userId, userName);
+                    });
+                });
+
+                // Add delete user event listeners
+                document.querySelectorAll('.delete-user-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const userId = this.dataset.userId;
+                        const userName = this.dataset.userName;
+
+                        if (confirm(`Delete user ${userId} (${userName}) from device?`)) {
+                            deleteUserFromDevice(deviceIP, userId, this);
+                        }
+                    });
+                });
+
+            } else {
+                deviceStatus.className = 'alert alert-danger';
+                deviceStatus.innerHTML = `<i class="bi bi-x-circle"></i> Failed to load users: ${data.message}`;
+            }
+        })
+        .catch(error => {
+            loadUsersBtn.disabled = false;
+            loadUsersBtn.innerHTML = '<i class="bi bi-people"></i> Load Users from Device';
+            deviceStatus.className = 'alert alert-danger';
+            deviceStatus.innerHTML = `<i class="bi bi-x-circle"></i> Error loading users: ${error.message}`;
+        });
+    });
+
+    // Real-time attendance updates
+    let attendanceUpdateInterval;
+
+    function startRealtimeUpdates() {
+        // Update every 10 seconds
+        attendanceUpdateInterval = setInterval(updateAttendanceTable, 10000);
+        console.log('📡 Started real-time attendance updates');
+    }
+
+    function stopRealtimeUpdates() {
+        if (attendanceUpdateInterval) {
+            clearInterval(attendanceUpdateInterval);
+            console.log('⏹️ Stopped real-time attendance updates');
+        }
+    }
+
+    function updateAttendanceTable() {
+        // First, poll for new device verifications and process them
+        pollDeviceForNewVerifications()
+            .then(() => {
+                // Then update the attendance display
+                return fetch('/get_realtime_attendance');
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateAttendanceDisplay(data.attendance_data);
+                    updateAttendanceSummary(data.summary);
+
+                    // Update last refresh time
+                    const now = new Date();
+                    const lastUpdateElement = document.getElementById('lastUpdateTime');
+                    if (lastUpdateElement) {
+                        lastUpdateElement.innerHTML = `<i class="bi bi-check-circle"></i> Last updated: ${now.toLocaleTimeString()}`;
+                    }
+                    console.log(`🔄 Attendance data updated at ${now.toLocaleTimeString()}`);
+                }
+            })
+            .catch(error => {
+                console.error('❌ Failed to update attendance data:', error);
+            });
+    }
+
+    function pollDeviceForNewVerifications() {
+        return fetch('/poll_device_attendance', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `device_ip=192.168.1.201&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.processed_count > 0) {
+                console.log(`📱 Processed ${data.processed_count} new device verifications`);
+
+                // Show notification for new verifications
+                showNotification(`Processed ${data.processed_count} new biometric verifications`, 'info');
+            }
+        })
+        .catch(error => {
+            console.error('❌ Failed to poll device for verifications:', error);
+        });
+    }
+
+    function updateAttendanceDisplay(attendanceData) {
+        const tbody = document.getElementById('attendanceTableBody');
+        if (!tbody) return;
+
+        // Update each row with new data
+        attendanceData.forEach(attendance => {
+            const row = tbody.querySelector(`tr[data-staff-id="${attendance.staff_id}"]`);
+            if (row) {
+                // Update timing columns
+                const timeInCell = row.querySelector('.time-in');
+                const timeOutCell = row.querySelector('.time-out');
+                const overtimeInCell = row.querySelector('.overtime-in');
+                const overtimeOutCell = row.querySelector('.overtime-out');
+                const statusCell = row.querySelector('.status');
+
+                if (timeInCell) timeInCell.textContent = attendance.time_in || '--:--:--';
+                if (timeOutCell) timeOutCell.textContent = attendance.time_out || '--:--:--';
+                if (overtimeInCell) overtimeInCell.textContent = attendance.overtime_in || '--:--:--';
+                if (overtimeOutCell) overtimeOutCell.textContent = attendance.overtime_out || '--:--:--';
+
+                // Update status badge
+                if (statusCell) {
+                    let badgeClass = 'bg-secondary';
+                    let statusText = 'Not Marked';
+
+                    switch (attendance.status) {
+                        case 'present':
+                            badgeClass = 'bg-success';
+                            statusText = 'Present';
+                            break;
+                        case 'late':
+                            badgeClass = 'bg-warning';
+                            statusText = 'Late';
+                            break;
+                        case 'absent':
+                            badgeClass = 'bg-danger';
+                            statusText = 'Absent';
+                            break;
+                        case 'leave':
+                            badgeClass = 'bg-info';
+                            statusText = 'On Leave';
+                            break;
+                    }
+
+                    statusCell.innerHTML = `<span class="badge ${badgeClass}">${statusText}</span>`;
+                }
+
+                // Add visual feedback for recent updates
+                if (attendance.time_in || attendance.time_out || attendance.overtime_in || attendance.overtime_out) {
+                    // Check if this is a new update by comparing with stored data
+                    const currentData = row.dataset;
+                    let hasNewData = false;
+
+                    if (currentData.timeIn !== (attendance.time_in || '') ||
+                        currentData.timeOut !== (attendance.time_out || '') ||
+                        currentData.overtimeIn !== (attendance.overtime_in || '') ||
+                        currentData.overtimeOut !== (attendance.overtime_out || '')) {
+                        hasNewData = true;
+                    }
+
+                    // Store current data for next comparison
+                    row.dataset.timeIn = attendance.time_in || '';
+                    row.dataset.timeOut = attendance.time_out || '';
+                    row.dataset.overtimeIn = attendance.overtime_in || '';
+                    row.dataset.overtimeOut = attendance.overtime_out || '';
+
+                    if (hasNewData) {
+                        // Highlight row for new updates
+                        row.style.backgroundColor = '#d4edda';
+                        row.style.transition = 'background-color 0.3s ease';
+
+                        // Show notification
+                        showNotification(`${attendance.full_name} updated attendance`, 'success');
+
+                        setTimeout(() => {
+                            row.style.backgroundColor = '';
+                        }, 3000);
+                    }
+                }
+            }
+        });
+    }
+
+    function updateAttendanceSummary(summary) {
+        // Update summary badges in header
+        const presentBadge = document.querySelector('.badge.bg-success');
+        const absentBadge = document.querySelector('.badge.bg-danger');
+        const lateBadge = document.querySelector('.badge.bg-warning');
+        const leaveBadge = document.querySelector('.badge.bg-info');
+
+        if (presentBadge) presentBadge.textContent = `${summary.present || 0} Present`;
+        if (absentBadge) absentBadge.textContent = `${summary.absent || 0} Absent`;
+        if (lateBadge) lateBadge.textContent = `${summary.late || 0} Late`;
+        if (leaveBadge) leaveBadge.textContent = `${summary.on_leave || 0} On Leave`;
+    }
+
+    function showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `alert alert-${type === 'success' ? 'success' : 'info'} alert-dismissible fade show position-fixed`;
+        notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+        notification.innerHTML = `
+            <i class="bi bi-${type === 'success' ? 'check-circle' : 'info-circle'}"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+
+        // Add to page
+        document.body.appendChild(notification);
+
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+        }, 5000);
+    }
+
+    // Start real-time updates immediately (we are already inside DOMContentLoaded)
+    startRealtimeUpdates();
+
+    // Stop updates when page is hidden/minimized
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            stopRealtimeUpdates();
+        } else {
+            startRealtimeUpdates();
+        }
+    });
+
+    // Stop updates when page unloads
+    window.addEventListener('beforeunload', function() {
+        stopRealtimeUpdates();
+    });
+
+    // User search functionality
+    document.getElementById('userSearch')?.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase();
+        const rows = document.querySelectorAll('#usersTableBody tr');
+
+        rows.forEach(row => {
+            const text = row.textContent.toLowerCase();
+            if (text.includes(searchTerm)) {
+                row.classList.remove('hidden');
+            } else {
+                row.classList.add('hidden');
+            }
+        });
+    });
+
+    // Helper function to delete user from device
+    function deleteUserFromDevice(deviceIP, userId, buttonElement) {
+        buttonElement.disabled = true;
+        buttonElement.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+
+        fetch('/delete_biometric_user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `device_ip=${encodeURIComponent(deviceIP)}&user_id=${encodeURIComponent(userId)}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Remove the row from table
+                buttonElement.closest('tr').remove();
+
+                // Update user count
+                const userCount = document.getElementById('userCount');
+                const currentCount = parseInt(userCount.textContent);
+                userCount.textContent = `${currentCount - 1} users`;
+
+                deviceStatus.className = 'alert alert-success';
+                deviceStatus.innerHTML = `<i class="bi bi-check-circle"></i> User ${userId} deleted successfully`;
+            } else {
+                buttonElement.disabled = false;
+                buttonElement.innerHTML = '<i class="bi bi-trash"></i>';
+                deviceStatus.className = 'alert alert-danger';
+                deviceStatus.innerHTML = `<i class="bi bi-x-circle"></i> Failed to delete user: ${data.message}`;
+            }
+        })
+        .catch(error => {
+            buttonElement.disabled = false;
+            buttonElement.innerHTML = '<i class="bi bi-trash"></i>';
+            deviceStatus.className = 'alert alert-danger';
+            deviceStatus.innerHTML = `<i class="bi bi-x-circle"></i> Error deleting user: ${error.message}`;
+        });
+    }
+
+    // Global functions for biometric testing
+    window.syncBiometricAttendance = function() {
+        const btn = document.getElementById('syncAttendanceBtn');
+        const originalText = btn.innerHTML;
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Syncing...';
+
+        fetch('/sync_biometric_attendance', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `csrf_token=${encodeURIComponent(getCSRFToken())}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Sync completed!\nTotal Records: ${data.total_records}\nSQLite Synced: ${data.sqlite_synced}\nMySQL Synced: ${data.mysql_synced}`);
+                location.reload();
+            } else {
+                alert(`Sync failed: ${data.error}`);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred during sync');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        });
+    };
+
+
+
+
+
+
+
+
+});

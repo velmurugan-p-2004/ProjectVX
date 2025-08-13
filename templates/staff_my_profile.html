@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Profile - VishnoRex</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container">
+        <a class="navbar-brand" href="#">VishnoRex</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('staff_dashboard') }}">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="#">My Profile</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#applyLeaveModal">Apply Leave</a>
+                </li>
+            </ul>
+            <ul class="navbar-nav">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown">
+                        <i class="bi bi-person-circle"></i> {{ session.full_name }}
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="#">Profile</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{{ url_for('logout') }}">Logout</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container mt-4">
+    <!-- CSRF Token for AJAX requests -->
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+    <div class="row">
+        <!-- Left Column - Profile Information -->
+        <div class="col-md-4">
+            <!-- Profile Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5><i class="bi bi-person-circle"></i> Profile Information</h5>
+                </div>
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        {% if staff.photo_url %}
+                            <img src="{{ url_for('static', filename=staff.photo_url) }}" 
+                                 alt="Profile Photo" class="rounded-circle" width="120" height="120">
+                        {% else %}
+                            <div class="bg-secondary rounded-circle d-inline-flex align-items-center justify-content-center" 
+                                 style="width: 120px; height: 120px;">
+                                <i class="bi bi-person-fill text-white" style="font-size: 3rem;"></i>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <h4>{{ staff.full_name }}</h4>
+                    <p class="text-muted">{{ staff.destination or staff.position or 'Not specified' }}</p>
+                    <p class="text-muted">{{ staff.department or 'Not specified' }}</p>
+                    <hr>
+                    <div class="text-start">
+                        <p><strong>Staff ID:</strong> {{ staff.staff_id }}</p>
+                        <p><strong>First Name:</strong> {{ staff.first_name or 'Not provided' }}</p>
+                        <p><strong>Last Name:</strong> {{ staff.last_name or 'Not provided' }}</p>
+                        <p><strong>Date of Birth:</strong> {{ staff.date_of_birth or 'Not provided' }}</p>
+                        <p><strong>Date of Joining:</strong> {{ staff.date_of_joining or 'Not provided' }}</p>
+                        <p><strong>Department:</strong> {{ staff.department or 'Not provided' }}</p>
+                        <p><strong>Destination:</strong> {{ staff.destination or 'Not provided' }}</p>
+                        <p><strong>Gender:</strong> {{ staff.gender or 'Not provided' }}</p>
+                        <p><strong>Email:</strong> {{ staff.email or 'Not provided' }}</p>
+                        <p><strong>Phone:</strong> {{ staff.phone or 'Not provided' }}</p>
+                        <p><strong>Shift Type:</strong>
+                            <span class="badge bg-info">{{ staff.shift_type or 'General' }}</span>
+                        </p>
+                        <p><strong>Joined:</strong> {{ staff.created_at|dateformat }}</p>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#editProfileModal">
+                        <i class="bi bi-pencil"></i> Edit Profile
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
+                        <i class="bi bi-key"></i> Change Password
+                    </button>
+                </div>
+            </div>
+
+            <!-- Attendance Summary -->
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5><i class="bi bi-calendar-check"></i> {{ current_month }} Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-6 mb-3">
+                            <div class="bg-success text-white rounded p-2">
+                                <h4>{{ attendance_summary.present_days or 0 }}</h4>
+                                <small>Present</small>
+                            </div>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <div class="bg-danger text-white rounded p-2">
+                                <h4>{{ attendance_summary.absent_days or 0 }}</h4>
+                                <small>Absent</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="bg-warning text-white rounded p-2">
+                                <h4>{{ attendance_summary.late_days or 0 }}</h4>
+                                <small>Late</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="bg-info text-white rounded p-2">
+                                <h4>{{ attendance_summary.leave_days or 0 }}</h4>
+                                <small>Leave</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <canvas id="attendanceSummaryChart" width="100%" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column - Attendance Details -->
+        <div class="col-md-8">
+            <!-- Weekly Attendance Calendar -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5><i class="bi bi-calendar-week"></i> Weekly Attendance Calendar</h5>
+                </div>
+                <div class="card-body">
+                    <div id="weeklyAttendanceCalendar"></div>
+                </div>
+            </div>
+
+
+
+            <!-- Leave Applications -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5><i class="bi bi-calendar-x"></i> Leave Applications</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-striped mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>From</th>
+                                    <th>To</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                    <th>Applied</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for leave in leave_applications %}
+                                <tr>
+                                    <td>{{ leave.leave_type }}</td>
+                                    <td>{{ leave.start_date|dateformat }}</td>
+                                    <td>{{ leave.end_date|dateformat }}</td>
+                                    <td>{{ leave.reason[:30] }}{% if leave.reason|length > 30 %}...{% endif %}</td>
+                                    <td>
+                                        <span class="badge bg-{% if leave.status == 'approved' %}success{% elif leave.status == 'rejected' %}danger{% else %}warning{% endif %}">
+                                            {{ leave.status|title }}
+                                        </span>
+                                    </td>
+                                    <td>{{ leave.applied_at|dateformat }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Biometric Verifications -->
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5><i class="bi bi-fingerprint"></i> Recent Biometric Verifications</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-striped mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Date & Time</th>
+                                    <th>Type</th>
+                                    <th>Method</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for verification in recent_verifications %}
+                                <tr>
+                                    <td>{{ verification.verification_time|datetimeformat }}</td>
+                                    <td>{{ verification.verification_type|title }}</td>
+                                    <td>{{ verification.biometric_method|title }}</td>
+                                    <td>
+                                        <span class="badge bg-{% if verification.verification_status == 'success' %}success{% else %}danger{% endif %}">
+                                            {{ verification.verification_status|title }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Profile Modal -->
+<div class="modal fade" id="editProfileModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">Edit Profile</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editProfileForm" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="profileFirstName" class="form-label">First Name</label>
+                                <input type="text" class="form-control" id="profileFirstName" name="first_name" value="{{ staff.first_name or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="profileLastName" class="form-label">Last Name</label>
+                                <input type="text" class="form-control" id="profileLastName" name="last_name" value="{{ staff.last_name or '' }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="profileDateOfBirth" class="form-label">Date of Birth</label>
+                                <input type="date" class="form-control" id="profileDateOfBirth" name="date_of_birth" value="{{ staff.date_of_birth or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="profileGender" class="form-label">Gender</label>
+                                <select class="form-select" id="profileGender" name="gender">
+                                    <option value="">Select Gender</option>
+                                    <option value="Male" {{ 'selected' if staff.gender == 'Male' else '' }}>Male</option>
+                                    <option value="Female" {{ 'selected' if staff.gender == 'Female' else '' }}>Female</option>
+                                    <option value="Other" {{ 'selected' if staff.gender == 'Other' else '' }}>Other</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="profileEmail" class="form-label">Email</label>
+                                <input type="email" class="form-control" id="profileEmail" name="email" value="{{ staff.email or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="profilePhone" class="form-label">Phone</label>
+                                <input type="tel" class="form-control" id="profilePhone" name="phone" value="{{ staff.phone or '' }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="profilePhoto" class="form-label">Profile Photo</label>
+                        <input type="file" class="form-control" id="profilePhoto" name="photo" accept="image/*">
+                        <small class="form-text text-muted">Only PNG, JPG, JPEG, and GIF files are allowed.</small>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>Note:</strong> Some fields like Staff ID, Department, Destination, Date of Joining, and Shift Type can only be updated by administrators.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveProfileBtn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Change Password Modal -->
+<div class="modal fade" id="changePasswordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title">Change Password</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="changePasswordForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div class="mb-3">
+                        <label for="currentPassword" class="form-label">Current Password</label>
+                        <input type="password" class="form-control" id="currentPassword" name="current_password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newPassword" class="form-label">New Password</label>
+                        <input type="password" class="form-control" id="newPassword" name="new_password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="confirmPassword" class="form-label">Confirm New Password</label>
+                        <input type="password" class="form-control" id="confirmPassword" name="confirm_password" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="changePasswordBtn">Change Password</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Apply Leave Modal -->
+<div class="modal fade" id="applyLeaveModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">Apply for Leave</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="leaveForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div class="mb-3">
+                        <label for="leaveType" class="form-label">Leave Type</label>
+                        <select class="form-select" id="leaveType" name="leave_type" required>
+                            <option value="" selected disabled>Select leave type</option>
+                            <option value="CL">Casual Leave (CL)</option>
+                            <option value="SL">Sick Leave (SL)</option>
+                            <option value="EL">Earned Leave (EL)</option>
+                            <option value="ML">Maternity Leave (ML)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="startDate" class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="startDate" name="start_date" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="endDate" class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="endDate" name="end_date" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="leaveReason" class="form-label">Reason</label>
+                        <textarea class="form-control" id="leaveReason" name="reason" rows="3" required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitLeave">Submit</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='js/weekly_calendar.js') }}"></script>
+<script src="{{ url_for('static', filename='js/staff_profile_page.js') }}"></script>
+</body>
+</html>

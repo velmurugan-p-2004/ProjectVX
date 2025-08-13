@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Company Admin - VishnoRex</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container">
+        <a class="navbar-brand" href="#">VishnoRex - Company Admin</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Toggle navigation" title="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+    <li class="nav-item">
+        <a class="nav-link active" href="#">Schools</a>
+    </li>
+</ul>
+
+<!-- Right-aligned school search and actions -->
+<form class="d-flex align-items-center" role="search">
+    <input type="text" class="form-control me-2 search-width" id="schoolSearch" placeholder="Search schools..." aria-label="Search schools">
+    <button class="btn btn-light btn-sm me-2" type="button" data-bs-toggle="modal" data-bs-target="#addSchoolModal" title="Add a new school">
+        <i class="bi bi-plus-lg"></i> Add
+    </button>
+    <button class="btn btn-light btn-sm" type="button" id="exportCompanyReportBtn" title="Export report">
+        <i class="bi bi-file-earmark-excel"></i> Export
+    </button>
+</form>
+
+            <ul class="navbar-nav">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown">
+                        <i class="bi bi-person-circle"></i> Company Admin
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="#">Profile</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{{ url_for('logout') }}">Logout</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5>Registered Schools</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>School Name</th>
+                            <th>Address</th>
+                            <th>Contact</th>
+                            <th>Admins</th>
+                            <th>Staff</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for school in schools %}
+                        <tr>
+                            <td>{{ school.name }}</td>
+                            <td>{{ school.address }}</td>
+                            <td>
+                                <div>{{ school.contact_email }}</div>
+                                <div>{{ school.contact_phone }}</div>
+                            </td>
+                            <td>{{ school.admin_count }}</td>
+                            <td>{{ school.staff_count }}</td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-outline-primary view-school" data-school-id="{{ school.id }}">
+                                    <i class="bi bi-eye"></i> View
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-danger delete-school" data-school-id="{{ school.id }}">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary hide-school" data-school-id="{{ school.id }}">
+                                    <i class="bi bi-eye-slash"></i> Hide
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add School Modal -->
+<div class="modal fade" id="addSchoolModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">Add New School</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="schoolForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <h6 class="mb-3">School Information</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="schoolName" class="form-label">School Name</label>
+                            <input type="text" class="form-control" id="schoolName" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="schoolAddress" class="form-label">Address</label>
+                            <input type="text" class="form-control" id="schoolAddress">
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="schoolEmail" class="form-label">Contact Email</label>
+                            <input type="email" class="form-control" id="schoolEmail">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="schoolPhone" class="form-label">Contact Phone</label>
+                            <input type="tel" class="form-control" id="schoolPhone">
+                        </div>
+                        <!-- In the add school modal form -->
+<div class="mb-3">
+    <label for="schoolLogo" class="form-label">School Logo</label>
+    <input type="file" class="form-control" id="schoolLogo" accept="image/*">
+</div>
+                    </div>
+
+                    <hr class="my-4">
+                    <h6 class="mb-3">Admin Account</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="adminUsername" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="adminUsername" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="adminPassword" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="adminPassword" required>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="adminFullName" class="form-label">Full Name</label>
+                            <input type="text" class="form-control" id="adminFullName" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="adminEmail" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="adminEmail">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveSchool">Save School</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/company_dashboard.js') }}"></script>
+</body>
+</html>

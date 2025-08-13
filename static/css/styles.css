@@ -1,0 +1,317 @@
+/* General Styles */
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.card {
+    border-radius: 10px;
+    overflow: hidden;
+    border: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+/* Header Styles */
+header {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+/* Logo Styles */
+.logo-container {
+    display: flex;
+    align-items: center;
+}
+
+.logo-text {
+    line-height: 1.2;
+}
+
+/* Utility Classes for Inline Styles */
+.logo-height {
+    height: 50px;
+}
+
+.search-width {
+    width: 200px;
+}
+
+.hidden {
+    display: none;
+}
+
+.fingerprint-placeholder {
+    width: 200px;
+    height: 200px;
+    margin: 0 auto;
+    background-color: #eee;
+    border-radius: 50%;
+}
+
+.progress-bar-initial {
+    width: 0%;
+}
+
+/* Staff Creation Progress */
+.progress-thin {
+    height: 3px;
+}
+
+.progress-step-50 {
+    width: 50%;
+}
+
+/* Enrollment Progress */
+.enrollment-progress-bar {
+    width: 0%;
+}
+
+/* Report Button Styles */
+#exportCompanyReportBtn {
+    transition: all 0.3s ease;
+}
+
+#exportCompanyReportBtn:hover {
+    background-color: #0d6efd;
+    color: white;
+}
+
+/* Date Picker Styles */
+.report-date-picker {
+    max-width: 300px;
+    margin: 0 auto;
+}
+.card-header {
+    padding: 1rem 1.5rem;
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Login Page Styles */
+#loginForm {
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+/* Dashboard Styles */
+.attendance-status {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.badge {
+    font-weight: 500;
+    padding: 0.5em 0.75em;
+}
+
+/* Custom Button Styles */
+.btn-primary {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+}
+
+.btn-success {
+    background-color: #198754;
+    border-color: #198754;
+}
+
+.btn-success:hover {
+    background-color: #157347;
+    border-color: #146c43;
+}
+
+.btn-danger {
+    background-color: #dc3545;
+    border-color: #dc3545;
+}
+
+.btn-danger:hover {
+    background-color: #bb2d3b;
+    border-color: #b02a37;
+}
+
+/* Table Styles */
+.table th {
+    font-weight: 600;
+    color: #495057;
+    background-color: #f8f9fa;
+}
+
+/* Modal Styles */
+.modal-header {
+    padding: 1rem 1.5rem;
+}
+
+/* Calendar Styles */
+.fc-event {
+    border-radius: 4px !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    padding: 2px 4px !important;
+    margin: 1px !important;
+}
+
+.fc-event-title {
+    font-weight: 600 !important;
+}
+
+/* Custom calendar event colors */
+.fc-event.attendance-present {
+    background-color: #198754 !important;
+    border-color: #198754 !important;
+    color: white !important;
+}
+
+.fc-event.attendance-absent {
+    background-color: #dc3545 !important;
+    border-color: #dc3545 !important;
+    color: white !important;
+}
+
+.fc-event.attendance-late {
+    background-color: #ffc107 !important;
+    border-color: #ffc107 !important;
+    color: #000 !important;
+}
+
+.fc-event.attendance-leave {
+    background-color: #0dcaf0 !important;
+    border-color: #0dcaf0 !important;
+    color: #000 !important;
+}
+
+.fc-event.holiday {
+    background-color: #6c757d !important;
+    border-color: #6c757d !important;
+    color: white !important;
+}
+
+/* Calendar day cell styling */
+.fc-daygrid-day {
+    position: relative;
+}
+
+.fc-daygrid-day.fc-day-today {
+    background-color: rgba(13, 110, 253, 0.1) !important;
+}
+
+.fc-daygrid-day.weekend {
+    background-color: #f8f9fa !important;
+}
+
+/* Calendar header styling */
+.fc-toolbar {
+    margin-bottom: 1rem !important;
+}
+
+.fc-toolbar-title {
+    font-size: 1.5rem !important;
+    font-weight: 600 !important;
+    color: #495057 !important;
+}
+
+.fc-button {
+    background-color: #0d6efd !important;
+    border-color: #0d6efd !important;
+    font-weight: 500 !important;
+}
+
+.fc-button:hover {
+    background-color: #0b5ed7 !important;
+    border-color: #0a58ca !important;
+}
+
+.fc-button:focus {
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25) !important;
+}
+
+/* Attendance summary cards */
+.attendance-summary-card {
+    transition: transform 0.2s ease-in-out;
+    cursor: pointer;
+}
+
+.attendance-summary-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Profile photo styling */
+.profile-photo {
+    object-fit: cover;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Biometric verification status indicators */
+.verification-success {
+    color: #198754;
+    font-weight: 600;
+}
+
+.verification-failed {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+/* Enhanced table styling for attendance */
+.attendance-table th {
+    background-color: #f8f9fa;
+    border-top: none;
+    font-weight: 600;
+    color: #495057;
+}
+
+.attendance-table td {
+    vertical-align: middle;
+}
+
+.attendance-table .badge {
+    font-size: 0.75rem;
+    padding: 0.35em 0.65em;
+}
+
+/* Loading spinner for calendar */
+.calendar-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 200px;
+}
+
+.spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .card-body {
+        padding: 1rem;
+    }
+
+    .table-responsive {
+        overflow-x: auto;
+    }
+
+    .fc-toolbar {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .fc-toolbar-chunk {
+        display: flex;
+        justify-content: center;
+    }
+
+    .fc-event {
+        font-size: 0.75rem !important;
+        padding: 1px 2px !important;
+    }
+}

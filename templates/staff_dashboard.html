@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Staff Dashboard - VishnoRex</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container">
+        <a class="navbar-brand" href="#">VishnoRex</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Toggle navigation" title="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link active" href="#">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('staff_profile_page') }}">My Profile</a>
+                </li>
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="applicationsDropdown" role="button" data-bs-toggle="dropdown">
+                        Applications
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#applyLeaveModal">
+                            <i class="bi bi-calendar-plus"></i> Apply Leave
+                        </a></li>
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#applyOnDutyModal">
+                            <i class="bi bi-briefcase"></i> Apply On Duty
+                        </a></li>
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#applyPermissionModal">
+                            <i class="bi bi-clock"></i> Apply Permission
+                        </a></li>
+                    </ul>
+                </li>
+            </ul>
+            <ul class="navbar-nav">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown">
+                        <i class="bi bi-person-circle"></i> {{ session.full_name }}
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="{{ url_for('staff_profile_page') }}">
+                            <i class="bi bi-person me-2"></i>My Profile</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('staff_change_password') }}">
+                            <i class="bi bi-key me-2"></i>Change Password</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{{ url_for('logout') }}">
+                            <i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container mt-4">
+    <!-- CSRF Token for AJAX requests -->
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+    <div class="row">
+        <div class="col-md-8">
+            <!-- Today's Attendance -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5>Today's Attendance</h5>
+                </div>
+                <div class="card-body">
+                    <div id="attendanceStatus" class="mb-3 text-center">
+                        <h4>Status: <span id="currentStatus">Not Marked</span></h4>
+                    </div>
+
+                    <!-- Attendance Times Display -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body p-2">
+                                    <h6 class="card-title">Regular Hours</h6>
+                                    <div class="d-flex justify-content-between">
+                                        <div>
+                                            <small class="text-muted">Check-in:</small>
+                                            <p id="timeIn" class="mb-0">--:--:--</p>
+                                        </div>
+                                        <div>
+                                            <small class="text-muted">Check-out:</small>
+                                            <p id="timeOut" class="mb-0">--:--:--</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body p-2">
+                                    <h6 class="card-title">Work Status</h6>
+                                    <div class="text-center">
+                                        <div class="mb-2">
+                                            <small class="text-muted">Current Status:</small>
+                                            <p id="workStatus" class="mb-0 fw-bold">Not Checked In</p>
+                                        </div>
+                                        <div>
+                                            <small class="text-muted">Total Hours Today:</small>
+                                            <p id="totalHours" class="mb-0">--:--</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+
+                </div>
+            </div>
+
+            <!-- My Leave Applications -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5>My Leave Applications</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Leave Type</th>
+                                    <th>From</th>
+                                    <th>To</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for leave in leaves %}
+                                <tr>
+                                    <td>{{ leave.leave_type }}</td>
+                                    <td>{{ leave.start_date }}</td>
+                                    <td>{{ leave.end_date }}</td>
+                                    <td>{{ leave.reason }}</td>
+                                    <td>
+                                        <span class="badge bg-{% if leave.status == 'approved' %}success{% elif leave.status == 'rejected' %}danger{% else %}warning{% endif %}">
+                                            {{ leave.status }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- My On Duty Applications -->
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5>My On Duty Applications</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Duty Type</th>
+                                    <th>From</th>
+                                    <th>To</th>
+                                    <th>Location</th>
+                                    <th>Purpose</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for duty in on_duty_applications %}
+                                <tr>
+                                    <td>{{ duty.duty_type }}</td>
+                                    <td>{{ duty.start_date }}</td>
+                                    <td>{{ duty.end_date }}</td>
+                                    <td>{{ duty.location or '-' }}</td>
+                                    <td>{{ duty.purpose[:50] }}{% if duty.purpose|length > 50 %}...{% endif %}</td>
+                                    <td>
+                                        <span class="badge bg-{% if duty.status == 'approved' %}success{% elif duty.status == 'rejected' %}danger{% else %}warning{% endif %}">
+                                            {{ duty.status }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">No on-duty applications found</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- My Permission Applications -->
+            <div class="card mb-4">
+                <div class="card-header bg-warning text-dark">
+                    <h5>My Permission Applications</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Permission Type</th>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                    <th>Duration</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for permission in permission_applications %}
+                                <tr>
+                                    <td>{{ permission.permission_type }}</td>
+                                    <td>{{ permission.permission_date }}</td>
+                                    <td>{{ permission.start_time|timeformat }} - {{ permission.end_time|timeformat }}</td>
+                                    <td>{{ "%.1f"|format(permission.duration_hours) }} hrs</td>
+                                    <td>{{ permission.reason[:50] }}{% if permission.reason|length > 50 %}...{% endif %}</td>
+                                    <td>
+                                        <span class="badge bg-{% if permission.status == 'approved' %}success{% elif permission.status == 'rejected' %}danger{% else %}warning{% endif %}">
+                                            {{ permission.status }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">No permission applications found</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column -->
+        <div class="col-md-4">
+
+
+            <!-- Today's Status Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5><i class="bi bi-calendar-day"></i> Today's Status</h5>
+                </div>
+                <div class="card-body text-center">
+                    <div id="todayStatusDisplay">
+                        <div class="mb-3">
+                            <h3 id="todayStatusText" class="text-muted">Loading...</h3>
+                        </div>
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="border rounded p-2">
+                                    <small class="text-muted">Check-in</small>
+                                    <div id="todayCheckIn" class="fw-bold">--:--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="border rounded p-2">
+                                    <small class="text-muted">Check-out</small>
+                                    <div id="todayCheckOut" class="fw-bold">--:--</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <a href="{{ url_for('staff_profile_page') }}" class="btn btn-outline-info btn-sm">
+                                <i class="bi bi-person"></i> View Full Profile
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5>Quick Actions</h5>
+                </div>
+                <div class="card-body">
+                    <button type="button" class="btn btn-outline-primary w-100 mb-2" data-bs-toggle="modal" data-bs-target="#applyLeaveModal">
+                        <i class="bi bi-calendar-plus"></i> Apply Leave
+                    </button>
+                    <button type="button" class="btn btn-outline-success w-100 mb-2" data-bs-toggle="modal" data-bs-target="#applyOnDutyModal">
+                        <i class="bi bi-briefcase"></i> Apply On Duty
+                    </button>
+                    <button type="button" class="btn btn-outline-warning w-100 mb-2" data-bs-toggle="modal" data-bs-target="#applyPermissionModal">
+                        <i class="bi bi-clock"></i> Apply Permission
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary w-100" id="downloadReportBtn">
+                        <i class="bi bi-file-earmark-text"></i> Download Report
+                    </button>
+                </div>
+            </div>
+
+            <!-- Attendance Summary -->
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Attendance Summary ({{ today.strftime('%B %Y') }})</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="attendanceChart" width="100%" height="200"></canvas>
+                    <div class="mt-3">
+                        <p><span class="badge bg-success me-2">&nbsp;</span> Present: <span id="presentDays">0</span> days</p>
+                        <p><span class="badge bg-danger me-2">&nbsp;</span> Absent: <span id="absentDays">0</span> days</p>
+                        <p><span class="badge bg-warning me-2">&nbsp;</span> Late: <span id="lateDays">0</span> days</p>
+                        <p><span class="badge me-2" style="background-color: #fd7e14;">&nbsp;</span> Left Soon: <span id="leftSoonDays">0</span> days</p>
+                        <p><span class="badge bg-info me-2">&nbsp;</span> Leave: <span id="leaveDays">0</span> days</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Apply Leave Modal -->
+<div class="modal fade" id="applyLeaveModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">Apply for Leave</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="leaveForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div class="mb-3">
+                        <label for="leaveType" class="form-label">Leave Type</label>
+                        <select class="form-select" id="leaveType" required>
+                            <option value="" selected disabled>Select leave type</option>
+                            <option value="CL">Casual Leave (CL)</option>
+                            <option value="SL">Sick Leave (SL)</option>
+                            <option value="EL">Earned Leave (EL)</option>
+                            <option value="ML">Maternity Leave (ML)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="startDate" class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="startDate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="endDate" class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="endDate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="leaveReason" class="form-label">Reason</label>
+                        <textarea class="form-control" id="leaveReason" rows="3" required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitLeave">Submit</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Apply On Duty Modal -->
+<div class="modal fade" id="applyOnDutyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Apply for On Duty</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="onDutyForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="dutyType" class="form-label">Duty Type</label>
+                                <select class="form-select" id="dutyType" name="duty_type" required>
+                                    <option value="" selected disabled>Select duty type</option>
+                                    <option value="Official Work">Official Work</option>
+                                    <option value="Training">Training</option>
+                                    <option value="Meeting">Meeting</option>
+                                    <option value="Conference">Conference</option>
+                                    <option value="Field Work">Field Work</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="dutyLocation" class="form-label">Location</label>
+                                <input type="text" class="form-control" id="dutyLocation" name="location" placeholder="Enter location">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="dutyStartDate" class="form-label">Start Date</label>
+                                <input type="date" class="form-control" id="dutyStartDate" name="start_date" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="dutyEndDate" class="form-label">End Date</label>
+                                <input type="date" class="form-control" id="dutyEndDate" name="end_date" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="dutyStartTime" class="form-label">Start Time (Optional)</label>
+                                <input type="time" class="form-control" id="dutyStartTime" name="start_time">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="dutyEndTime" class="form-label">End Time (Optional)</label>
+                                <input type="time" class="form-control" id="dutyEndTime" name="end_time">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="dutyPurpose" class="form-label">Purpose</label>
+                        <textarea class="form-control" id="dutyPurpose" name="purpose" rows="2" required placeholder="Brief description of the duty purpose"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="dutyReason" class="form-label">Additional Details (Optional)</label>
+                        <textarea class="form-control" id="dutyReason" name="reason" rows="2" placeholder="Any additional information"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="submitOnDuty">Submit Application</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Apply Permission Modal -->
+<div class="modal fade" id="applyPermissionModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">Apply for Permission</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="permissionForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div class="mb-3">
+                        <label for="permissionType" class="form-label">Permission Type</label>
+                        <select class="form-select" id="permissionType" name="permission_type" required>
+                            <option value="" selected disabled>Select permission type</option>
+                            <option value="Personal Work">Personal Work</option>
+                            <option value="Medical">Medical</option>
+                            <option value="Emergency">Emergency</option>
+                            <option value="Family Function">Family Function</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="permissionDate" class="form-label">Date</label>
+                        <input type="date" class="form-control" id="permissionDate" name="permission_date" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="permissionStartTime" class="form-label">Start Time</label>
+                                <input type="time" class="form-control" id="permissionStartTime" name="start_time" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="permissionEndTime" class="form-label">End Time</label>
+                                <input type="time" class="form-control" id="permissionEndTime" name="end_time" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="permissionReason" class="form-label">Reason</label>
+                        <textarea class="form-control" id="permissionReason" name="reason" rows="3" required placeholder="Please provide detailed reason for permission"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="submitPermission">Submit Application</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    // Set current staff ID for JavaScript access
+    window.currentStaffId = '{{ staff_info.staff_id if staff_info else "" }}';
+</script>
+<script src="{{ url_for('static', filename='js/staff_dashboard.js') }}"></script>
+</body>
+</html>

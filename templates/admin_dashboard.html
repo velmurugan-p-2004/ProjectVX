@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - VishnoRex</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">VishnoRex - Admin</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Toggle navigation" title="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('staff_management') }}">Staff Management</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('salary_management') }}" title="Manage staff salaries and calculations">
+                            <i class="bi bi-currency-dollar"></i> Salary Management
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#biometricDeviceModal">Biometric Device</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle"></i> {{ session.full_name }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#">Profile</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">Logout</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- CSRF Token for AJAX requests -->
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="mb-0">Today's Attendance ({{ today.strftime('%d %b %Y') }})</h5>
+                            <small id="lastUpdateTime" class="text-light opacity-75">
+                                <i class="bi bi-arrow-clockwise"></i> Live updates every 10 seconds
+                            </small>
+                        </div>
+                        <div>
+                            <span class="badge bg-success">{{ attendance_summary.present }} Present</span>
+                            <span class="badge bg-danger ms-2">{{ attendance_summary.absent }} Absent</span>
+                            <span class="badge bg-warning ms-2">{{ attendance_summary.late }} Late</span>
+                            <span class="badge bg-info ms-2">{{ attendance_summary.on_leave }} On Leave</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="staffSearch" placeholder="Search staff...">
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Staff ID</th>
+                                        <th>Name</th>
+                                        <th>Department</th>
+                                        <th>Check-in</th>
+                                        <th>Check-out</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="attendanceTableBody">
+                                    {% for attendance in today_attendance %}
+                                    <tr data-staff-id="{{ attendance.staff_id }}">
+                                        <td>{{ attendance.staff_number }}</td>
+                                        <td>
+                                            <a href="#" class="staff-profile-link" data-staff-id="{{ attendance.staff_id }}" data-bs-toggle="modal" data-bs-target="#staffProfileModal">
+                                                {{ attendance.full_name }}
+                                            </a>
+                                        </td>
+                                        <td>{{ attendance.department }}</td>
+                                        <td class="time-in">{{ attendance.time_in or '--:--:--' }}</td>
+                                        <td class="time-out">{{ attendance.time_out or '--:--:--' }}</td>
+                                        <td class="status">
+                                            {% if attendance.status == 'present' %}
+                                                <span class="badge bg-success">Present</span>
+                                            {% elif attendance.status == 'late' %}
+                                                <span class="badge bg-warning">Late</span>
+                                            {% elif attendance.status == 'absent' %}
+                                                <span class="badge bg-danger">Absent</span>
+                                            {% elif attendance.status == 'leave' %}
+                                                <span class="badge bg-info">On Leave</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">Not Marked</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <button type="button" class="btn btn-sm btn-outline-primary staff-profile-btn" data-staff-id="{{ attendance.staff_id }}" data-bs-toggle="modal" data-bs-target="#staffProfileModal">
+                                                <i class="bi bi-eye"></i> View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5>Pending Leave Applications</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if pending_leaves %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Staff Name</th>
+                                        <th>Leave Type</th>
+                                        <th>From</th>
+                                        <th>To</th>
+                                        <th>Reason</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for leave in pending_leaves %}
+                                    <tr>
+                                        <td>{{ leave.full_name }}</td>
+                                        <td>{{ leave.leave_type }}</td>
+                                        <td>{{ leave.start_date }}</td>
+                                        <td>{{ leave.end_date }}</td>
+                                        <td>{{ leave.reason }}</td>
+                                        <td>
+                                            <button type="button" class="btn btn-sm btn-success approve-btn" data-leave-id="{{ leave.id }}">
+                                                <i class="bi bi-check-circle"></i> Approve
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-danger reject-btn" data-leave-id="{{ leave.id }}">
+                                                <i class="bi bi-x-circle"></i> Reject
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="alert alert-info">No pending leave applications</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Pending On Duty Applications -->
+                <div class="card mb-4">
+                    <div class="card-header bg-success text-white">
+                        <h5>Pending On Duty Applications</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if pending_on_duty %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Staff Name</th>
+                                        <th>Duty Type</th>
+                                        <th>From</th>
+                                        <th>To</th>
+                                        <th>Location</th>
+                                        <th>Purpose</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for duty in pending_on_duty %}
+                                    <tr>
+                                        <td>{{ duty.full_name }}</td>
+                                        <td>{{ duty.duty_type }}</td>
+                                        <td>{{ duty.start_date }}</td>
+                                        <td>{{ duty.end_date }}</td>
+                                        <td>{{ duty.location or '-' }}</td>
+                                        <td>{{ duty.purpose[:30] }}{% if duty.purpose|length > 30 %}...{% endif %}</td>
+                                        <td>
+                                            <button type="button" class="btn btn-sm btn-success approve-duty-btn" data-duty-id="{{ duty.id }}" title="Approve">
+                                                <i class="bi bi-check-circle"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-danger reject-duty-btn" data-duty-id="{{ duty.id }}" title="Reject">
+                                                <i class="bi bi-x-circle"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="alert alert-info">No pending on-duty applications</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Pending Permission Applications -->
+                <div class="card mb-4">
+                    <div class="card-header bg-warning text-dark">
+                        <h5>Pending Permission Applications</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if pending_permissions %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Staff Name</th>
+                                        <th>Permission Type</th>
+                                        <th>Date</th>
+                                        <th>Time</th>
+                                        <th>Duration</th>
+                                        <th>Reason</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for permission in pending_permissions %}
+                                    <tr>
+                                        <td>{{ permission.full_name }}</td>
+                                        <td>{{ permission.permission_type }}</td>
+                                        <td>{{ permission.permission_date }}</td>
+                                        <td>{{ permission.start_time|timeformat }} - {{ permission.end_time|timeformat }}</td>
+                                        <td>{{ "%.1f"|format(permission.duration_hours) }} hrs</td>
+                                        <td>{{ permission.reason[:30] }}{% if permission.reason|length > 30 %}...{% endif %}</td>
+                                        <td>
+                                            <button type="button" class="btn btn-sm btn-success approve-permission-btn" data-permission-id="{{ permission.id }}" title="Approve">
+                                                <i class="bi bi-check-circle"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-danger reject-permission-btn" data-permission-id="{{ permission.id }}" title="Reject">
+                                                <i class="bi bi-x-circle"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="alert alert-info">No pending permission applications</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5>Staff Management</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="list-group">
+                            <a href="{{ url_for('staff_management') }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-people"></i> Manage Staff</span>
+                                <i class="bi bi-chevron-right"></i>
+                            </a>
+                            <a href="{{ url_for('department_shifts') }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-clock"></i> Department Shifts</span>
+                                <i class="bi bi-chevron-right"></i>
+                            </a>
+                            <a href="{{ url_for('salary_management') }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-currency-dollar"></i> Salary Management</span>
+                                <i class="bi bi-chevron-right"></i>
+                            </a>
+                            <a href="#" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" id="exportStaffBtn">
+                                <span><i class="bi bi-file-earmark-excel"></i> Export Staff Data</span>
+                                <i class="bi bi-chevron-right"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Salary Management Card -->
+                <div class="card mb-4">
+                    <div class="card-header bg-success text-white">
+                        <h5><i class="bi bi-currency-dollar"></i> Salary Management</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">Calculate and manage staff salaries based on attendance patterns including early arrival bonuses and departure penalties.</p>
+                        <div class="list-group">
+                            <a href="{{ url_for('salary_management') }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-calculator"></i> Calculate Monthly Salaries</span>
+                                <i class="bi bi-chevron-right"></i>
+                            </a>
+                            <a href="{{ url_for('salary_management') }}#rules" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-gear"></i> Configure Salary Rules</span>
+                                <i class="bi bi-chevron-right"></i>
+                            </a>
+                            <a href="{{ url_for('salary_management') }}#reports" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-file-earmark-text"></i> Salary Reports</span>
+                                <i class="bi bi-chevron-right"></i>
+                            </a>
+                        </div>
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle"></i>
+                                Includes bonuses for early arrivals and penalties for early departures
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Comprehensive Staff Profile Modal -->
+                <div class="modal fade" id="staffProfileModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-xl">
+                        <div class="modal-content">
+                            <div class="modal-header bg-primary text-white">
+                                <h5 class="modal-title" id="staffProfileModalTitle">Staff Profile</h5>
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body" id="staffProfileModalContent">
+                                <!-- Content will be loaded dynamically -->
+                                <div class="text-center">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                    <p class="mt-2">Loading staff profile...</p>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                <button type="button" class="btn btn-primary" id="editStaffProfileBtn">
+                                    <i class="bi bi-pencil-square"></i> Edit Profile
+                                </button>
+                                <button type="button" class="btn btn-danger" id="deleteStaffProfileBtn">
+                                    <i class="bi bi-trash"></i> Delete Staff
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Biometric Enrollment Modal -->
+    <div class="modal fade" id="biometricModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">Biometric Enrollment</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <div id="enrollmentProgress">
+                        <p>Please scan your fingerprint and face for verification (5 times each)</p>
+                        <div class="progress mb-3">
+                            <div class="progress-bar progress-bar-initial" role="progressbar" id="progressBar"></div>
+                        </div>
+                        <div class="mb-3">
+                            <video id="videoElement" width="320" height="240" autoplay></video>
+                            <canvas id="canvasElement" width="320" height="240" class="hidden"></canvas>
+                        </div>
+                        <div id="fingerprintScanner">
+                            <p>Place your finger on the scanner</p>
+                            <div id="fingerprintPlaceholder" class="fingerprint-placeholder"></div>
+                        </div>
+                        <div id="enrollmentStatus" class="mt-3"></div>
+                    </div>
+                    <div id="enrollmentComplete" class="hidden">
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle-fill"></i> Biometric enrollment completed successfully!
+                        </div>
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Biometric Device Management Modal -->
+    <div class="modal fade" id="biometricDeviceModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">ZK Biometric Device Management</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Device Configuration</h6>
+                            <div class="mb-3">
+                                <label for="deviceIP" class="form-label">Device IP Address</label>
+                                <input type="text" class="form-control" id="deviceIP" value="192.168.1.201">
+                            </div>
+                            <div class="mb-3">
+                                <label for="devicePort" class="form-label">Port</label>
+                                <input type="number" class="form-control" id="devicePort" value="4370">
+                            </div>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-info" id="testConnectionBtn">
+                                    <i class="bi bi-wifi"></i> Test Connection
+                                </button>
+                                <button type="button" class="btn btn-success" id="syncAttendanceBtn">
+                                    <i class="bi bi-arrow-clockwise"></i> Sync Attendance
+                                </button>
+
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Device Status</h6>
+                            <div id="deviceStatus" class="alert alert-secondary">
+                                <i class="bi bi-info-circle"></i> Click "Test Connection" to check device status
+                            </div>
+                            <div id="syncResults" class="hidden">
+                                <h6>Last Sync Results</h6>
+                                <ul class="list-group list-group-flush">
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Total Records:</span>
+                                        <span id="totalRecords">-</span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>SQLite Synced:</span>
+                                        <span id="sqliteSynced">-</span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>MySQL Synced:</span>
+                                        <span id="mysqlSynced">-</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="row">
+                        <div class="col-12">
+                            <h6>Device Users</h6>
+                            <div class="d-flex gap-2 mb-3">
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="loadUsersBtn">
+                                    <i class="bi bi-people"></i> Load Users from Device
+                                </button>
+                                <button type="button" class="btn btn-outline-danger btn-sm" id="clearUsersBtn">
+                                    <i class="bi bi-trash"></i> Clear All Users
+                                </button>
+                            </div>
+                            <div id="deviceUsers" class="mt-3 hidden">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="text-muted" id="userCount">0 users</span>
+                                    <input type="text" class="form-control form-control-sm search-width"
+                                           id="userSearch" placeholder="Search users...">
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>User ID</th>
+                                                <th>Name</th>
+                                                <th>Privilege</th>
+                                                <th>Group</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="usersTableBody">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Staff Modal -->
+    {% include 'edit_staff_modal.html' %}
+
+    <!-- User Conflict Resolution Modal -->
+    {% include 'user_conflict_modal.html' %}
+
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', filename='js/weekly_calendar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/admin_dashboard.js') }}"></script>
+</body>
+</html>

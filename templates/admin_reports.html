@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports - VishnoRex</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/salary_management.css') }}">
+</head>
+<body>
+    <!-- Mobile Sidebar Toggle -->
+    <button type="button" class="sidebar-toggle d-md-none" id="sidebarToggle" title="Toggle sidebar menu">
+        <i class="bi bi-list"></i>
+    </button>
+    
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Enhanced Sidebar -->
+            <nav class="col-md-2 d-none d-md-block enhanced-sidebar">
+                <div class="sidebar-header">
+                    <div class="brand-logo">
+                        <div class="logo-icon">
+                            <i class="bi bi-building-gear"></i>
+                        </div>
+                        <div class="brand-text">
+                            <h6 class="brand-title">VishnoRex</h6>
+                            <small class="brand-subtitle">Admin Panel</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="sidebar-content">
+                    <!-- User Profile Section -->
+                    <div class="user-profile">
+                        <div class="user-avatar">
+                            <i class="bi bi-person-circle"></i>
+                        </div>
+                        <div class="user-info">
+                            <div class="user-name">{{ session.get('full_name', 'Admin User') }}</div>
+                            <div class="user-role">Administrator</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Navigation Menu -->
+                    <div class="nav-section">
+                        <div class="nav-section-title">
+                            <i class="bi bi-grid-3x3-gap"></i>
+                            <span>Main Menu</span>
+                        </div>
+                        <ul class="nav-menu">
+                            <li class="nav-item">
+                                <a class="nav-link" href="/admin/dashboard">
+                                    <div class="nav-icon">
+                                        <i class="bi bi-house-door"></i>
+                                    </div>
+                                    <span class="nav-text">Dashboard</span>
+                                    <div class="nav-indicator"></div>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('salary_management') }}">
+                                    <div class="nav-icon">
+                                        <i class="bi bi-currency-dollar"></i>
+                                    </div>
+                                    <span class="nav-text">Salary Management</span>
+                                    <div class="nav-indicator"></div>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('staff_management') }}">
+                                    <div class="nav-icon">
+                                        <i class="bi bi-people"></i>
+                                    </div>
+                                    <span class="nav-text">Staff Management</span>
+                                    <div class="nav-indicator"></div>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link active" href="/admin/reports">
+                                    <div class="nav-icon">
+                                        <i class="bi bi-graph-up"></i>
+                                    </div>
+                                    <span class="nav-text">Reports & Analytics</span>
+                                    <div class="nav-indicator"></div>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Quick Actions Section -->
+                    <div class="nav-section">
+                        <div class="nav-section-title">
+                            <i class="bi bi-lightning"></i>
+                            <span>Quick Actions</span>
+                        </div>
+                        <div class="quick-actions">
+                            <button type="button" class="quick-action-btn" title="Export Data">
+                                <i class="bi bi-download"></i>
+                                <span>Export</span>
+                            </button>
+                            <button type="button" class="quick-action-btn" title="Settings">
+                                <i class="bi bi-gear"></i>
+                                <span>Settings</span>
+                            </button>
+                            <button type="button" class="quick-action-btn" title="Help">
+                                <i class="bi bi-question-circle"></i>
+                                <span>Help</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Sidebar Footer -->
+                <div class="sidebar-footer">
+                    <div class="footer-stats">
+                        <div class="stat-item">
+                            <i class="bi bi-people"></i>
+                            <span id="totalStaffCount">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <i class="bi bi-calendar-day"></i>
+                            <span id="currentDate">-</span>
+                        </div>
+                    </div>
+                    <button type="button" class="logout-btn" onclick="logout()" title="Logout">
+                        <i class="bi bi-box-arrow-right"></i>
+                        <span>Logout</span>
+                    </button>
+                </div>
+            </nav>
+
+            <!-- Main content -->
+            <main class="col-md-10 ms-sm-auto px-md-4 salary-main-content">
+                <!-- Enhanced Header -->
+                <div class="salary-header">
+                    <div class="header-content">
+                        <div class="header-title">
+                            <div class="title-icon">
+                                <i class="bi bi-graph-up"></i>
+                            </div>
+                            <div class="title-text">
+                                <h1 class="main-title">Reports & Analytics</h1>
+                                <p class="subtitle">Generate comprehensive reports and insights</p>
+                            </div>
+                        </div>
+                        <div class="header-actions">
+                            <button type="button" class="btn btn-outline-primary" title="Refresh data">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                            <button type="button" class="btn btn-success" title="Export reports">
+                                <i class="bi bi-download"></i> Export
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Report Filters -->
+                <div class="salary-filters-card">
+                    <div class="card-header">
+                        <div class="header-icon">
+                            <i class="bi bi-funnel"></i>
+                        </div>
+                        <div class="header-content">
+                            <h5 class="card-title">Report Filters</h5>
+                            <p class="card-subtitle">Select criteria for generating reports</p>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <form id="reportFiltersForm">
+                            <div class="filters-grid">
+                                <div class="filter-group">
+                                    <label for="reportYear" class="form-label">
+                                        <i class="bi bi-calendar-event"></i> Year
+                                    </label>
+                                    <select class="form-select enhanced-select" id="reportYear">
+                                        <option value="2023">2023</option>
+                                        <option value="2024" selected>2024</option>
+                                        <option value="2025">2025</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label for="reportMonth" class="form-label">
+                                        <i class="bi bi-calendar-month"></i> Month
+                                    </label>
+                                    <select class="form-select enhanced-select" id="reportMonth">
+                                        <option value="">All Months</option>
+                                        <option value="1">January</option>
+                                        <option value="2">February</option>
+                                        <option value="3">March</option>
+                                        <option value="4">April</option>
+                                        <option value="5">May</option>
+                                        <option value="6">June</option>
+                                        <option value="7">July</option>
+                                        <option value="8">August</option>
+                                        <option value="9">September</option>
+                                        <option value="10">October</option>
+                                        <option value="11">November</option>
+                                        <option value="12">December</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label for="reportDepartment" class="form-label">
+                                        <i class="bi bi-building"></i> Department
+                                    </label>
+                                    <select class="form-select enhanced-select" id="reportDepartment">
+                                        <option value="">All Departments</option>
+                                        <option value="Teaching">Teaching</option>
+                                        <option value="Administration">Administration</option>
+                                        <option value="Support">Support</option>
+                                        <option value="Management">Management</option>
+                                        <option value="IT">IT</option>
+                                        <option value="Finance">Finance</option>
+                                        <option value="HR">HR</option>
+                                        <option value="Security">Security</option>
+                                        <option value="Maintenance">Maintenance</option>
+                                        <option value="Library">Library</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label for="reportFormat" class="form-label">
+                                        <i class="bi bi-file-earmark"></i> Format
+                                    </label>
+                                    <select class="form-select enhanced-select" id="reportFormat">
+                                        <option value="excel">Excel (.xlsx)</option>
+                                        <option value="pdf">PDF (.pdf)</option>
+                                        <option value="csv">CSV (.csv)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Reports Grid -->
+                <div class="reports-grid">
+                    <!-- Salary Reports -->
+                    <div class="report-category">
+                        <h4 class="category-title">
+                            <i class="bi bi-currency-dollar text-success"></i>
+                            Salary & Payroll Reports
+                        </h4>
+                        <div class="reports-row">
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-calculator"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Monthly Salary Report</h6>
+                                    <p>Comprehensive monthly salary calculations for all staff</p>
+                                    <button type="button" class="btn btn-primary btn-sm" onclick="generateReport('monthly_salary')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-graph-up"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Payroll Summary</h6>
+                                    <p>Summary of total payroll expenses and breakdowns</p>
+                                    <button type="button" class="btn btn-primary btn-sm" onclick="generateReport('payroll_summary')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-pie-chart"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Department Wise Salary</h6>
+                                    <p>Salary distribution across different departments</p>
+                                    <button type="button" class="btn btn-primary btn-sm" onclick="generateReport('department_salary')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Staff Reports -->
+                    <div class="report-category">
+                        <h4 class="category-title">
+                            <i class="bi bi-people text-info"></i>
+                            Staff & HR Reports
+                        </h4>
+                        <div class="reports-row">
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-person-lines-fill"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Staff Directory</h6>
+                                    <p>Complete staff information and contact details</p>
+                                    <button type="button" class="btn btn-info btn-sm" onclick="generateReport('staff_directory')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-building"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Department Report</h6>
+                                    <p>Staff distribution and department-wise analysis</p>
+                                    <button type="button" class="btn btn-info btn-sm" onclick="generateReport('department_report')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-award"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Performance Report</h6>
+                                    <p>Staff performance metrics and evaluations</p>
+                                    <button type="button" class="btn btn-info btn-sm" onclick="generateReport('performance_report')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Attendance Reports -->
+                    <div class="report-category">
+                        <h4 class="category-title">
+                            <i class="bi bi-calendar-check text-warning"></i>
+                            Attendance & Time Reports
+                        </h4>
+                        <div class="reports-row">
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-calendar-day"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Daily Attendance</h6>
+                                    <p>Daily attendance records and status</p>
+                                    <button type="button" class="btn btn-warning btn-sm" onclick="generateReport('daily_attendance')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-calendar-month"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Monthly Attendance</h6>
+                                    <p>Monthly attendance summary and statistics</p>
+                                    <button type="button" class="btn btn-warning btn-sm" onclick="generateReport('monthly_attendance')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-clock"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Overtime Report</h6>
+                                    <p>Overtime hours and compensation details</p>
+                                    <button type="button" class="btn btn-warning btn-sm" onclick="generateReport('overtime_report')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Financial Reports -->
+                    <div class="report-category">
+                        <h4 class="category-title">
+                            <i class="bi bi-graph-up text-danger"></i>
+                            Financial & Analytics Reports
+                        </h4>
+                        <div class="reports-row">
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-bar-chart"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Cost Analysis</h6>
+                                    <p>Detailed cost analysis and budget reports</p>
+                                    <button type="button" class="btn btn-danger btn-sm" onclick="generateReport('cost_analysis')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-trending-up"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Trend Analysis</h6>
+                                    <p>Salary and attendance trends over time</p>
+                                    <button type="button" class="btn btn-danger btn-sm" onclick="generateReport('trend_analysis')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-clipboard-data"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Executive Summary</h6>
+                                    <p>High-level executive dashboard and KPIs</p>
+                                    <button type="button" class="btn btn-danger btn-sm" onclick="generateReport('executive_summary')">
+                                        <i class="bi bi-download"></i> Generate
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Custom Reports -->
+                    <div class="report-category">
+                        <h4 class="category-title">
+                            <i class="bi bi-gear text-secondary"></i>
+                            Custom & Advanced Reports
+                        </h4>
+                        <div class="reports-row">
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-sliders"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Custom Report Builder</h6>
+                                    <p>Build custom reports with your own criteria</p>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="openCustomReportBuilder()">
+                                        <i class="bi bi-tools"></i> Build Report
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-calendar-event"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Scheduled Reports</h6>
+                                    <p>Set up automated report generation and delivery</p>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="manageScheduledReports()">
+                                        <i class="bi bi-calendar-plus"></i> Schedule
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="report-card">
+                                <div class="report-icon">
+                                    <i class="bi bi-archive"></i>
+                                </div>
+                                <div class="report-content">
+                                    <h6>Report History</h6>
+                                    <p>View and download previously generated reports</p>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="viewReportHistory()">
+                                        <i class="bi bi-clock-history"></i> View History
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/salary_management.js') }}"></script>
+</body>
+</html>
