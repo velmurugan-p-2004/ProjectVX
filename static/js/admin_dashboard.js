@@ -90,10 +90,20 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             // Create new weekly calendar instance
-            adminStaffWeeklyCalendar = new WeeklyAttendanceCalendar('adminStaffWeeklyCalendar', {
-                staffId: staffId,
-                isAdminView: true
-            });
+            if (typeof WeeklyAttendanceCalendar !== 'undefined') {
+                try {
+                    adminStaffWeeklyCalendar = new WeeklyAttendanceCalendar('adminStaffWeeklyCalendar', {
+                        staffId: staffId,
+                        isAdminView: true
+                    });
+                } catch (error) {
+                    console.error('Error initializing weekly calendar:', error);
+                    calendarEl.innerHTML = '<div class="alert alert-warning">Calendar could not be loaded.</div>';
+                }
+            } else {
+                console.warn('WeeklyAttendanceCalendar class not found');
+                calendarEl.innerHTML = '<div class="alert alert-info">Calendar is not available.</div>';
+            }
         }
     }
 
@@ -123,7 +133,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadComprehensiveStaffProfile(staffId) {
         // Show loading state
         const modalContent = document.getElementById('staffProfileModalContent');
-        const modalTitle = document.getElementById('staffProfileModalTitle');
+        const modalTitle = document.getElementById('staffProfileModalLabel');
+
+        if (!modalContent) {
+            console.error('Staff profile modal content element not found');
+            return;
+        }
 
         modalContent.innerHTML = `
             <div class="text-center">
@@ -139,7 +154,9 @@ document.addEventListener('DOMContentLoaded', function () {
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    modalTitle.textContent = `Staff Profile - ${data.staff.full_name}`;
+                    if (modalTitle) {
+                        modalTitle.textContent = `Staff Profile - ${data.staff.full_name}`;
+                    }
                     renderComprehensiveStaffProfile(data);
 
                     // Set up modal buttons
@@ -164,8 +181,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderComprehensiveStaffProfile(data) {
         const modalContent = document.getElementById('staffProfileModalContent');
-        const staff = data.staff;
-        const stats = data.attendance_stats;
+        if (!modalContent) {
+            console.error('Staff profile modal content element not found');
+            return;
+        }
+
+        const staff = data.staff || {};
+        const stats = data.attendance_stats || {
+            total_days: 0,
+            present_days: 0,
+            late_days: 0,
+            absent_days: 0,
+            attendance_rate: 0
+        };
 
     modalContent.innerHTML = `
         <!-- Staff Information Section -->
@@ -312,19 +340,20 @@ document.addEventListener('DOMContentLoaded', function () {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${data.attendance.map(record => `
+                                ${(data.attendance || []).map(record => `
                                     <tr>
-                                        <td>${record.date}</td>
+                                        <td>${record.date || ''}</td>
                                         <td>${record.time_in || '--:--'}</td>
                                         <td>${record.time_out || '--:--'}</td>
                                         <td>${record.overtime_in || '--:--'}</td>
                                         <td>${record.overtime_out || '--:--'}</td>
-                                        <td><span class="badge bg-${getStatusColor(record.status)}">${record.status}</span></td>
+                                        <td><span class="badge bg-${getStatusColor(record.status || 'unknown')}">${record.status || 'Unknown'}</span></td>
                                     </tr>
                                 `).join('')}
                             </tbody>
                         </table>
                     </div>
+                    ${(data.attendance || []).length === 0 ? '<div class="alert alert-info">No attendance records found</div>' : ''}
                 </div>
 
                 <!-- Biometric Verifications Tab -->
@@ -340,25 +369,26 @@ document.addEventListener('DOMContentLoaded', function () {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${data.verifications.map(verification => `
+                                ${(data.verifications || []).map(verification => `
                                     <tr>
-                                        <td>${new Date(verification.verification_time).toLocaleString()}</td>
+                                        <td>${verification.verification_time ? new Date(verification.verification_time).toLocaleString() : '--'}</td>
                                         <td>
                                             <span class="badge bg-info">
-                                                ${verification.verification_type.replace('-', ' ').toUpperCase()}
+                                                ${(verification.verification_type || 'unknown').replace('-', ' ').toUpperCase()}
                                             </span>
                                         </td>
                                         <td>
                                             <span class="badge bg-${verification.verification_status === 'success' ? 'success' : 'danger'}">
-                                                ${verification.verification_status}
+                                                ${verification.verification_status || 'unknown'}
                                             </span>
                                         </td>
-                                        <td>${verification.device_ip}</td>
+                                        <td>${verification.device_ip || '--'}</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
                         </table>
                     </div>
+                    ${(data.verifications || []).length === 0 ? '<div class="alert alert-info">No biometric verifications found</div>' : ''}
                 </div>
 
                 <!-- Leave Applications Tab -->
@@ -376,19 +406,20 @@ document.addEventListener('DOMContentLoaded', function () {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${data.leaves.map(leave => `
+                                ${(data.leaves || []).map(leave => `
                                     <tr>
-                                        <td>${leave.leave_type}</td>
-                                        <td>${leave.start_date}</td>
-                                        <td>${leave.end_date}</td>
-                                        <td>${leave.reason}</td>
-                                        <td><span class="badge bg-${getLeaveStatusColor(leave.status)}">${leave.status}</span></td>
-                                        <td>${leave.applied_at}</td>
+                                        <td>${leave.leave_type || 'N/A'}</td>
+                                        <td>${leave.start_date || '--'}</td>
+                                        <td>${leave.end_date || '--'}</td>
+                                        <td>${leave.reason || 'No reason provided'}</td>
+                                        <td><span class="badge bg-${getLeaveStatusColor(leave.status || 'unknown')}">${leave.status || 'Unknown'}</span></td>
+                                        <td>${leave.applied_at || '--'}</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
                         </table>
                     </div>
+                    ${(data.leaves || []).length === 0 ? '<div class="alert alert-info">No leave applications found</div>' : ''}
                 </div>
 
                 <!-- On Duty Applications Tab -->
@@ -408,11 +439,11 @@ document.addEventListener('DOMContentLoaded', function () {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${data.on_duty_applications.map(duty => `
+                                ${(data.on_duty_applications || []).map(duty => `
                                     <tr>
-                                        <td><span class="badge bg-info">${duty.duty_type}</span></td>
-                                        <td>${duty.start_date}</td>
-                                        <td>${duty.end_date}</td>
+                                        <td><span class="badge bg-info">${duty.duty_type || 'N/A'}</span></td>
+                                        <td>${duty.start_date || '--'}</td>
+                                        <td>${duty.end_date || '--'}</td>
                                         <td>
                                             ${duty.start_time && duty.end_time ?
                                                 `${duty.start_time} - ${duty.end_time}` :
@@ -421,18 +452,18 @@ document.addEventListener('DOMContentLoaded', function () {
                                         </td>
                                         <td>${duty.location || '<span class="text-muted">Not specified</span>'}</td>
                                         <td>
-                                            <span title="${duty.purpose}">
-                                                ${duty.purpose.length > 30 ? duty.purpose.substring(0, 30) + '...' : duty.purpose}
+                                            <span title="${duty.purpose || ''}">
+                                                ${duty.purpose ? (duty.purpose.length > 30 ? duty.purpose.substring(0, 30) + '...' : duty.purpose) : 'No purpose specified'}
                                             </span>
                                         </td>
-                                        <td><span class="badge bg-${getLeaveStatusColor(duty.status)}">${duty.status}</span></td>
-                                        <td>${new Date(duty.applied_at).toLocaleDateString()}</td>
+                                        <td><span class="badge bg-${getLeaveStatusColor(duty.status || 'unknown')}">${duty.status || 'Unknown'}</span></td>
+                                        <td>${duty.applied_at ? new Date(duty.applied_at).toLocaleDateString() : '--'}</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
                         </table>
                     </div>
-                    ${data.on_duty_applications.length === 0 ? '<div class="alert alert-info">No on-duty applications found</div>' : ''}
+                    ${(data.on_duty_applications || []).length === 0 ? '<div class="alert alert-info">No on-duty applications found</div>' : ''}
                 </div>
 
                 <!-- Permission Applications Tab -->
@@ -451,29 +482,29 @@ document.addEventListener('DOMContentLoaded', function () {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${data.permission_applications.map(permission => `
+                                ${(data.permission_applications || []).map(permission => `
                                     <tr>
-                                        <td><span class="badge bg-warning text-dark">${permission.permission_type}</span></td>
-                                        <td>${permission.permission_date}</td>
-                                        <td>${permission.start_time} - ${permission.end_time}</td>
+                                        <td><span class="badge bg-warning text-dark">${permission.permission_type || 'N/A'}</span></td>
+                                        <td>${permission.permission_date || '--'}</td>
+                                        <td>${permission.start_time && permission.end_time ? `${permission.start_time} - ${permission.end_time}` : '--'}</td>
                                         <td>
                                             <span class="badge bg-secondary">
-                                                ${permission.duration_hours.toFixed(1)} hrs
+                                                ${permission.duration_hours ? permission.duration_hours.toFixed(1) : '0.0'} hrs
                                             </span>
                                         </td>
                                         <td>
-                                            <span title="${permission.reason}">
-                                                ${permission.reason.length > 30 ? permission.reason.substring(0, 30) + '...' : permission.reason}
+                                            <span title="${permission.reason || ''}">
+                                                ${permission.reason ? (permission.reason.length > 30 ? permission.reason.substring(0, 30) + '...' : permission.reason) : 'No reason provided'}
                                             </span>
                                         </td>
-                                        <td><span class="badge bg-${getLeaveStatusColor(permission.status)}">${permission.status}</span></td>
-                                        <td>${new Date(permission.applied_at).toLocaleDateString()}</td>
+                                        <td><span class="badge bg-${getLeaveStatusColor(permission.status || 'unknown')}">${permission.status || 'Unknown'}</span></td>
+                                        <td>${permission.applied_at ? new Date(permission.applied_at).toLocaleDateString() : '--'}</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
                         </table>
                     </div>
-                    ${data.permission_applications.length === 0 ? '<div class="alert alert-info">No permission applications found</div>' : ''}
+                    ${(data.permission_applications || []).length === 0 ? '<div class="alert alert-info">No permission applications found</div>' : ''}
                 </div>
 
                 <!-- Weekly Calendar Tab -->
@@ -485,54 +516,80 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Initialize the weekly calendar after the modal content is rendered
         setTimeout(() => {
-            initializeStaffWeeklyCalendar(staff.id);
+            if (staff && staff.id) {
+                initializeStaffWeeklyCalendar(staff.id);
+            } else {
+                console.warn('Staff ID not available for calendar initialization');
+            }
         }, 100);
     }
 
     function setupStaffProfileButtons(staffId, staff) {
         // Edit Profile Button
-        document.getElementById('editStaffProfileBtn').onclick = function() {
-            // Close the profile modal and open edit modal
-            bootstrap.Modal.getInstance(document.getElementById('staffProfileModal')).hide();
+        const editBtn = document.getElementById('editStaffProfileBtn');
+        if (editBtn) {
+            editBtn.onclick = function() {
+                // Close the profile modal and open edit modal
+                const profileModal = document.getElementById('staffProfileModal');
+                if (profileModal) {
+                    bootstrap.Modal.getInstance(profileModal).hide();
+                }
 
-            // Populate edit form
-            document.getElementById('editStaffId').value = staffId;
-            document.getElementById('editFullName').value = staff.full_name;
-            document.getElementById('editEmail').value = staff.email || '';
-            document.getElementById('editPhone').value = staff.phone || '';
-            document.getElementById('editDepartment').value = staff.department || '';
-            document.getElementById('editPosition').value = staff.position || '';
+                // Populate edit form
+                const editStaffId = document.getElementById('editStaffId');
+                const editFullName = document.getElementById('editFullName');
+                const editEmail = document.getElementById('editEmail');
+                const editPhone = document.getElementById('editPhone');
+                const editDepartment = document.getElementById('editDepartment');
+                const editPosition = document.getElementById('editPosition');
 
-            // Show edit modal
-            new bootstrap.Modal(document.getElementById('editStaffModal')).show();
-        };
+                if (editStaffId) editStaffId.value = staffId;
+                if (editFullName) editFullName.value = staff.full_name;
+                if (editEmail) editEmail.value = staff.email || '';
+                if (editPhone) editPhone.value = staff.phone || '';
+                if (editDepartment) editDepartment.value = staff.department || '';
+                if (editPosition) editPosition.value = staff.position || '';
+
+                // Show edit modal
+                const editModal = document.getElementById('editStaffModal');
+                if (editModal) {
+                    new bootstrap.Modal(editModal).show();
+                }
+            };
+        }
 
         // Delete Staff Button
-        document.getElementById('deleteStaffProfileBtn').onclick = function() {
-            if (confirm(`Are you sure you want to delete ${staff.full_name}? This action cannot be undone.`)) {
-                fetch('/delete_staff', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: `staff_id=${staffId}&csrf_token=${encodeURIComponent(getCSRFToken())}`
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('Staff deleted successfully');
-                        bootstrap.Modal.getInstance(document.getElementById('staffProfileModal')).hide();
-                        location.reload(); // Refresh the page to update the staff list
-                    } else {
-                        alert(data.error || 'Failed to delete staff');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('An error occurred while deleting staff');
-                });
-            }
-        };
+        const deleteBtn = document.getElementById('deleteStaffProfileBtn');
+        if (deleteBtn) {
+            deleteBtn.onclick = function() {
+                if (confirm(`Are you sure you want to delete ${staff.full_name}? This action cannot be undone.`)) {
+                    fetch('/delete_staff', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `staff_id=${staffId}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert('Staff deleted successfully');
+                            const profileModal = document.getElementById('staffProfileModal');
+                            if (profileModal) {
+                                bootstrap.Modal.getInstance(profileModal).hide();
+                            }
+                            location.reload(); // Refresh the page to update the staff list
+                        } else {
+                            alert(data.error || 'Failed to delete staff');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('An error occurred while deleting staff');
+                    });
+                }
+            };
+        }
     }
 
     function getStatusColor(status) {
