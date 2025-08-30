@@ -5,13 +5,71 @@ document.addEventListener('DOMContentLoaded', function() {
         return token ? token.value : '';
     }
 
+    // Toast notification function
+    function showToast(message, type = 'info') {
+        // Remove existing toasts
+        const existingToasts = document.querySelectorAll('.custom-toast');
+        existingToasts.forEach(toast => toast.remove());
+
+        const toast = document.createElement('div');
+        toast.className = `custom-toast alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} alert-dismissible fade show`;
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            min-width: 300px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        `;
+        toast.innerHTML = `
+            <i class="bi bi-${type === 'error' ? 'exclamation-triangle' : type === 'success' ? 'check-circle' : 'info-circle'}"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.appendChild(toast);
+
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.remove();
+            }
+        }, 5000);
+    }
+
+    // Enhanced form validation function
+    function validateForm(form) {
+        const requiredFields = form.querySelectorAll('[required]');
+        let isValid = true;
+        let firstInvalidField = null;
+
+        requiredFields.forEach(field => {
+            if (!field.value.trim()) {
+                field.classList.add('is-invalid');
+                if (!firstInvalidField) firstInvalidField = field;
+                isValid = false;
+            } else {
+                field.classList.remove('is-invalid');
+                field.classList.add('is-valid');
+            }
+        });
+
+        if (!isValid && firstInvalidField) {
+            firstInvalidField.focus();
+            showToast('Please fill in all required fields', 'error');
+        }
+
+        return isValid;
+    }
+
     // Initialize attendance summary chart
     const ctx = document.getElementById('attendanceSummaryChart')?.getContext('2d');
     if (ctx) {
-        const presentDays = parseInt(document.querySelector('.bg-success h4').textContent) || 0;
-        const absentDays = parseInt(document.querySelector('.bg-danger h4').textContent) || 0;
-        const lateDays = parseInt(document.querySelector('.bg-warning h4').textContent) || 0;
-        const leaveDays = parseInt(document.querySelector('.bg-info h4').textContent) || 0;
+        // Get attendance data from the modernized stat cards
+        const statCards = document.querySelectorAll('.attendance-stat-card .stat-value');
+        const presentDays = statCards[0] ? parseInt(statCards[0].textContent) || 0 : 0;
+        const absentDays = statCards[1] ? parseInt(statCards[1].textContent) || 0 : 0;
+        const lateDays = statCards[2] ? parseInt(statCards[2].textContent) || 0 : 0;
+        const leaveDays = statCards[3] ? parseInt(statCards[3].textContent) || 0 : 0;
 
         new Chart(ctx, {
             type: 'doughnut',
@@ -25,15 +83,49 @@ document.addEventListener('DOMContentLoaded', function() {
                         '#ffc107',
                         '#0dcaf0'
                     ],
-                    borderWidth: 1
+                    borderWidth: 3,
+                    borderColor: '#ffffff',
+                    hoverBorderWidth: 4,
+                    hoverOffset: 10
                 }]
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'bottom'
+                        position: 'bottom',
+                        labels: {
+                            padding: 20,
+                            usePointStyle: true,
+                            font: {
+                                size: 12,
+                                weight: '500'
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        borderColor: '#ffffff',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        padding: 12,
+                        callbacks: {
+                            label: function(context) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = total > 0 ? ((context.parsed * 100) / total).toFixed(1) : 0;
+                                return `${context.label}: ${context.parsed} days (${percentage}%)`;
+                            }
+                        }
                     }
+                },
+                animation: {
+                    animateRotate: true,
+                    animateScale: true,
+                    duration: 1000,
+                    easing: 'easeOutQuart'
                 }
             }
         });
@@ -49,12 +141,49 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Store reference for potential future use
         window.weeklyAttendanceCalendar = weeklyCalendar;
+
+        // Add calendar refresh functionality
+        const addCalendarRefreshButton = () => {
+            const calendarHeader = weeklyCalendarEl.querySelector('.calendar-header .d-flex');
+            if (calendarHeader && !calendarHeader.querySelector('.refresh-btn')) {
+                const refreshBtn = document.createElement('button');
+                refreshBtn.className = 'btn btn-outline-success btn-sm refresh-btn';
+                refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh';
+                refreshBtn.title = 'Refresh attendance data';
+                refreshBtn.addEventListener('click', () => {
+                    weeklyCalendar.refresh();
+                    showToast('Attendance data refreshed', 'success');
+                });
+                calendarHeader.appendChild(refreshBtn);
+            }
+        };
+
+        // Add the refresh button after calendar loads
+        setTimeout(addCalendarRefreshButton, 1000);
+
+        // Auto-refresh calendar every 5 minutes
+        setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                weeklyCalendar.refresh();
+            }
+        }, 300000); // 5 minutes
     }
 
     // Edit Profile functionality
     document.getElementById('saveProfileBtn')?.addEventListener('click', function() {
         const form = document.getElementById('editProfileForm');
         const formData = new FormData(form);
+
+        // Basic validation
+        if (!validateForm(form)) {
+            return;
+        }
+
+        // Show loading state
+        const btn = this;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-spinner-border spinner-border-sm"></i> Saving...';
+        btn.disabled = true;
 
         fetch('/staff/update_profile', {
             method: 'POST',
@@ -63,16 +192,21 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert('Profile updated successfully!');
+                showToast('Profile updated successfully!', 'success');
                 bootstrap.Modal.getInstance(document.getElementById('editProfileModal')).hide();
-                location.reload(); // Reload to show updated information
+                setTimeout(() => location.reload(), 1500); // Reload to show updated information
             } else {
-                alert(data.error || 'Failed to update profile');
+                showToast(data.error || 'Failed to update profile', 'error');
             }
         })
         .catch(error => {
             console.error('Error updating profile:', error);
-            alert('Error updating profile');
+            showToast('Error updating profile', 'error');
+        })
+        .finally(() => {
+            // Reset button state
+            btn.innerHTML = originalText;
+            btn.disabled = false;
         });
     });
 
@@ -81,14 +215,33 @@ document.addEventListener('DOMContentLoaded', function() {
         const form = document.getElementById('changePasswordForm');
         const formData = new FormData(form);
 
+        // Basic validation
+        if (!validateForm(form)) {
+            return;
+        }
+
         // Validate passwords match
         const newPassword = formData.get('new_password');
         const confirmPassword = formData.get('confirm_password');
 
         if (newPassword !== confirmPassword) {
-            alert('New passwords do not match');
+            showToast('New passwords do not match', 'error');
+            document.getElementById('confirmPassword').classList.add('is-invalid');
             return;
         }
+
+        // Validate password strength
+        if (newPassword.length < 6) {
+            showToast('Password must be at least 6 characters long', 'error');
+            document.getElementById('newPassword').classList.add('is-invalid');
+            return;
+        }
+
+        // Show loading state
+        const btn = this;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-spinner-border spinner-border-sm"></i> Changing...';
+        btn.disabled = true;
 
         fetch('/staff/change_password', {
             method: 'POST',
@@ -97,16 +250,25 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert('Password changed successfully!');
+                showToast('Password changed successfully!', 'success');
                 bootstrap.Modal.getInstance(document.getElementById('changePasswordModal')).hide();
                 form.reset();
+                // Clear validation classes
+                form.querySelectorAll('.is-valid, .is-invalid').forEach(field => {
+                    field.classList.remove('is-valid', 'is-invalid');
+                });
             } else {
-                alert(data.error || 'Failed to change password');
+                showToast(data.error || 'Failed to change password', 'error');
             }
         })
         .catch(error => {
             console.error('Error changing password:', error);
-            alert('Error changing password');
+            showToast('Error changing password', 'error');
+        })
+        .finally(() => {
+            // Reset button state
+            btn.innerHTML = originalText;
+            btn.disabled = false;
         });
     });
 
@@ -116,21 +278,37 @@ document.addEventListener('DOMContentLoaded', function() {
         const formData = new FormData(form);
 
         // Basic validation
+        if (!validateForm(form)) {
+            return;
+        }
+
+        // Additional validation
         const leaveType = formData.get('leave_type');
         const startDate = formData.get('start_date');
         const endDate = formData.get('end_date');
         const reason = formData.get('reason');
 
-        if (!leaveType || !startDate || !endDate || !reason) {
-            alert('Please fill all fields');
+        // Check if end date is after start date
+        if (new Date(endDate) < new Date(startDate)) {
+            showToast('End date must be after start date', 'error');
+            document.getElementById('endDate').classList.add('is-invalid');
             return;
         }
 
-        // Check if end date is after start date
-        if (new Date(endDate) < new Date(startDate)) {
-            alert('End date must be after start date');
+        // Check if start date is not in the past
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (new Date(startDate) < today) {
+            showToast('Start date cannot be in the past', 'error');
+            document.getElementById('startDate').classList.add('is-invalid');
             return;
         }
+
+        // Show loading state
+        const btn = this;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-spinner-border spinner-border-sm"></i> Submitting...';
+        btn.disabled = true;
 
         fetch('/apply_leave', {
             method: 'POST',
@@ -139,17 +317,26 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert('Leave application submitted successfully!');
+                showToast('Leave application submitted successfully!', 'success');
                 bootstrap.Modal.getInstance(document.getElementById('applyLeaveModal')).hide();
                 form.reset();
-                location.reload(); // Reload to show new leave application
+                // Clear validation classes
+                form.querySelectorAll('.is-valid, .is-invalid').forEach(field => {
+                    field.classList.remove('is-valid', 'is-invalid');
+                });
+                setTimeout(() => location.reload(), 1500); // Reload to show new leave application
             } else {
-                alert(data.error || 'Failed to submit leave application');
+                showToast(data.error || 'Failed to submit leave application', 'error');
             }
         })
         .catch(error => {
             console.error('Error submitting leave:', error);
-            alert('Error submitting leave application');
+            showToast('Error submitting leave application', 'error');
+        })
+        .finally(() => {
+            // Reset button state
+            btn.innerHTML = originalText;
+            btn.disabled = false;
         });
     });
 
@@ -167,5 +354,80 @@ document.addEventListener('DOMContentLoaded', function() {
                 endDateInput.value = this.value;
             }
         }
+    });
+
+    // Real-time form validation
+    document.querySelectorAll('input, select, textarea').forEach(field => {
+        field.addEventListener('input', function() {
+            if (this.hasAttribute('required')) {
+                if (this.value.trim()) {
+                    this.classList.remove('is-invalid');
+                    this.classList.add('is-valid');
+                } else {
+                    this.classList.remove('is-valid');
+                }
+            }
+        });
+
+        field.addEventListener('blur', function() {
+            if (this.hasAttribute('required') && !this.value.trim()) {
+                this.classList.add('is-invalid');
+            }
+        });
+    });
+
+    // Password confirmation validation
+    document.getElementById('confirmPassword')?.addEventListener('input', function() {
+        const newPassword = document.getElementById('newPassword')?.value;
+        if (newPassword && this.value) {
+            if (newPassword === this.value) {
+                this.classList.remove('is-invalid');
+                this.classList.add('is-valid');
+            } else {
+                this.classList.remove('is-valid');
+                this.classList.add('is-invalid');
+            }
+        }
+    });
+
+    // Photo upload preview
+    document.getElementById('profilePhoto')?.addEventListener('change', function() {
+        const file = this.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                // Create preview if it doesn't exist
+                let preview = document.getElementById('photoPreview');
+                if (!preview) {
+                    preview = document.createElement('div');
+                    preview.id = 'photoPreview';
+                    preview.className = 'mt-2';
+                    this.parentNode.appendChild(preview);
+                }
+                preview.innerHTML = `
+                    <img src="${e.target.result}" alt="Photo Preview" 
+                         style="max-width: 150px; max-height: 150px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div class="text-muted mt-1"><small>Photo preview</small></div>
+                `;
+            }.bind(this);
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // Enhanced modal focus management
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('shown.bs.modal', function() {
+            const firstInput = this.querySelector('input:not([type="hidden"]), select, textarea');
+            if (firstInput) {
+                firstInput.focus();
+            }
+        });
+
+        modal.addEventListener('hidden.bs.modal', function() {
+            // Clear validation classes when modal is closed
+            this.querySelectorAll('.is-valid, .is-invalid').forEach(field => {
+                field.classList.remove('is-valid', 'is-invalid');
+            });
+        });
     });
 });

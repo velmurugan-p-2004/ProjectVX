@@ -95,7 +95,17 @@
                                 <div class="list-group-item">
                                     <div class="d-flex justify-content-between">
                                         <div>
-                                            <strong>{{ verification.verification_type.title() }}</strong>
+                                            {% if verification.verification_type == 'check-in' %}
+                                                <span class="badge bg-success me-2">
+                                                    <i class="bi bi-box-arrow-in-right"></i> Check In
+                                                </span>
+                                            {% elif verification.verification_type == 'check-out' %}
+                                                <span class="badge bg-info me-2">
+                                                    <i class="bi bi-box-arrow-left"></i> Check Out
+                                                </span>
+                                            {% else %}
+                                                <strong>{{ verification.verification_type.title() }}</strong>
+                                            {% endif %}
                                             <small class="text-muted d-block">{{ verification.biometric_method }}</small>
                                         </div>
                                         <div class="text-end">

@@ -65,15 +65,22 @@ def timeformat_filter(time, format='%I:%M %p'):
         return "--:--"
     if isinstance(time, str):
         try:
-            # Try to parse string time
-            time = datetime.datetime.strptime(time, '%H:%M:%S').time()
+            # Try to parse string datetime with full format
+            time_obj = datetime.datetime.strptime(time, '%Y-%m-%d %H:%M:%S')
+            return time_obj.strftime(format)
         except ValueError:
             try:
-                # Try alternative format
-                time = datetime.datetime.strptime(time, '%H:%M').time()
+                # Try to parse string time only
+                time_obj = datetime.datetime.strptime(time, '%H:%M:%S').time()
+                return datetime.datetime.combine(datetime.date.today(), time_obj).strftime(format)
             except ValueError:
-                return time  # Return as-is if can't parse
-    # Convert to 12-hour format
+                try:
+                    # Try alternative format
+                    time_obj = datetime.datetime.strptime(time, '%H:%M').time()
+                    return datetime.datetime.combine(datetime.date.today(), time_obj).strftime(format)
+                except ValueError:
+                    return time  # Return as-is if can't parse
+    # Convert to 12-hour format if it's a time object
     return datetime.datetime.combine(datetime.date.today(), time).strftime(format)
 
 @app.template_filter('datetimeformat')
@@ -99,6 +106,17 @@ def capitalize_first_filter(text):
     if not text:
         return ""
     return text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+
+@app.template_filter('simple_date')
+def simple_date_filter(date_str):
+    """Convert YYYY-MM-DD to readable format"""
+    if not date_str or len(date_str) < 10:
+        return date_str
+    try:
+        date_obj = datetime.datetime.strptime(date_str[:10], '%Y-%m-%d')
+        return date_obj.strftime('%B %d, %Y')
+    except ValueError:
+        return date_str
 
 # Register cloud API blueprint if available
 if CLOUD_ENABLED:
@@ -1704,11 +1722,19 @@ def validate_verification_rules(verification_type, existing_attendance, current_
     """Validate business rules for biometric verification using shift management"""
 
     if verification_type == 'check-in':
-        # Check-in can be done anytime and will update the time each verification
+        # Check if user has already checked in today
+        if existing_attendance and existing_attendance['time_in']:
+            return 'You have already checked in today. Multiple check-ins are not allowed.'
         return None
 
     elif verification_type == 'check-out':
-        # Check-out can be done anytime and will update the time each verification
+        # Check if user has already checked out today
+        if existing_attendance and existing_attendance['time_out']:
+            return 'You have already checked out today. Multiple check-outs are not allowed.'
+        
+        # Check if user has checked in first
+        if not existing_attendance or not existing_attendance['time_in']:
+            return 'You must check in first before checking out.'
         return None
 
     return 'Invalid verification type'
@@ -1829,16 +1855,12 @@ def check_device_verification():
                 staff_shift_type, verification_time.time()
             )
 
-            # Always update check-in time, even if already exists
+            # Only create new record if no check-in exists (validation already checked this)
             if existing_attendance:
-                db.execute('''
-                    UPDATE attendance SET time_in = ?, status = ?, late_duration_minutes = ?,
-                           shift_start_time = ?, shift_end_time = ?
-                    WHERE staff_id = ? AND date = ?
-                ''', (current_time, attendance_result['status'], attendance_result['late_duration_minutes'],
-                      attendance_result['shift_start_time'].strftime('%H:%M:%S'),
-                      attendance_result['shift_end_time'].strftime('%H:%M:%S'),
-                      staff_id, today))
+                return jsonify({
+                    'success': False,
+                    'error': 'You have already checked in today.'
+                })
             else:
                 db.execute('''
                     INSERT INTO attendance (staff_id, school_id, date, time_in, status,
@@ -1850,8 +1872,13 @@ def check_device_verification():
                       attendance_result['shift_end_time'].strftime('%H:%M:%S')))
 
         elif verification_type == 'check-out':
-            # Always update check-out time, even if already exists
-            if existing_attendance:
+            # Only update check-out if no check-out exists (validation already checked this)
+            if existing_attendance and existing_attendance['time_out']:
+                return jsonify({
+                    'success': False,
+                    'error': 'You have already checked out today.'
+                })
+            elif existing_attendance:
                 # Calculate if this is early departure
                 attendance_result = shift_manager.calculate_attendance_status(
                     staff_shift_type,
@@ -1870,11 +1897,10 @@ def check_device_verification():
                     WHERE staff_id = ? AND date = ?
                 ''', (current_time, final_status, attendance_result['early_departure_minutes'], staff_id, today))
             else:
-                # Create new attendance record with check-out only
-                db.execute('''
-                    INSERT INTO attendance (staff_id, school_id, date, time_out, status)
-                    VALUES (?, ?, ?, ?, 'present')
-                ''', (staff_id, school_id, today, current_time))
+                return jsonify({
+                    'success': False,
+                    'error': 'You must check in first before checking out.'
+                })
 
         db.commit()
 
@@ -2287,21 +2313,9 @@ def calculate_daily_attendance_data(date, attendance_record, shift_def, shift_ty
     if attendance_status == 'on_duty':
         day_data['present_status'] = 'On Duty'
         # Safely access on-duty fields with fallbacks
-        try:
-            day_data['on_duty_type'] = attendance_record['on_duty_type'] if attendance_record['on_duty_type'] else 'Official Work'
-        except (KeyError, TypeError):
-            day_data['on_duty_type'] = 'Official Work'
-
-        try:
-            day_data['on_duty_location'] = attendance_record['on_duty_location'] if attendance_record['on_duty_location'] else 'Not specified'
-        except (KeyError, TypeError):
-            day_data['on_duty_location'] = 'Not specified'
-
-        try:
-            day_data['on_duty_purpose'] = attendance_record['on_duty_purpose'] if attendance_record['on_duty_purpose'] else 'Official duty'
-        except (KeyError, TypeError):
-            day_data['on_duty_purpose'] = 'Official duty'
-
+        day_data['on_duty_type'] = attendance_record['on_duty_type'] if attendance_record['on_duty_type'] else 'Official Work'
+        day_data['on_duty_location'] = attendance_record['on_duty_location'] if attendance_record['on_duty_location'] else 'Not specified'
+        day_data['on_duty_purpose'] = attendance_record['on_duty_purpose'] if attendance_record['on_duty_purpose'] else 'Official duty'
         return day_data  # Return early for on-duty status
 
     # Staff was present if there's a time_in record
@@ -2313,7 +2327,7 @@ def calculate_daily_attendance_data(date, attendance_record, shift_def, shift_ty
         if shift_def:
             actual_time = datetime.datetime.strptime(attendance_record['time_in'], '%H:%M:%S').time()
             shift_start_time = datetime.datetime.strptime(shift_def['start_time'], '%H:%M:%S').time()
-            grace_period = shift_def.get('grace_period_minutes', 10)
+            grace_period = shift_def['grace_period_minutes'] if shift_def['grace_period_minutes'] else 10
 
             # Convert times to datetime objects for comparison
             actual_datetime = datetime.datetime.combine(datetime.date.today(), actual_time)
@@ -2449,6 +2463,17 @@ def add_staff_enhanced():
 
     # Create full_name from first_name and last_name
     full_name = f"{first_name} {last_name}".strip() if first_name or last_name else ""
+
+    # Validate age (must be 18 or older)
+    if date_of_birth:
+        try:
+            birth_date = datetime.datetime.strptime(date_of_birth, '%Y-%m-%d').date()
+            today = datetime.date.today()
+            age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+            if age < 18:
+                return jsonify({'success': False, 'error': 'Staff member must be at least 18 years old'})
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid date of birth format'})
 
     db = get_db()
 
@@ -2910,22 +2935,48 @@ def update_department_shift():
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
     school_id = session['school_id']
-    original_department = request.form.get('original_department')
+    department = request.form.get('department')
     shift_type = request.form.get('shift_type')
 
-    if not original_department or not shift_type:
+    if not department or not shift_type:
         return jsonify({'success': False, 'error': 'Department and shift type are required'})
 
     db = get_db()
 
     try:
-        db.execute('''
-            UPDATE department_shift_mappings
-            SET default_shift_type = ?, updated_at = CURRENT_TIMESTAMP
+        # Check if mapping already exists
+        existing = db.execute('''
+            SELECT id FROM department_shift_mappings
             WHERE school_id = ? AND department = ?
-        ''', (shift_type, school_id, original_department))
+        ''', (school_id, department)).fetchone()
+        
+        if existing:
+            # Update existing mapping
+            db.execute('''
+                UPDATE department_shift_mappings
+                SET default_shift_type = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE school_id = ? AND department = ?
+            ''', (shift_type, school_id, department))
+        else:
+            # Insert new mapping
+            db.execute('''
+                INSERT INTO department_shift_mappings (school_id, department, default_shift_type, created_at, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ''', (school_id, department, shift_type))
+        
+        # Update all staff members in this department to the new shift type
+        staff_updated = db.execute('''
+            UPDATE staff
+            SET shift_type = ?
+            WHERE school_id = ? AND department = ?
+        ''', (shift_type, school_id, department))
+        
+        affected_rows = staff_updated.rowcount
+        
         db.commit()
-        return jsonify({'success': True})
+        
+        message = f'Department {department} assigned to {shift_type} shift successfully. {affected_rows} staff members updated.'
+        return jsonify({'success': True, 'message': message, 'affected_staff': affected_rows})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -3331,13 +3382,20 @@ def staff_profile(id):
 
 
 
-    # Get recent biometric verifications
+    # Get recent biometric verifications (latest per day per type)
     recent_verifications = db.execute('''
         SELECT verification_type, verification_time, biometric_method, verification_status
-        FROM biometric_verifications
+        FROM biometric_verifications bv1
         WHERE staff_id = ?
+          AND verification_time = (
+            SELECT MAX(verification_time)
+            FROM biometric_verifications bv2
+            WHERE bv2.staff_id = bv1.staff_id
+              AND bv2.verification_type = bv1.verification_type
+              AND DATE(bv2.verification_time) = DATE(bv1.verification_time)
+          )
         ORDER BY verification_time DESC
-        LIMIT 10
+        LIMIT 20
     ''', (id,)).fetchall()
 
     return render_template('staff_profile.html',
@@ -4456,11 +4514,18 @@ def staff_profile_page():
         LIMIT 10
     ''', (staff_id,)).fetchall()
 
-    # Get recent biometric verifications
+    # Get recent biometric verifications (latest per day per type)
     recent_verifications = db.execute('''
         SELECT verification_type, verification_time, biometric_method, verification_status
-        FROM biometric_verifications
+        FROM biometric_verifications bv1
         WHERE staff_id = ?
+          AND verification_time = (
+            SELECT MAX(verification_time)
+            FROM biometric_verifications bv2
+            WHERE bv2.staff_id = bv1.staff_id
+              AND bv2.verification_type = bv1.verification_type
+              AND DATE(bv2.verification_time) = DATE(bv1.verification_time)
+          )
         ORDER BY verification_time DESC
         LIMIT 20
     ''', (staff_id,)).fetchall()

@@ -1,14 +1,26 @@
-/* General Styles */
+/* General Styles - Enhanced */
 body {
-    background-color: #f8f9fa;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
 }
 
 .card {
-    border-radius: 10px;
+    border-radius: 12px;
     overflow: hidden;
     border: none;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.95);
+}
+
+/* Enhanced container styling */
+.container-fluid {
+    padding: 0;
+    margin: 0;
+    max-width: 100%;
 }
 /* Header Styles */
 header {

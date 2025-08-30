@@ -1,14 +1,95 @@
-// Staff Management JavaScript
+// Staff Management JavaScript - Enhanced Version
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize enhanced UI components
+    initializeEnhancedUI();
+
     // Initialize search and filter functionality
     initializeSearchAndFilter();
-    
+
     // Initialize form handlers
     initializeFormHandlers();
-    
+
     // Initialize export functionality
     initializeExportFunctionality();
+
+    // Initialize loading overlay
+    initializeLoadingOverlay();
+
+    // Update stats display
+    updateStatsDisplay();
 });
+
+function initializeEnhancedUI() {
+    // Initialize sidebar toggle for mobile
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', function() {
+            const sidebar = document.querySelector('.enhanced-sidebar');
+            sidebar.classList.toggle('show');
+        });
+    }
+
+    // Initialize refresh button
+    const refreshBtn = document.getElementById('refreshDataBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            showLoadingOverlay();
+            setTimeout(() => {
+                location.reload();
+            }, 500);
+        });
+    }
+
+    // Initialize clear filters button
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', function() {
+            document.getElementById('staffSearchInput').value = '';
+            document.getElementById('departmentFilter').value = '';
+            document.getElementById('genderFilter').value = '';
+            filterTable();
+        });
+    }
+
+    // Update current date in sidebar
+    const currentDateElement = document.getElementById('currentDate');
+    if (currentDateElement) {
+        const today = new Date();
+        currentDateElement.textContent = today.toLocaleDateString();
+    }
+}
+
+function initializeLoadingOverlay() {
+    window.showLoadingOverlay = function() {
+        const overlay = document.getElementById('loadingOverlay');
+        if (overlay) {
+            overlay.classList.remove('d-none');
+        }
+    };
+
+    window.hideLoadingOverlay = function() {
+        const overlay = document.getElementById('loadingOverlay');
+        if (overlay) {
+            overlay.classList.add('d-none');
+        }
+    };
+}
+
+function updateStatsDisplay() {
+    const totalStaffElement = document.getElementById('totalStaffDisplay');
+    const totalStaffCountElement = document.getElementById('totalStaffCount');
+    const tableBody = document.getElementById('staffTableBody');
+
+    if (tableBody) {
+        const totalStaff = tableBody.querySelectorAll('tr').length;
+        if (totalStaffElement) {
+            totalStaffElement.textContent = totalStaff;
+        }
+        if (totalStaffCountElement) {
+            totalStaffCountElement.textContent = totalStaff;
+        }
+    }
+}
 
 function initializeSearchAndFilter() {
     const searchInput = document.getElementById('staffSearchInput');
