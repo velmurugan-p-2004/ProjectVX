@@ -1637,11 +1637,165 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     };
 
+    // Work Time Assignment functionality
+    function initializeWorkTimeAssignment() {
+        const workTimeForm = document.getElementById('workTimeForm');
+        const checkinTimeInput = document.getElementById('institutionCheckinTime');
+        const checkoutTimeInput = document.getElementById('institutionCheckoutTime');
+        const validationMessage = document.getElementById('timeValidationMessage');
+        const successMessage = document.getElementById('timingSuccessMessage');
+        const errorMessage = document.getElementById('timingErrorMessage');
+        const resetBtn = document.getElementById('resetTimingBtn');
+        const currentCheckinTimeDisplay = document.getElementById('currentCheckinTime');
+        const currentCheckoutTimeDisplay = document.getElementById('currentCheckoutTime');
 
+        // Load current institution timings on page load
+        function loadCurrentTimings() {
+            fetch('/api/get_institution_timings', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const checkinTime = data.checkin_time || '09:00';
+                    const checkoutTime = data.checkout_time || '17:00';
+                    
+                    // Update form inputs
+                    checkinTimeInput.value = checkinTime;
+                    checkoutTimeInput.value = checkoutTime;
+                    
+                    // Update display cards
+                    currentCheckinTimeDisplay.textContent = formatTimeToAMPM(checkinTime);
+                    currentCheckoutTimeDisplay.textContent = formatTimeToAMPM(checkoutTime);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading timings:', error);
+            });
+        }
 
+        // Format time from 24-hour to 12-hour format
+        function formatTimeToAMPM(time24) {
+            const [hours, minutes] = time24.split(':');
+            const hour = parseInt(hours);
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            const hour12 = hour % 12 || 12;
+            return `${hour12}:${minutes} ${ampm}`;
+        }
 
+        // Validate time inputs
+        function validateTimes() {
+            const checkinTime = checkinTimeInput.value;
+            const checkoutTime = checkoutTimeInput.value;
+            
+            if (checkinTime && checkoutTime) {
+                const checkinMinutes = timeToMinutes(checkinTime);
+                const checkoutMinutes = timeToMinutes(checkoutTime);
+                
+                if (checkoutMinutes <= checkinMinutes) {
+                    validationMessage.style.display = 'block';
+                    return false;
+                } else {
+                    validationMessage.style.display = 'none';
+                    return true;
+                }
+            }
+            return true;
+        }
 
+        // Convert time string to minutes for comparison
+        function timeToMinutes(timeString) {
+            const [hours, minutes] = timeString.split(':').map(Number);
+            return hours * 60 + minutes;
+        }
 
+        // Hide all messages
+        function hideAllMessages() {
+            successMessage.style.display = 'none';
+            errorMessage.style.display = 'none';
+            validationMessage.style.display = 'none';
+        }
 
+        // Event listeners for time validation
+        checkinTimeInput.addEventListener('change', validateTimes);
+        checkoutTimeInput.addEventListener('change', validateTimes);
+
+        // Form submission handler
+        if (workTimeForm) {
+            workTimeForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                hideAllMessages();
+                
+                if (!validateTimes()) {
+                    return;
+                }
+                
+                const formData = new FormData();
+                formData.append('checkin_time', checkinTimeInput.value);
+                formData.append('checkout_time', checkoutTimeInput.value);
+                formData.append('csrf_token', getCSRFToken());
+                
+                // Disable submit button
+                const submitBtn = document.getElementById('saveTimingBtn');
+                const originalText = submitBtn.innerHTML;
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
+                
+                fetch('/api/update_institution_timings', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        successMessage.style.display = 'block';
+                        
+                        // Update display cards
+                        currentCheckinTimeDisplay.textContent = formatTimeToAMPM(checkinTimeInput.value);
+                        currentCheckoutTimeDisplay.textContent = formatTimeToAMPM(checkoutTimeInput.value);
+                        
+                        // Auto-hide success message after 3 seconds
+                        setTimeout(() => {
+                            successMessage.style.display = 'none';
+                        }, 3000);
+                    } else {
+                        errorMessage.style.display = 'block';
+                        document.getElementById('errorMessageText').textContent = data.message || 'Failed to update timings. Please try again.';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating timings:', error);
+                    errorMessage.style.display = 'block';
+                    document.getElementById('errorMessageText').textContent = 'Network error. Please try again.';
+                })
+                .finally(() => {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalText;
+                });
+            });
+        }
+
+        // Reset button handler
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function() {
+                if (confirm('Are you sure you want to reset to default timings (9:00 AM - 5:00 PM)?')) {
+                    checkinTimeInput.value = '09:00';
+                    checkoutTimeInput.value = '17:00';
+                    hideAllMessages();
+                    validateTimes();
+                }
+            });
+        }
+
+        // Load current timings on initialization
+        loadCurrentTimings();
+    }
+
+    // Initialize Work Time Assignment when DOM is loaded
+    initializeWorkTimeAssignment();
 
 });

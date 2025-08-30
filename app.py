@@ -5133,6 +5133,125 @@ def admin_settings():
 
     return render_template('admin_settings.html')
 
+@app.route('/api/get_institution_timings', methods=['GET'])
+def get_institution_timings():
+    """Get current institution check-in and check-out timings"""
+    try:
+        db = get_db()
+        
+        # Check if settings table exists and create if not
+        cursor = db.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='institution_settings'
+        """)
+        
+        if not cursor.fetchone():
+            # Create the settings table
+            db.execute("""
+                CREATE TABLE institution_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    setting_name TEXT UNIQUE NOT NULL,
+                    setting_value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Insert default timings
+            db.execute("""
+                INSERT INTO institution_settings (setting_name, setting_value) 
+                VALUES ('checkin_time', '09:00'), ('checkout_time', '17:00')
+            """)
+            db.commit()
+        
+        # Fetch current timings
+        cursor = db.execute("""
+            SELECT setting_name, setting_value 
+            FROM institution_settings 
+            WHERE setting_name IN ('checkin_time', 'checkout_time')
+        """)
+        
+        settings = dict(cursor.fetchall())
+        
+        return jsonify({
+            'success': True,
+            'checkin_time': settings.get('checkin_time', '09:00'),
+            'checkout_time': settings.get('checkout_time', '17:00')
+        })
+        
+    except Exception as e:
+        print(f"Error getting institution timings: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to retrieve institution timings'
+        }), 500
+
+@app.route('/api/update_institution_timings', methods=['POST'])
+def update_institution_timings():
+    """Update institution check-in and check-out timings"""
+    try:
+        # Check authorization
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+        
+        checkin_time = request.form.get('checkin_time')
+        checkout_time = request.form.get('checkout_time')
+        
+        # Validate inputs
+        if not checkin_time or not checkout_time:
+            return jsonify({
+                'success': False,
+                'message': 'Both check-in and check-out times are required'
+            }), 400
+        
+        # Validate time format (HH:MM)
+        import re
+        time_pattern = re.compile(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
+        
+        if not time_pattern.match(checkin_time) or not time_pattern.match(checkout_time):
+            return jsonify({
+                'success': False,
+                'message': 'Invalid time format. Please use HH:MM format'
+            }), 400
+        
+        # Validate that checkout is after checkin
+        from datetime import datetime
+        checkin_dt = datetime.strptime(checkin_time, '%H:%M')
+        checkout_dt = datetime.strptime(checkout_time, '%H:%M')
+        
+        if checkout_dt <= checkin_dt:
+            return jsonify({
+                'success': False,
+                'message': 'Check-out time must be later than check-in time'
+            }), 400
+        
+        db = get_db()
+        
+        # Update or insert the timings
+        for setting_name, setting_value in [('checkin_time', checkin_time), ('checkout_time', checkout_time)]:
+            db.execute("""
+                INSERT OR REPLACE INTO institution_settings (setting_name, setting_value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+            """, (setting_name, setting_value))
+        
+        db.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Institution timings updated successfully',
+            'checkin_time': checkin_time,
+            'checkout_time': checkout_time
+        })
+        
+    except Exception as e:
+        print(f"Error updating institution timings: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to update institution timings'
+        }), 500
+
 if __name__ == '__main__':
     init_db(app)
     app.run(debug=True, host='0.0.0.0', port=5000)
