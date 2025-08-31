@@ -1570,6 +1570,171 @@ def department_shifts():
 
     return render_template('department_shifts.html', mappings=mappings, departments=departments)
 
+@app.route('/api/department_shifts', methods=['GET', 'POST', 'DELETE'])
+def api_department_shifts():
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized access'}), 401
+
+    db = get_db()
+    school_id = session['school_id']
+
+    if request.method == 'GET':
+        try:
+            # Get all department shift mappings
+            mappings = db.execute('''
+                SELECT department, default_shift_type, created_at, updated_at
+                FROM department_shift_mappings 
+                WHERE school_id = ?
+                ORDER BY department
+            ''', [school_id]).fetchall()
+            
+            mappings_list = []
+            for mapping in mappings:
+                mappings_list.append({
+                    'department': mapping['department'],
+                    'default_shift_type': mapping['default_shift_type'],
+                    'created_at': mapping['created_at'],
+                    'updated_at': mapping['updated_at']
+                })
+            
+            return jsonify({
+                'success': True,
+                'mappings': mappings_list
+            })
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'Error loading department shifts: {str(e)}'
+            }), 500
+
+    elif request.method == 'POST':
+        try:
+            data = request.get_json()
+            department = data.get('department', '').strip()
+            shift_type = data.get('shift_type', '').strip()
+            
+            if not department or not shift_type:
+                return jsonify({
+                    'success': False,
+                    'message': 'Department and shift type are required'
+                }), 400
+
+            # Check if mapping already exists
+            existing = db.execute('''
+                SELECT id FROM department_shift_mappings 
+                WHERE school_id = ? AND department = ?
+            ''', [school_id, department]).fetchone()
+            
+            if existing:
+                return jsonify({
+                    'success': False,
+                    'message': f'Department mapping for "{department}" already exists'
+                }), 400
+
+            # Create new mapping
+            current_time = datetime.datetime.now().isoformat()
+            db.execute('''
+                INSERT INTO department_shift_mappings 
+                (school_id, department, default_shift_type, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            ''', [school_id, department, shift_type, current_time, current_time])
+            
+            db.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Department shift mapping for "{department}" created successfully'
+            })
+            
+        except Exception as e:
+            db.rollback()
+            return jsonify({
+                'success': False,
+                'message': f'Error creating department mapping: {str(e)}'
+            }), 500
+
+    elif request.method == 'DELETE':
+        try:
+            data = request.get_json()
+            department = data.get('department', '').strip()
+            
+            if not department:
+                return jsonify({
+                    'success': False,
+                    'message': 'Department is required'
+                }), 400
+
+            # Delete the mapping
+            result = db.execute('''
+                DELETE FROM department_shift_mappings 
+                WHERE school_id = ? AND department = ?
+            ''', [school_id, department])
+            
+            if result.rowcount == 0:
+                return jsonify({
+                    'success': False,
+                    'message': f'Department mapping for "{department}" not found'
+                }), 404
+            
+            db.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Department shift mapping for "{department}" deleted successfully'
+            })
+            
+        except Exception as e:
+            db.rollback()
+            return jsonify({
+                'success': False,
+                'message': f'Error deleting department mapping: {str(e)}'
+            }), 500
+
+# Test route for department shifts debugging
+@app.route('/test/department_shifts')
+def test_department_shifts():
+    return render_template('test_department_shifts.html')
+
+# Debug route to check database tables
+@app.route('/api/debug/tables')
+def debug_tables():
+    try:
+        db = get_db()
+        
+        # Get all tables
+        tables = db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        table_list = [row['name'] for row in tables]
+        
+        result = f"Available tables: {table_list}\n\n"
+        
+        # Check if department_shift_mappings table exists
+        if 'department_shift_mappings' in table_list:
+            result += "department_shift_mappings table EXISTS\n"
+            
+            # Get table structure
+            schema = db.execute("PRAGMA table_info(department_shift_mappings)").fetchall()
+            result += "Table structure:\n"
+            for col in schema:
+                result += f"  {col['name']} ({col['type']})\n"
+            
+            # Get record count
+            count = db.execute("SELECT COUNT(*) as count FROM department_shift_mappings").fetchone()
+            result += f"\nRecord count: {count['count']}\n"
+            
+            # Get sample records
+            if count['count'] > 0:
+                records = db.execute("SELECT * FROM department_shift_mappings LIMIT 5").fetchall()
+                result += "\nSample records:\n"
+                for record in records:
+                    result += f"  {dict(record)}\n"
+        else:
+            result += "department_shift_mappings table does NOT exist\n"
+        
+        return result, 200, {'Content-Type': 'text/plain'}
+        
+    except Exception as e:
+        return f"Error checking database: {str(e)}", 500, {'Content-Type': 'text/plain'}
+
 @app.route('/admin/staff_management')
 def staff_management():
     if 'user_id' not in session or session['user_type'] != 'admin':

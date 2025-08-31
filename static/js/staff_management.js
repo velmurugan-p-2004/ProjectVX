@@ -475,3 +475,239 @@ function showAlert(message, type) {
         }
     }, 5000);
 }
+
+// Department Shift Management Functions
+function initializeDepartmentShifts() {
+    loadDepartmentShiftMappings();
+    initializeDeptMappingForm();
+}
+
+function loadDepartmentShiftMappings() {
+    const container = document.getElementById('departmentShiftMappings');
+    if (!container) return;
+
+    // Show loading state
+    container.innerHTML = `
+        <div class="col-12 text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading department shifts...</span>
+            </div>
+            <p class="text-muted mt-2">Loading department shift mappings...</p>
+        </div>
+    `;
+
+    fetch('/api/department_shifts')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.mappings) {
+                renderDepartmentShiftMappings(data.mappings);
+            } else {
+                showEmptyDepartmentShifts();
+            }
+        })
+        .catch(error => {
+            console.error('Error loading department shifts:', error);
+            showDepartmentShiftsError();
+        });
+}
+
+function renderDepartmentShiftMappings(mappings) {
+    const container = document.getElementById('departmentShiftMappings');
+    if (!container) return;
+
+    if (mappings.length === 0) {
+        showEmptyDepartmentShifts();
+        return;
+    }
+
+    const mappingsHTML = mappings.map(mapping => `
+        <div class="col-md-6 col-lg-4 mb-3">
+            <div class="card h-100 dept-shift-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="dept-icon me-3">
+                            <i class="bi bi-building-fill text-primary fs-4"></i>
+                        </div>
+                        <div>
+                            <h6 class="card-title mb-1">${mapping.department}</h6>
+                            <small class="text-muted">Department</small>
+                        </div>
+                    </div>
+                    <div class="shift-info">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted">Default Shift:</span>
+                            <span class="badge bg-info">${mapping.default_shift_type.charAt(0).toUpperCase() + mapping.default_shift_type.slice(1)}</span>
+                        </div>
+                        <div class="text-muted small">
+                            <div>Created: ${mapping.created_at ? mapping.created_at.substring(0, 10) : 'N/A'}</div>
+                            <div>Updated: ${mapping.updated_at ? mapping.updated_at.substring(0, 10) : 'N/A'}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-primary flex-fill" onclick="editDeptMapping('${mapping.department}', '${mapping.default_shift_type}')" title="Edit mapping">
+                            <i class="bi bi-pencil"></i> Edit
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteDeptMapping('${mapping.department}')" title="Delete mapping">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+
+    container.innerHTML = mappingsHTML;
+}
+
+function showEmptyDepartmentShifts() {
+    const container = document.getElementById('departmentShiftMappings');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="col-12">
+            <div class="empty-state text-center py-4">
+                <div class="empty-icon mb-3">
+                    <i class="bi bi-clock-history text-muted" style="font-size: 3rem;"></i>
+                </div>
+                <h6 class="empty-title text-muted">No Department Mappings Found</h6>
+                <p class="empty-text text-muted">Configure default shift types for departments to automate staff shift assignment during onboarding.</p>
+                <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addDeptMappingModal">
+                    <i class="bi bi-plus-circle"></i> Add First Mapping
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function showDepartmentShiftsError() {
+    const container = document.getElementById('departmentShiftMappings');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="col-12">
+            <div class="alert alert-danger text-center">
+                <i class="bi bi-exclamation-triangle"></i>
+                <strong>Error loading department shifts</strong><br>
+                <small>Please refresh the page or contact support if the problem persists.</small>
+            </div>
+        </div>
+    `;
+}
+
+function initializeDeptMappingForm() {
+    const form = document.getElementById('addDeptMappingForm');
+    if (form) {
+        form.addEventListener('submit', handleDeptMappingSubmit);
+    }
+
+    // Handle custom department toggle
+    const deptSelect = document.getElementById('deptAddDepartment');
+    const customDiv = document.getElementById('deptCustomDepartmentDiv');
+    
+    if (deptSelect && customDiv) {
+        deptSelect.addEventListener('change', function() {
+            if (this.value === 'custom') {
+                customDiv.style.display = 'block';
+                document.getElementById('deptCustomDepartment').required = true;
+            } else {
+                customDiv.style.display = 'none';
+                document.getElementById('deptCustomDepartment').required = false;
+            }
+        });
+    }
+}
+
+function handleDeptMappingSubmit(event) {
+    event.preventDefault();
+    
+    const formData = new FormData(event.target);
+    const data = {};
+    
+    for (let [key, value] of formData.entries()) {
+        data[key] = value;
+    }
+
+    // Handle custom department
+    if (data.department === 'custom' && data.custom_department) {
+        data.department = data.custom_department;
+        delete data.custom_department;
+    }
+
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    const originalHTML = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Adding...';
+    submitBtn.disabled = true;
+
+    fetch('/api/department_shifts', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('input[name="csrf_token"]').value
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showAlert('Department shift mapping added successfully!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('addDeptMappingModal')).hide();
+            event.target.reset();
+            loadDepartmentShiftMappings();
+        } else {
+            showAlert(result.message || 'Failed to add department mapping', 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('An error occurred while adding the mapping', 'danger');
+    })
+    .finally(() => {
+        submitBtn.innerHTML = originalHTML;
+        submitBtn.disabled = false;
+    });
+}
+
+function editDeptMapping(department, shiftType) {
+    // For now, redirect to the dedicated department shifts page
+    // This can be enhanced to show an inline edit modal later
+    showAlert('Redirecting to Department Shift Management page...', 'info');
+    setTimeout(() => {
+        window.location.href = `/admin/department_shifts`;
+    }, 1000);
+}
+
+function deleteDeptMapping(department) {
+    if (!confirm(`Are you sure you want to delete the shift mapping for "${department}" department?`)) {
+        return;
+    }
+
+    fetch('/api/department_shifts', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('input[name="csrf_token"]').value
+        },
+        body: JSON.stringify({ department: department })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showAlert('Department shift mapping deleted successfully!', 'success');
+            loadDepartmentShiftMappings();
+        } else {
+            showAlert(result.message || 'Failed to delete department mapping', 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('An error occurred while deleting the mapping', 'danger');
+    });
+}
+
+// Initialize department shifts when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Add a small delay to ensure the main initialization is complete
+    setTimeout(initializeDepartmentShifts, 100);
+});
