@@ -388,3 +388,107 @@ def init_db(app):
             ''')
 
         db.commit()
+
+
+def get_institution_timings():
+    """
+    Get institution-wide check-in and check-out times from database.
+    Returns dynamic timings if set, otherwise returns default times.
+    
+    Returns:
+        dict: {
+            'checkin_time': datetime.time object,
+            'checkout_time': datetime.time object,
+            'is_custom': bool (True if custom timings are set)
+        }
+    """
+    import datetime
+    
+    try:
+        db = get_db()
+        
+        # Check if institution_settings table exists
+        cursor = db.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='institution_settings'
+        """)
+        
+        if not cursor.fetchone():
+            # Return default timings if table doesn't exist
+            return {
+                'checkin_time': datetime.time(9, 0),   # 9:00 AM
+                'checkout_time': datetime.time(17, 0), # 5:00 PM
+                'is_custom': False
+            }
+        
+        # Fetch current institution timings
+        cursor = db.execute("""
+            SELECT setting_name, setting_value 
+            FROM institution_settings 
+            WHERE setting_name IN ('checkin_time', 'checkout_time')
+        """)
+        
+        settings = dict(cursor.fetchall())
+        
+        if not settings or len(settings) < 2:
+            # Return default timings if no custom settings found
+            return {
+                'checkin_time': datetime.time(9, 0),   # 9:00 AM
+                'checkout_time': datetime.time(17, 0), # 5:00 PM
+                'is_custom': False
+            }
+        
+        # Parse time strings and return as time objects
+        checkin_str = settings.get('checkin_time', '09:00')
+        checkout_str = settings.get('checkout_time', '17:00')
+        
+        # Convert string to time object (format: HH:MM)
+        checkin_time = datetime.datetime.strptime(checkin_str, '%H:%M').time()
+        checkout_time = datetime.datetime.strptime(checkout_str, '%H:%M').time()
+        
+        return {
+            'checkin_time': checkin_time,
+            'checkout_time': checkout_time,
+            'is_custom': True
+        }
+        
+    except Exception as e:
+        print(f"Error getting institution timings: {e}")
+        # Return default timings on error
+        return {
+            'checkin_time': datetime.time(9, 0),   # 9:00 AM
+            'checkout_time': datetime.time(17, 0), # 5:00 PM
+            'is_custom': False
+        }
+
+
+def calculate_attendance_status(check_time, verification_type='check-in', grace_minutes=10):
+    """
+    Calculate attendance status based on institution timings.
+    
+    Args:
+        check_time (datetime.time): Time when staff checked in/out
+        verification_type (str): 'check-in' or 'check-out'
+        grace_minutes (int): Grace period in minutes for late arrival
+    
+    Returns:
+        str: Attendance status ('present', 'late', 'early_departure')
+    """
+    import datetime
+    
+    timings = get_institution_timings()
+    
+    if verification_type == 'check-in':
+        # Calculate grace period cutoff
+        checkin_dt = datetime.datetime.combine(datetime.date.today(), timings['checkin_time'])
+        grace_cutoff = checkin_dt + datetime.timedelta(minutes=grace_minutes)
+        grace_cutoff_time = grace_cutoff.time()
+        
+        return 'late' if check_time > grace_cutoff_time else 'present'
+    
+    elif verification_type == 'check-out':
+        # For check-out, consider early departure
+        return 'early_departure' if check_time < timings['checkout_time'] else 'present'
+    
+    else:
+        return 'present'

@@ -371,12 +371,12 @@ class ZKBiometricDevice:
             SELECT * FROM attendance WHERE staff_id = ? AND date = ?
         ''', (staff_db_id, today)).fetchone()
 
-        # Define time thresholds
-        LATE_ARRIVAL_TIME = datetime.time(9, 0)  # 9:00 AM
+        # Import database utilities for dynamic timings
+        from database import calculate_attendance_status
 
         if verification_type == 'check-in':
-            # Check-in verification
-            status = 'late' if timestamp.time() > LATE_ARRIVAL_TIME else 'present'
+            # Check-in verification using dynamic institution timings
+            status = calculate_attendance_status(timestamp.time(), 'check-in')
             if existing_attendance:
                 # Update existing record
                 db.execute('''
@@ -391,12 +391,23 @@ class ZKBiometricDevice:
                 ''', (staff_db_id, school_id, today, current_time, status))
 
         elif verification_type == 'check-out':
-            # Check-out verification
+            # Check-out verification with early departure detection
             if existing_attendance:
-                db.execute('''
-                    UPDATE attendance SET time_out = ?
-                    WHERE staff_id = ? AND date = ?
-                ''', (current_time, staff_db_id, today))
+                # Calculate check-out status (early departure detection)
+                checkout_status = calculate_attendance_status(timestamp.time(), 'check-out')
+                
+                # Update status if early departure detected, otherwise keep current status
+                if checkout_status == 'early_departure':
+                    db.execute('''
+                        UPDATE attendance SET time_out = ?, status = ?
+                        WHERE staff_id = ? AND date = ?
+                    ''', (current_time, 'early_departure', staff_db_id, today))
+                else:
+                    # Normal check-out, just update time_out
+                    db.execute('''
+                        UPDATE attendance SET time_out = ?
+                        WHERE staff_id = ? AND date = ?
+                    ''', (current_time, staff_db_id, today))
 
         elif verification_type == 'overtime-in':
             # Overtime-in verification
@@ -958,8 +969,9 @@ class AttendanceSync:
                             ''', (staff_id, date)).fetchone()
 
                             if not existing:
-                                # Determine if late (after 9:00 AM)
-                                status = 'late' if time_val > datetime.time(9, 0) else 'present'
+                                # Use dynamic institution timings for status calculation
+                                from database import calculate_attendance_status
+                                status = calculate_attendance_status(time_val, 'check-in')
 
                                 # Convert time to string format for SQLite
                                 time_str = time_val.strftime('%H:%M:%S')

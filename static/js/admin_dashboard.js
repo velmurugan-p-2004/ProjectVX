@@ -1809,16 +1809,27 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
+                        // Enhanced success message with attendance impact info
+                        successMessage.innerHTML = `
+                            <i class="bi bi-check-circle-fill"></i> 
+                            <strong>Institution timings updated successfully!</strong>
+                            <br><small class="mt-1 d-block">
+                                <i class="bi bi-info-circle"></i> 
+                                New attendance entries will use these timings:
+                                <br>• <strong>Late</strong> if check-in after ${formatTimeToAMPM(checkinTimeInput.value)} + 10 min grace
+                                <br>• <strong>Early departure</strong> if check-out before ${formatTimeToAMPM(checkoutTimeInput.value)}
+                            </small>
+                        `;
                         successMessage.style.display = 'block';
                         
                         // Update display cards
                         currentCheckinTimeDisplay.textContent = formatTimeToAMPM(checkinTimeInput.value);
                         currentCheckoutTimeDisplay.textContent = formatTimeToAMPM(checkoutTimeInput.value);
                         
-                        // Auto-hide success message after 3 seconds
+                        // Auto-hide success message after 6 seconds (more time to read)
                         setTimeout(() => {
                             successMessage.style.display = 'none';
-                        }, 3000);
+                        }, 6000);
                     } else {
                         errorMessage.style.display = 'block';
                         document.getElementById('errorMessageText').textContent = data.message || 'Failed to update timings. Please try again.';
