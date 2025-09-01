@@ -13,14 +13,14 @@
 </head>
 <body>
     <!-- Mobile Sidebar Toggle -->
-    <button type="button" class="sidebar-toggle d-md-none" id="sidebarToggle" title="Toggle sidebar menu">
+    <button type="button" class="sidebar-toggle d-md-none" id="sidebarToggle" title="Toggle sidebar menu" aria-expanded="false" aria-controls="enhanced-sidebar">
         <i class="bi bi-list"></i>
     </button>
 
     <div class="container-fluid">
         <div class="row">
             <!-- Enhanced Sidebar -->
-            <nav class="col-md-2 d-none d-md-block enhanced-sidebar">
+            <nav class="col-md-2 d-none d-md-block enhanced-sidebar" id="enhanced-sidebar">
                 <div class="sidebar-header">
                     <div class="brand-logo">
                         <div class="logo-icon">
@@ -84,6 +84,23 @@
                             </li>
                         </ul>
                     </div>
+                    <!-- Sidebar Footer -->
+                    <div class="sidebar-footer">
+                    <div class="footer-stats">
+                        <div class="stat-item">
+                            <i class="bi bi-people"></i>
+                            <span id="totalStaffCount">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <i class="bi bi-calendar-day"></i>
+                            <span id="currentDate">-</span>
+                        </div>
+                    </div>
+                    <button type="button" class="logout-btn" onclick="logout()" title="Logout" aria-label="Logout from admin panel">
+                        <i class="bi bi-box-arrow-right"></i>
+                        <span>Logout</span>
+                    </button>
+                </div>
                 </div>
             </nav>
             <!-- Main content -->
@@ -595,7 +612,7 @@
         </div>
     </div>
 
-    <!-- Quick Actions Sidebar -->
+    <!-- Quick Actions Sidebar
     <div class="quick-actions-sidebar">
         <div class="quick-actions-header">
             <h6><i class="bi bi-lightning"></i> Quick Actions</h6>
@@ -642,7 +659,7 @@
                 <i class="bi bi-chevron-right"></i>
             </button>
         </div>
-    </div>
+    </div> -->
 
     <!-- Comprehensive Staff Profile Modal -->
     <div class="modal fade" id="staffProfileModal" tabindex="-1" aria-labelledby="staffProfileModalLabel" aria-hidden="true">
@@ -836,5 +853,40 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="{{ url_for('static', filename='js/weekly_calendar.js') }}"></script>
     <script src="{{ url_for('static', filename='js/admin_dashboard.js') }}"></script>
+    
+    <script>
+        // Mobile sidebar toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebar = document.querySelector('.enhanced-sidebar');
+            
+            if (sidebarToggle && sidebar) {
+                sidebarToggle.addEventListener('click', function() {
+                    sidebar.classList.toggle('show');
+                    
+                    // Update aria-expanded for accessibility
+                    const expanded = sidebar.classList.contains('show');
+                    sidebarToggle.setAttribute('aria-expanded', expanded);
+                });
+                
+                // Close sidebar when clicking outside on mobile
+                document.addEventListener('click', function(event) {
+                    if (window.innerWidth < 768) { // Only on mobile
+                        if (!sidebar.contains(event.target) && !sidebarToggle.contains(event.target)) {
+                            sidebar.classList.remove('show');
+                            sidebarToggle.setAttribute('aria-expanded', 'false');
+                        }
+                    }
+                });
+            }
+        });
+        
+        // Logout function
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                window.location.href = "{{ url_for('logout') }}";
+            }
+        }
+    </script>
 </body>
 </html>

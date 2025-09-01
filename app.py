@@ -1836,14 +1836,44 @@ def admin_dashboard():
         ORDER BY s.full_name
     ''', (today, school_id)).fetchall()
 
-    return render_template('admin_dashboard.html',
-                         staff=staff,
-                         pending_leaves=pending_leaves,
-                         pending_on_duty=pending_on_duty,
-                         pending_permissions=pending_permissions,
-                         attendance_summary=attendance_summary,
-                         today_attendance=today_attendance,
-                         today=today)
+    # Check if user wants modern UI (can be a session variable or parameter)
+    use_modern_ui = request.args.get('modern', 'false').lower() == 'true' or session.get('use_modern_ui', False)
+    
+    if use_modern_ui:
+        return render_template('admin_dashboard_modern.html',
+                             staff=staff,
+                             pending_leaves=pending_leaves,
+                             pending_on_duty=pending_on_duty,
+                             pending_permissions=pending_permissions,
+                             attendance_summary=attendance_summary,
+                             today_attendance=today_attendance,
+                             today=today,
+                             recent_activities=[],  # Add recent activities data
+                             performance={},  # Add performance metrics
+                             biometric_status={},  # Add biometric status
+                             last_backup='Today')  # Add backup info
+    else:
+        return render_template('admin_dashboard.html',
+                             staff=staff,
+                             pending_leaves=pending_leaves,
+                             pending_on_duty=pending_on_duty,
+                             pending_permissions=pending_permissions,
+                             attendance_summary=attendance_summary,
+                             today_attendance=today_attendance,
+                             today=today)
+
+
+@app.route('/toggle_modern_ui')
+def toggle_modern_ui():
+    """Toggle between modern and legacy UI"""
+    if 'user_id' not in session:
+        return redirect(url_for('index'))
+    
+    # Toggle the modern UI setting
+    session['use_modern_ui'] = not session.get('use_modern_ui', False)
+    
+    # Redirect back to the referring page or dashboard
+    return redirect(request.referrer or url_for('admin_dashboard'))
 
 
 @app.route('/company/dashboard')

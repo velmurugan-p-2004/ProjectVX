@@ -12,14 +12,14 @@
 </head>
 <body>
     <!-- Mobile Sidebar Toggle -->
-    <button type="button" class="sidebar-toggle d-md-none" id="sidebarToggle" title="Toggle sidebar menu">
+    <button type="button" class="sidebar-toggle d-md-none" id="sidebarToggle" title="Toggle sidebar menu" aria-expanded="false" aria-controls="enhanced-sidebar">
         <i class="bi bi-list"></i>
     </button>
 
     <div class="container-fluid">
         <div class="row">
             <!-- Enhanced Sidebar -->
-            <nav class="col-md-2 d-none d-md-block enhanced-sidebar">
+            <nav class="col-md-2 d-none d-md-block enhanced-sidebar" id="enhanced-sidebar">
                 <div class="sidebar-header">
                     <div class="brand-logo">
                         <div class="logo-icon">
@@ -125,7 +125,7 @@
                             <span id="currentDate">-</span>
                         </div>
                     </div>
-                    <button type="button" class="logout-btn" onclick="logout()" title="Logout">
+                    <button type="button" class="logout-btn" onclick="logout()" title="Logout" aria-label="Logout from staff management">
                         <i class="bi bi-box-arrow-right"></i>
                         <span>Logout</span>
                     </button>
@@ -668,6 +668,39 @@
     <script>
         // Pass department shift mappings to JavaScript
         window.deptShiftMap = {{ dept_shift_map | tojson }};
+        
+        // Mobile sidebar toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebar = document.querySelector('.enhanced-sidebar');
+            
+            if (sidebarToggle && sidebar) {
+                sidebarToggle.addEventListener('click', function() {
+                    sidebar.classList.toggle('show');
+                    
+                    // Update aria-expanded for accessibility
+                    const expanded = sidebar.classList.contains('show');
+                    sidebarToggle.setAttribute('aria-expanded', expanded);
+                });
+                
+                // Close sidebar when clicking outside on mobile
+                document.addEventListener('click', function(event) {
+                    if (window.innerWidth < 768) { // Only on mobile
+                        if (!sidebar.contains(event.target) && !sidebarToggle.contains(event.target)) {
+                            sidebar.classList.remove('show');
+                            sidebarToggle.setAttribute('aria-expanded', 'false');
+                        }
+                    }
+                });
+            }
+        });
+        
+        // Logout function
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                window.location.href = "{{ url_for('logout') }}";
+            }
+        }
     </script>
     <script src="{{ url_for('static', filename='js/staff_management.js') }}"></script>
 </body>
