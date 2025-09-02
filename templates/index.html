@@ -6,6 +6,35 @@
     <title>VishnoRex - Staff Attendance System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        /* Ensure institution dropdown is always visible */
+        #schoolSelect {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            position: relative !important;
+            z-index: 999 !important;
+        }
+        
+        /* Fix any potential layout issues */
+        .form-select {
+            background-color: white !important;
+            border: 1px solid #ced4da !important;
+            color: #495057 !important;
+        }
+        
+        /* Ensure the entire form is visible */
+        .card-body {
+            display: block !important;
+            visibility: visible !important;
+        }
+        
+        /* Debug styling for dropdown */
+        .form-select option {
+            color: black !important;
+            background-color: white !important;
+        }
+    </style>
 </head>
 <body>
     <div class="container d-flex align-items-center justify-content-center min-vh-100">
@@ -21,12 +50,22 @@
                                 <label for="schoolSelect" class="form-label">Choose your institution</label>
                                 <select class="form-select" id="schoolSelect" name="school_id" required>
                                     <option value="" selected disabled>Pick an institution to continue</option>
-                                    {% for school in schools %}
-                                    <option value="{{ school.id }}" data-logo="{{ url_for('static', filename=school.logo_url) if school.logo_url else '' }}">
-                                        {{ school.name }}
-                                    </option>
-                                    {% endfor %}
+                                    {% if schools %}
+                                        {% for school in schools %}
+                                        <option value="{{ school.id }}" data-logo="{{ url_for('static', filename=school.logo_url) if school.logo_url else '' }}">
+                                            {{ school.name }}
+                                        </option>
+                                        {% endfor %}
+                                    {% else %}
+                                        <option value="" disabled>No institutions available</option>
+                                    {% endif %}
                                 </select>
+                                {% if not schools %}
+                                <div class="alert alert-warning mt-2" role="alert">
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    No institutions are currently available. Please contact your administrator.
+                                </div>
+                                {% endif %}
                             </div>
                             <div id="loginFields" class="d-none">
                                 <div class="mb-3 text-start">
@@ -54,20 +93,44 @@
 
     <!-- Inline Script for logo and form toggle -->
     <script>
-        document.getElementById('schoolSelect').addEventListener('change', function () {
-            const selectedOption = this.options[this.selectedIndex];
-            const logoUrl = selectedOption.dataset.logo;
-            const logoElement = document.getElementById('schoolLogo');
-            // Show login fields only if a school is selected
-            document.getElementById('loginFields').classList.toggle('d-none', !this.value);
-            // Update logo based on selected school
-            if (logoUrl) {
-                logoElement.src = logoUrl;
-                logoElement.onerror = function () {
-                    this.src = '{{ url_for("static", filename="images/default_logo.png") }}';
-                };
-            } else {
-                logoElement.src = '{{ url_for("static", filename="images/logo.png") }}';
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🏫 Login page loaded');
+            
+            const schoolSelect = document.getElementById('schoolSelect');
+            const loginFields = document.getElementById('loginFields');
+            
+            // Debug: Check if institutions are loaded
+            console.log(`📊 Found ${schoolSelect.options.length - 1} institutions`);
+            for (let i = 1; i < schoolSelect.options.length; i++) {
+                console.log(`   - ${schoolSelect.options[i].text}`);
+            }
+            
+            // Ensure dropdown is visible
+            schoolSelect.style.visibility = 'visible';
+            schoolSelect.style.display = 'block';
+            
+            schoolSelect.addEventListener('change', function () {
+                const selectedOption = this.options[this.selectedIndex];
+                const logoUrl = selectedOption.dataset.logo;
+                const logoElement = document.getElementById('schoolLogo');
+                
+                console.log(`🎯 Institution selected: ${selectedOption.text}`);
+                
+                // Show login fields only if a school is selected
+                loginFields.classList.toggle('d-none', !this.value);
+                
+                // Update logo based on selected school
+                if (logoUrl) {
+                    logoElement.src = logoUrl;
+                    logoElement.onerror = function () {
+                        this.src = '{{ url_for("static", filename="images/default_logo.png") }}';
+                    };
+                } else {
+                    logoElement.src = '{{ url_for("static", filename="images/logo.png") }}';
+                }
+            });
+        });
+    </script>
             }
         });
     </script>

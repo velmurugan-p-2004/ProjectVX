@@ -9,6 +9,75 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/salary_management.css') }}">
+    <style>
+        /* Fix two-column layout positioning */
+        .container-fluid {
+            padding: 0;
+            margin: 0;
+        }
+        
+        .row {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-wrap: nowrap;
+        }
+        
+        /* Sidebar positioning */
+        .enhanced-sidebar {
+            flex: 0 0 16.666667%; /* 2/12 columns */
+            max-width: 16.666667%;
+            height: 100vh;
+            overflow-y: auto;
+            position: sticky;
+            top: 0;
+            left: 0;
+        }
+        
+        /* Main content positioning */
+        .salary-main-content {
+            flex: 0 0 83.333333%; /* 10/12 columns */
+            max-width: 83.333333%;
+            min-height: 100vh;
+            padding: 2rem 1rem;
+            overflow-x: hidden;
+        }
+        
+        /* Remove Bootstrap default spacing that causes issues */
+        .col-md-2, .col-md-10 {
+            padding-left: 0;
+            padding-right: 0;
+        }
+        
+        /* Mobile responsive fixes */
+        @media (max-width: 767.98px) {
+            .row {
+                flex-wrap: wrap;
+            }
+            
+            .enhanced-sidebar {
+                flex: 0 0 100%;
+                max-width: 100%;
+                height: auto;
+                position: relative;
+                order: 2;
+            }
+            
+            .salary-main-content {
+                flex: 0 0 100%;
+                max-width: 100%;
+                order: 1;
+                padding: 1rem 0.5rem;
+            }
+        }
+        
+        /* Ensure proper display on larger screens */
+        @media (min-width: 768px) {
+            .d-none.d-md-block {
+                display: block !important;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Mobile Sidebar Toggle -->
