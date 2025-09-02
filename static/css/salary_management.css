@@ -1009,9 +1009,17 @@
 /* Responsive Sidebar */
 @media (max-width: 768px) {
     .enhanced-sidebar {
+        display: block !important; /* Override inline style */
         transform: translateX(-100%);
         position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        width: 280px;
         z-index: 1050;
+        transition: transform 0.3s ease;
+        background: var(--sidebar-bg, #1a1a2e);
+        overflow-y: auto;
     }
 
     .enhanced-sidebar.show {
@@ -1029,14 +1037,31 @@
         top: 1rem;
         left: 1rem;
         z-index: 1051;
-        background: var(--salary-primary);
+        background: var(--salary-primary, #007bff);
         color: white;
         border: none;
-        border-radius: 6px;
-        padding: 0.5rem;
+        border-radius: 8px;
+        padding: 0.75rem;
         font-size: 1.2rem;
         cursor: pointer;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease;
+    }
+    
+    .sidebar-toggle:hover {
+        background: var(--salary-secondary, #0056b3);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+}
+
+@media (min-width: 769px) {
+    .enhanced-sidebar {
+        display: block !important; /* Show on desktop */
+        transform: translateX(0) !important; /* Always visible on desktop */
+        position: relative !important;
+        height: auto !important;
+        width: auto !important;
     }
 }
 
@@ -1097,24 +1122,29 @@
 
 @media (max-width: 768px) {
     .sidebar-toggle {
-        display: block;
+        display: block !important;
         position: fixed;
         top: 1rem;
         left: 1rem;
         z-index: 1051;
-        background: var(--salary-primary);
+        background: var(--salary-primary, #007bff);
         color: white;
         border: none;
-        border-radius: 6px;
+        border-radius: 8px;
         padding: 0.75rem;
         font-size: 1.2rem;
         cursor: pointer;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         transition: all 0.3s ease;
+        width: 50px;
+        height: 50px;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
     }
 
     .sidebar-toggle:hover {
-        background: var(--salary-secondary);
+        background: var(--salary-secondary, #0056b3);
         transform: translateY(-1px);
     }
 

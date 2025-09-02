@@ -12,14 +12,15 @@
 </head>
 <body>
     <!-- Mobile Sidebar Toggle -->
-    <button type="button" class="sidebar-toggle d-md-none" id="sidebarToggle" title="Toggle sidebar menu" aria-expanded="false" aria-controls="enhanced-sidebar">
+    <button type="button" class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar menu" aria-expanded="false" aria-controls="enhanced-sidebar">
         <i class="bi bi-list"></i>
     </button>
 
     <div class="container-fluid">
         <div class="row">
             <!-- Enhanced Sidebar -->
-            <nav class="col-md-2 d-none d-md-block enhanced-sidebar" id="enhanced-sidebar">
+            <nav class="col-md-2 enhanced-sidebar" id="enhanced-sidebar"
+                 style="display: none;">
                 <div class="sidebar-header">
                     <div class="brand-logo">
                         <div class="logo-icon">
@@ -672,26 +673,141 @@
         // Mobile sidebar toggle functionality
         document.addEventListener('DOMContentLoaded', function() {
             const sidebarToggle = document.getElementById('sidebarToggle');
-            const sidebar = document.querySelector('.enhanced-sidebar');
+            const sidebar = document.getElementById('enhanced-sidebar');
+            
+            console.log('Staff Management: Initializing mobile sidebar...');
+            console.log('Toggle element found:', !!sidebarToggle);
+            console.log('Sidebar element found:', !!sidebar);
+            
+            // Show sidebar on desktop by default
+            function updateSidebarVisibility() {
+                const width = window.innerWidth;
+                console.log('Window width:', width);
+                
+                if (width > 768) {
+                    sidebar.style.display = 'block';
+                    sidebar.classList.remove('show');
+                    console.log('Desktop mode - sidebar visible');
+                } else {
+                    sidebar.style.display = 'block'; // Ensure it's not hidden by inline style
+                    console.log('Mobile mode - sidebar ready for toggle');
+                }
+            }
+            
+            // Initial setup
+            updateSidebarVisibility();
+            
+            // Add emergency CSS if needed
+            if (!document.getElementById('staffMobileCSS')) {
+                const style = document.createElement('style');
+                style.id = 'staffMobileCSS';
+                style.textContent = `
+                    @media (max-width: 768px) {
+                        .enhanced-sidebar {
+                            display: block !important;
+                            position: fixed !important;
+                            top: 0 !important;
+                            left: 0 !important;
+                            width: 280px !important;
+                            height: 100vh !important;
+                            background: #1a1a2e !important;
+                            z-index: 1050 !important;
+                            transform: translateX(-100%) !important;
+                            transition: transform 0.3s ease !important;
+                            overflow-y: auto !important;
+                        }
+                        
+                        .enhanced-sidebar.show {
+                            transform: translateX(0) !important;
+                        }
+                        
+                        .sidebar-toggle {
+                            display: block !important;
+                            position: fixed !important;
+                            top: 1rem !important;
+                            left: 1rem !important;
+                            z-index: 1051 !important;
+                            background: #007bff !important;
+                            color: white !important;
+                            border: none !important;
+                            border-radius: 8px !important;
+                            padding: 0.75rem !important;
+                            font-size: 1.2rem !important;
+                            cursor: pointer !important;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+                        }
+                        
+                        .sidebar-toggle:hover {
+                            background: #0056b3 !important;
+                        }
+                    }
+                    
+                    @media (min-width: 769px) {
+                        .sidebar-toggle {
+                            display: none !important;
+                        }
+                        
+                        .enhanced-sidebar {
+                            display: block !important;
+                            position: relative !important;
+                            transform: translateX(0) !important;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+                console.log('Emergency mobile CSS added');
+            }
             
             if (sidebarToggle && sidebar) {
-                sidebarToggle.addEventListener('click', function() {
-                    sidebar.classList.toggle('show');
+                // Remove any existing event listeners
+                const newToggle = sidebarToggle.cloneNode(true);
+                sidebarToggle.parentNode.replaceChild(newToggle, sidebarToggle);
+                
+                newToggle.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     
-                    // Update aria-expanded for accessibility
-                    const expanded = sidebar.classList.contains('show');
-                    sidebarToggle.setAttribute('aria-expanded', expanded);
+                    console.log('🔄 STAFF MANAGEMENT - Toggle button clicked!');
+                    
+                    const isShowing = sidebar.classList.contains('show');
+                    
+                    if (isShowing) {
+                        sidebar.classList.remove('show');
+                        newToggle.setAttribute('aria-expanded', 'false');
+                        console.log('✅ Sidebar hidden');
+                    } else {
+                        sidebar.classList.add('show');
+                        newToggle.setAttribute('aria-expanded', 'true');
+                        console.log('✅ Sidebar shown');
+                    }
+                    
+                    // Debug info
+                    const computedStyle = window.getComputedStyle(sidebar);
+                    console.log('Transform after toggle:', computedStyle.transform);
                 });
                 
                 // Close sidebar when clicking outside on mobile
                 document.addEventListener('click', function(event) {
-                    if (window.innerWidth < 768) { // Only on mobile
-                        if (!sidebar.contains(event.target) && !sidebarToggle.contains(event.target)) {
-                            sidebar.classList.remove('show');
-                            sidebarToggle.setAttribute('aria-expanded', 'false');
+                    if (window.innerWidth <= 768) {
+                        if (!sidebar.contains(event.target) && !newToggle.contains(event.target)) {
+                            if (sidebar.classList.contains('show')) {
+                                sidebar.classList.remove('show');
+                                newToggle.setAttribute('aria-expanded', 'false');
+                                console.log('Sidebar closed by outside click');
+                            }
                         }
                     }
                 });
+                
+                // Handle window resize
+                window.addEventListener('resize', function() {
+                    console.log('Window resized');
+                    updateSidebarVisibility();
+                });
+                
+                console.log('✅ Staff Management mobile sidebar initialized successfully');
+            } else {
+                console.error('❌ Toggle button or sidebar not found!');
             }
         });
         
