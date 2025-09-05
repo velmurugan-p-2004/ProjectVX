@@ -4,6 +4,7 @@
     min-height: 100vh;
     color: #fff;
     padding-top: 1.5rem;
+    position:fixed;
 }
 .enhanced-sidebar .sidebar-header {
     padding: 1rem 1.5rem;

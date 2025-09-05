@@ -9,6 +9,78 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/salary_management.css') }}">
+    <style>
+        /* Fix two-column layout positioning for school details */
+        .container-fluid {
+            padding: 0;
+            margin: 0;
+        }
+        
+        .row {
+            margin: 0;
+            height: fit-content !important;
+            min-height: unset !important;
+            display: flex;
+            flex-wrap: nowrap;
+        }
+        
+        /* Sidebar positioning */
+        .enhanced-sidebar {
+            position: fixed !important;
+            top: 0;
+            left: 0;
+            width: 16.666667%; /* 2/12 columns */
+            height: 100vh;
+            overflow-y: auto;
+            overflow-x: hidden;
+            z-index: 1000;
+        }
+        
+        /* Main content positioning */
+        .salary-main-content {
+            margin-left: 16.666667% !important; /* Match sidebar width */
+            width: 83.333333% !important; /* 10/12 columns */
+            min-height: 100vh;
+            padding: 2rem 1rem;
+            overflow-x: hidden;
+        }
+        
+        /* Remove Bootstrap default spacing that causes issues */
+        .col-md-2, .col-md-10 {
+            padding-left: 0;
+            padding-right: 0;
+        }
+        
+        /* Ensure content doesn't break layout */
+        .salary-filters-card {
+            margin-bottom: 2rem;
+        }
+        
+        /* Mobile responsive fixes */
+        @media (max-width: 767.98px) {
+            .enhanced-sidebar {
+                position: fixed !important;
+                top: 0;
+                left: -100%;
+                width: 280px;
+                height: 100vh;
+                overflow: hidden !important;
+                transition: left 0.3s ease;
+                z-index: 1050;
+            }
+            
+            .enhanced-sidebar.show {
+                left: 0;
+            }
+            
+            .salary-main-content {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 1rem 0.5rem;
+                padding-top: 4rem; /* Account for mobile toggle button */
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Mobile Sidebar Toggle -->

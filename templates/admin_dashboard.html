@@ -10,6 +10,101 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/salary_management.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css">
+    <style>
+        /* Fix sidebar positioning for admin dashboard */
+        .container-fluid {
+            padding: 0;
+            margin: 0;
+        }
+        
+        .row {
+            margin: 0;
+            height: fit-content !important;
+            min-height: unset !important;
+            display: flex;
+            flex-wrap: nowrap;
+        }
+        
+        /* Sidebar positioning */
+        .enhanced-sidebar {
+            position: fixed !important;
+            top: 0;
+            left: 0;
+            width: 250px; /* Fixed width instead of percentage */
+            height: 100vh;
+            overflow-y: auto;
+            overflow-x: hidden;
+            z-index: 1000;
+            display: block !important; /* Override inline style */
+        }
+        
+        /* Main content positioning */
+        .salary-main-content {
+            margin-left: 250px !important; /* Match sidebar width exactly */
+            width: calc(100% - 250px) !important; /* Fill remaining space */
+            min-height: 100vh;
+            padding: 2rem 1rem;
+            overflow-x: hidden;
+        }
+        
+        /* Remove Bootstrap default spacing that causes issues */
+        .col-md-2, .col-md-10 {
+            padding-left: 0;
+            padding-right: 0;
+        }
+        
+        /* Mobile responsive fixes */
+        @media (max-width: 767.98px) {
+            .enhanced-sidebar {
+                position: fixed !important;
+                top: 0;
+                left: -100%;
+                width: 280px;
+                height: 100vh;
+                overflow: hidden !important;
+                transition: left 0.3s ease;
+                z-index: 1050;
+                display: none !important; /* Hidden by default on mobile */
+            }
+            
+            .enhanced-sidebar.show {
+                left: 0;
+                display: block !important;
+            }
+            
+            .salary-main-content {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 1rem 0.5rem;
+                padding-top: 4rem; /* Account for mobile toggle button */
+            }
+            
+            .sidebar-toggle {
+                display: block !important;
+            }
+        }
+        
+        /* Ensure sidebar toggle is properly styled */
+        .sidebar-toggle {
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            z-index: 1100;
+            background: var(--primary-color, #007bff);
+            color: white;
+            border: none;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            font-size: 1.25rem;
+            display: none;
+        }
+        
+        @media (min-width: 768px) {
+            .sidebar-toggle {
+                display: none !important;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Mobile Sidebar Toggle -->
@@ -20,8 +115,7 @@
     <div class="container-fluid">
         <div class="row">
             <!-- Enhanced Sidebar -->
-            <nav class="col-md-2 enhanced-sidebar" id="enhanced-sidebar"
-                 style="display: none;">
+            <nav class="col-md-2 enhanced-sidebar" id="enhanced-sidebar">
                 <div class="sidebar-header">
                     <div class="brand-logo">
                         <div class="logo-icon">
@@ -65,6 +159,14 @@
                                         <i class="bi bi-people"></i>
                                     </div>
                                     <span class="nav-text">Staff Management</span>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('work_time_assignment') }}">
+                                    <div class="nav-icon">
+                                        <i class="bi bi-clock-history"></i>
+                                    </div>
+                                    <span class="nav-text">Work Time Assignment</span>
                                 </a>
                             </li>
                             <li class="nav-item">
@@ -498,112 +600,6 @@
                             <p class="empty-text">All permission applications have been processed. New requests will appear here for approval.</p>
                         </div>
                         {% endif %}
-                    </div>
-                </div>
-
-                <!-- Work Time Assignment Section -->
-                <div class="salary-results-card">
-                    <div class="card-header">
-                        <div class="header-icon">
-                            <i class="bi bi-clock-history"></i>
-                        </div>
-                        <div class="header-content">
-                            <h5 class="card-title">Work Time Assignment</h5>
-                            <p class="card-subtitle">Set and manage default check-in and check-out times for the institution</p>
-                        </div>
-                        <div class="header-actions">
-                            <div class="results-stats">
-                                <div class="stat-item">
-                                    <i class="bi bi-gear"></i>
-                                    <span class="stat-value">Config</span>
-                                    <span>Settings</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <!-- Current Timings Display -->
-                            <div class="col-md-6">
-                                <div class="current-timings-section">
-                                    <h6 class="section-title">
-                                        <i class="bi bi-info-circle text-primary"></i> Current Institution Timings
-                                    </h6>
-                                    <div class="timing-cards">
-                                        <div class="timing-card check-in-card">
-                                            <div class="timing-icon">
-                                                <i class="bi bi-box-arrow-in-right text-success"></i>
-                                            </div>
-                                            <div class="timing-info">
-                                                <div class="timing-label">Institution Check-in Time</div>
-                                                <div class="timing-value" id="currentCheckinTime">09:00 AM</div>
-                                            </div>
-                                        </div>
-                                        <div class="timing-card check-out-card">
-                                            <div class="timing-icon">
-                                                <i class="bi bi-box-arrow-right text-info"></i>
-                                            </div>
-                                            <div class="timing-info">
-                                                <div class="timing-label">Institution Check-out Time</div>
-                                                <div class="timing-value" id="currentCheckoutTime">05:00 PM</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Time Configuration Form -->
-                            <div class="col-md-6">
-                                <div class="time-config-section">
-                                    <h6 class="section-title">
-                                        <i class="bi bi-pencil-square text-warning"></i> Update Institution Timings
-                                    </h6>
-                                    <form id="workTimeForm" class="time-config-form">
-                                        <div class="mb-4">
-                                            <label for="institutionCheckinTime" class="form-label">
-                                                <i class="bi bi-sunrise"></i> Institution Check-in Time
-                                            </label>
-                                            <input type="time" class="form-control time-picker" id="institutionCheckinTime" name="checkin_time" value="09:00" required>
-                                            <div class="form-text">
-                                                <i class="bi bi-info-circle"></i> Default time when staff should check in
-                                            </div>
-                                        </div>
-                                        <div class="mb-4">
-                                            <label for="institutionCheckoutTime" class="form-label">
-                                                <i class="bi bi-sunset"></i> Institution Check-out Time
-                                            </label>
-                                            <input type="time" class="form-control time-picker" id="institutionCheckoutTime" name="checkout_time" value="17:00" required>
-                                            <div class="form-text">
-                                                <i class="bi bi-info-circle"></i> Default time when staff should check out
-                                            </div>
-                                        </div>
-                                        <div class="validation-message" id="timeValidationMessage" style="display: none;">
-                                            <div class="alert alert-danger">
-                                                <i class="bi bi-exclamation-triangle"></i> Check-out time must be later than check-in time!
-                                            </div>
-                                        </div>
-                                        <div class="form-actions">
-                                            <button type="submit" class="btn btn-primary btn-save-timing" id="saveTimingBtn">
-                                                <i class="bi bi-check-circle"></i> Save & Update Timings
-                                            </button>
-                                            <button type="button" class="btn btn-outline-secondary btn-reset-timing" id="resetTimingBtn">
-                                                <i class="bi bi-arrow-clockwise"></i> Reset to Default
-                                            </button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Success/Error Messages -->
-                        <div class="mt-3">
-                            <div class="alert alert-success" id="timingSuccessMessage" style="display: none;">
-                                <i class="bi bi-check-circle-fill"></i> Institution timings updated successfully!
-                            </div>
-                            <div class="alert alert-danger" id="timingErrorMessage" style="display: none;">
-                                <i class="bi bi-exclamation-triangle-fill"></i> <span id="errorMessageText">Failed to update timings. Please try again.</span>
-                            </div>
-                        </div>
                     </div>
                 </div>
 

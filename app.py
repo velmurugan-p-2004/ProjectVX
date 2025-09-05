@@ -1764,6 +1764,21 @@ def staff_management():
 
     return render_template('staff_management.html', staff=staff, dept_shift_map=dept_shift_map)
 
+@app.route('/admin/work_time_assignment')
+def work_time_assignment():
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return redirect(url_for('index'))
+    
+    db = get_db()
+    school_id = session['school_id']
+    
+    # Get total staff count for sidebar
+    total_staff_count = db.execute('''
+        SELECT COUNT(*) as count FROM staff WHERE school_id = ?
+    ''', (school_id,)).fetchone()['count']
+    
+    return render_template('work_time_assignment.html', total_staff_count=total_staff_count)
+
 @app.route('/admin/dashboard')
 def admin_dashboard():
     if 'user_id' not in session or session['user_type'] != 'admin':
