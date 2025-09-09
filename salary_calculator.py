@@ -16,16 +16,17 @@ This module calculates salaries based on various attendance factors:
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-from database import get_db
+from database import get_db, calculate_hourly_rate, calculate_standard_working_hours_per_month
 import calendar
 
 
 class SalaryCalculator:
     """Comprehensive salary calculation system"""
     
-    def __init__(self):
-        # Default salary calculation rules (can be configured per organization)
-        self.salary_rules = {
+    def __init__(self, school_id=None):
+        self.school_id = school_id
+        # Default salary calculation rules (fallback values)
+        self.default_salary_rules = {
             'early_arrival_bonus_per_hour': 50.0,  # Bonus for arriving early
             'early_departure_penalty_per_hour': 100.0,  # Penalty for leaving early
             'late_arrival_penalty_per_hour': 75.0,  # Penalty for being late
@@ -39,11 +40,100 @@ class SalaryCalculator:
             'earned_leave_rate': 1.0,  # Full pay for earned leave
             'maternity_leave_rate': 1.0,  # Full pay for maternity leave
             'unpaid_leave_rate': 0.0,  # No pay for unpaid leave
+            'bonus_rate_percentage': 10.0,  # Bonus percentage for extra hours worked
+            'minimum_hours_for_bonus': 5.0,  # Minimum extra hours to qualify for bonus
         }
+        
+        # Load salary rules from database or use defaults
+        self.salary_rules = self._load_salary_rules_from_db()
 
     def _get_db_connection(self):
-        """Get database connection"""
-        return get_db()
+        """Get database connection with fallback for standalone operation"""
+        try:
+            # Try Flask's get_db first (when running in Flask context)
+            return get_db()
+        except RuntimeError:
+            # Fallback to direct SQLite connection (for standalone testing)
+            import sqlite3
+            conn = sqlite3.connect('vishnorex.db', check_same_thread=False)
+            conn.row_factory = sqlite3.Row  # This enables dict-like access
+            return conn
+    
+    def _ensure_salary_rules_table(self):
+        """Ensure the salary_rules table exists"""
+        try:
+            db = self._get_db_connection()
+            db.execute('''
+                CREATE TABLE IF NOT EXISTS salary_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    school_id INTEGER DEFAULT 0,
+                    rule_name TEXT NOT NULL,
+                    rule_value REAL NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(school_id, rule_name)
+                )
+            ''')
+            db.commit()
+            return True
+        except Exception as e:
+            print(f"Error creating salary_rules table: {e}")
+            return False
+    
+    def _load_salary_rules_from_db(self):
+        """Load salary rules from database or return defaults"""
+        try:
+            # Ensure table exists
+            if not self._ensure_salary_rules_table():
+                return self.default_salary_rules.copy()
+            
+            db = self._get_db_connection()
+            
+            # Use school_id = 0 for global rules if no specific school_id
+            search_school_id = self.school_id if self.school_id is not None else 0
+            
+            # Load rules for specific school or global
+            rules = db.execute('''
+                SELECT rule_name, rule_value 
+                FROM salary_rules 
+                WHERE school_id = ?
+            ''', (search_school_id,)).fetchall()
+            
+            # Start with defaults and update with database values
+            loaded_rules = self.default_salary_rules.copy()
+            for rule in rules:
+                loaded_rules[rule['rule_name']] = rule['rule_value']
+            
+            return loaded_rules
+            
+        except Exception as e:
+            print(f"Error loading salary rules from database: {e}")
+            return self.default_salary_rules.copy()
+    
+    def _save_salary_rules_to_db(self, rules_to_save):
+        """Save salary rules to database"""
+        try:
+            # Ensure table exists
+            if not self._ensure_salary_rules_table():
+                return False
+            
+            db = self._get_db_connection()
+            
+            # Use school_id = 0 for global rules if no specific school_id
+            save_school_id = self.school_id if self.school_id is not None else 0
+            
+            for rule_name, rule_value in rules_to_save.items():
+                db.execute('''
+                    INSERT OR REPLACE INTO salary_rules 
+                    (school_id, rule_name, rule_value, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (save_school_id, rule_name, rule_value))
+            
+            db.commit()
+            return True
+            
+        except Exception as e:
+            print(f"Error saving salary rules to database: {e}")
+            return False
 
     def calculate_monthly_salary(self, staff_id: int, year: int, month: int) -> Dict:
         """Calculate comprehensive monthly salary for a staff member"""
@@ -76,7 +166,211 @@ class SalaryCalculator:
             
         except Exception as e:
             return {'success': False, 'error': str(e)}
-    
+
+    def calculate_enhanced_monthly_salary(self, staff_id: int, year: int, month: int) -> Dict:
+        """
+        Calculate enhanced monthly salary based on actual hours worked vs standard hours.
+        Includes bonus for extra hours and proportional reduction for fewer hours.
+        """
+        try:
+            # Get staff details
+            staff_info = self._get_staff_info(staff_id)
+            if not staff_info:
+                return {'success': False, 'error': 'Staff not found'}
+
+            # Get base monthly salary
+            base_monthly_salary = float(staff_info.get('basic_salary', 0))
+            if base_monthly_salary <= 0:
+                return {'success': False, 'error': 'Base monthly salary not set for this staff member'}
+
+            # Calculate hourly rate using institution timing configuration
+            hourly_rate_info = calculate_hourly_rate(base_monthly_salary)
+            hourly_rate = hourly_rate_info['hourly_rate']
+            standard_monthly_hours = hourly_rate_info['standard_monthly_hours']
+
+            # Get attendance data for the month
+            attendance_data = self._get_monthly_attendance(staff_id, year, month)
+
+            # Calculate actual hours worked
+            actual_hours_worked = self._calculate_actual_hours_worked(attendance_data)
+
+            # Get leave data for the month
+            leave_data = self._get_monthly_leaves(staff_id, year, month)
+
+            # Calculate working days in month
+            working_days = self._get_working_days_in_month(year, month)
+
+            # Perform enhanced salary calculations
+            salary_breakdown = self._calculate_enhanced_salary_breakdown(
+                staff_info, attendance_data, leave_data, working_days,
+                actual_hours_worked, standard_monthly_hours, hourly_rate, year, month
+            )
+
+            return {
+                'success': True,
+                'staff_id': staff_id,
+                'staff_name': staff_info.get('full_name', 'Unknown'),
+                'calculation_period': f"{year}-{month:02d}",
+                'base_monthly_salary': base_monthly_salary,
+                'hourly_rate': hourly_rate,
+                'standard_monthly_hours': standard_monthly_hours,
+                'actual_hours_worked': actual_hours_worked,
+                'salary_breakdown': salary_breakdown
+            }
+
+        except Exception as e:
+            return {'success': False, 'error': f'Error calculating enhanced salary: {str(e)}'}
+
+    def _calculate_actual_hours_worked(self, attendance_data: List[Dict]) -> float:
+        """Calculate total actual hours worked from attendance data"""
+        total_hours = 0.0
+
+        for record in attendance_data:
+            if record['status'] in ['present', 'late', 'left_soon']:
+                # Use work_hours if available, otherwise calculate from time_in and time_out
+                if record.get('work_hours') and record['work_hours'] > 0:
+                    total_hours += float(record['work_hours'])
+                elif record.get('time_in') and record.get('time_out'):
+                    try:
+                        time_in = datetime.strptime(record['time_in'], '%H:%M:%S').time()
+                        time_out = datetime.strptime(record['time_out'], '%H:%M:%S').time()
+
+                        # Calculate hours worked
+                        time_in_dt = datetime.combine(datetime.today(), time_in)
+                        time_out_dt = datetime.combine(datetime.today(), time_out)
+
+                        # Handle overnight shifts
+                        if time_out_dt < time_in_dt:
+                            time_out_dt += timedelta(days=1)
+
+                        hours_worked = (time_out_dt - time_in_dt).total_seconds() / 3600
+                        total_hours += hours_worked
+                    except:
+                        # If time parsing fails, use standard daily hours
+                        standard_hours = calculate_standard_working_hours_per_month()
+                        total_hours += standard_hours['daily_hours']
+
+            elif record['status'] == 'on_duty':
+                # On duty days count as full working hours
+                standard_hours = calculate_standard_working_hours_per_month()
+                total_hours += standard_hours['daily_hours']
+
+        return round(total_hours, 2)
+
+    def _calculate_enhanced_salary_breakdown(self, staff_info: Dict, attendance_data: List[Dict],
+                                           leave_data: List[Dict], working_days: int,
+                                           actual_hours_worked: float, standard_monthly_hours: float,
+                                           hourly_rate: float, year: int, month: int) -> Dict:
+        """Calculate enhanced salary breakdown with hours-based logic"""
+
+        # Basic salary components
+        basic_salary = float(staff_info.get('basic_salary', 0))
+        hra = float(staff_info.get('hra', 0))
+        transport_allowance = float(staff_info.get('transport_allowance', 0))
+        other_allowances = float(staff_info.get('other_allowances', 0))
+
+        # Calculate gross salary
+        gross_salary = basic_salary + hra + transport_allowance + other_allowances
+
+        # Calculate salary based on actual hours worked
+        if standard_monthly_hours > 0:
+            hours_ratio = actual_hours_worked / standard_monthly_hours
+            base_salary_earned = basic_salary * hours_ratio
+        else:
+            base_salary_earned = basic_salary
+
+        # Calculate bonus for extra hours worked
+        extra_hours = max(0, actual_hours_worked - standard_monthly_hours)
+        bonus_amount = 0.0
+
+        if extra_hours >= self.salary_rules['minimum_hours_for_bonus']:
+            bonus_rate = self.salary_rules['bonus_rate_percentage'] / 100
+            bonus_amount = extra_hours * hourly_rate * bonus_rate
+
+        # Calculate other earnings and deductions (existing logic)
+        early_arrival_bonus = 0.0
+        early_departure_penalty = 0.0
+        late_arrival_penalty = 0.0
+        overtime_pay = 0.0
+
+        # Process attendance records for bonuses/penalties
+        for record in attendance_data:
+            if record['status'] in ['present', 'late', 'left_soon']:
+                # Calculate early arrival bonus
+                if record.get('early_arrival_minutes') and record['early_arrival_minutes'] > 0:
+                    early_hours = record['early_arrival_minutes'] / 60
+                    early_arrival_bonus += early_hours * self.salary_rules['early_arrival_bonus_per_hour']
+
+                # Calculate early departure penalty
+                if record.get('early_departure_minutes') and record['early_departure_minutes'] > 0:
+                    early_dep_hours = record['early_departure_minutes'] / 60
+                    early_departure_penalty += early_dep_hours * self.salary_rules['early_departure_penalty_per_hour']
+
+                # Calculate late arrival penalty
+                if record.get('late_duration_minutes') and record['late_duration_minutes'] > 0:
+                    late_hours = record['late_duration_minutes'] / 60
+                    late_arrival_penalty += late_hours * self.salary_rules['late_arrival_penalty_per_hour']
+
+                # Calculate overtime pay
+                if record.get('overtime_hours') and record['overtime_hours'] > 0:
+                    overtime_pay += record['overtime_hours'] * hourly_rate * self.salary_rules['overtime_rate_multiplier']
+
+        # Calculate leave pay
+        leave_pay = self._calculate_leave_pay(leave_data, hourly_rate, standard_monthly_hours, working_days)
+
+        # Calculate deductions
+        pf_deduction = float(staff_info.get('pf_deduction', 0))
+        esi_deduction = float(staff_info.get('esi_deduction', 0))
+        professional_tax = float(staff_info.get('professional_tax', 0))
+        other_deductions = float(staff_info.get('other_deductions', 0))
+
+        # Total earnings
+        total_earnings = (
+            base_salary_earned +
+            hra +
+            transport_allowance +
+            other_allowances +
+            bonus_amount +
+            early_arrival_bonus +
+            overtime_pay +
+            leave_pay
+        )
+
+        # Total deductions
+        total_deductions = (
+            pf_deduction +
+            esi_deduction +
+            professional_tax +
+            other_deductions +
+            early_departure_penalty +
+            late_arrival_penalty
+        )
+
+        # Net salary
+        net_salary = total_earnings - total_deductions
+
+        return {
+            'base_salary_earned': round(base_salary_earned, 2),
+            'hra': round(hra, 2),
+            'transport_allowance': round(transport_allowance, 2),
+            'other_allowances': round(other_allowances, 2),
+            'bonus_for_extra_hours': round(bonus_amount, 2),
+            'extra_hours_worked': round(extra_hours, 2),
+            'early_arrival_bonus': round(early_arrival_bonus, 2),
+            'overtime_pay': round(overtime_pay, 2),
+            'leave_pay': round(leave_pay, 2),
+            'total_earnings': round(total_earnings, 2),
+            'pf_deduction': round(pf_deduction, 2),
+            'esi_deduction': round(esi_deduction, 2),
+            'professional_tax': round(professional_tax, 2),
+            'other_deductions': round(other_deductions, 2),
+            'early_departure_penalty': round(early_departure_penalty, 2),
+            'late_arrival_penalty': round(late_arrival_penalty, 2),
+            'total_deductions': round(total_deductions, 2),
+            'net_salary': round(net_salary, 2),
+            'hours_ratio': round(hours_ratio, 4) if standard_monthly_hours > 0 else 1.0
+        }
+
     def _get_staff_info(self, staff_id: int) -> Optional[Dict]:
         """Get staff information including salary details"""
         db = self._get_db_connection()
@@ -478,9 +772,23 @@ class SalaryCalculator:
         return report_data
     
     def update_salary_rules(self, new_rules: Dict) -> Dict:
-        """Update salary calculation rules"""
+        """Update salary calculation rules and persist to database"""
         try:
+            # Update in-memory rules
             self.salary_rules.update(new_rules)
-            return {'success': True, 'message': 'Salary rules updated successfully'}
+            
+            # Save to database
+            if self._save_salary_rules_to_db(new_rules):
+                return {'success': True, 'message': 'Salary rules updated and saved successfully'}
+            else:
+                return {'success': False, 'error': 'Failed to save salary rules to database'}
+                
         except Exception as e:
             return {'success': False, 'error': str(e)}
+    
+    def get_salary_rules(self) -> Dict:
+        """Get current salary rules"""
+        return {
+            'success': True,
+            'salary_rules': self.salary_rules
+        }

@@ -40,16 +40,7 @@ function initializeEnhancedUI() {
         });
     }
 
-    // Initialize clear filters button
-    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
-    if (clearFiltersBtn) {
-        clearFiltersBtn.addEventListener('click', function() {
-            document.getElementById('staffSearchInput').value = '';
-            document.getElementById('departmentFilter').value = '';
-            document.getElementById('genderFilter').value = '';
-            filterTable();
-        });
-    }
+    // Clear filters functionality is now handled in initializeSearchAndFilter()
 
     // Update current date in sidebar
     const currentDateElement = document.getElementById('currentDate');
@@ -94,48 +85,219 @@ function updateStatsDisplay() {
 function initializeSearchAndFilter() {
     const searchInput = document.getElementById('staffSearchInput');
     const departmentFilter = document.getElementById('departmentFilter');
+    const positionFilter = document.getElementById('positionFilter');
     const genderFilter = document.getElementById('genderFilter');
-    const tableBody = document.getElementById('staffTableBody');
-    
-    function filterTable() {
-        const searchTerm = searchInput.value.toLowerCase();
-        const selectedDepartment = departmentFilter.value;
-        const selectedGender = genderFilter.value;
-        const rows = tableBody.querySelectorAll('tr');
-        
-        rows.forEach(row => {
-            const cells = row.querySelectorAll('td');
-            if (cells.length === 0) return;
-            
-            const staffId = cells[0].textContent.toLowerCase();
-            const firstName = cells[1].textContent.toLowerCase();
-            const lastName = cells[2].textContent.toLowerCase();
-            const department = cells[5].textContent;
-            const gender = cells[7].textContent;
-            const phone = cells[8].textContent.toLowerCase();
-            const email = cells[9].textContent.toLowerCase();
-            
-            const matchesSearch = searchTerm === '' || 
-                staffId.includes(searchTerm) ||
-                firstName.includes(searchTerm) ||
-                lastName.includes(searchTerm) ||
-                phone.includes(searchTerm) ||
-                email.includes(searchTerm);
-            
-            const matchesDepartment = selectedDepartment === '' || department === selectedDepartment;
-            const matchesGender = selectedGender === '' || gender === selectedGender;
-            
-            if (matchesSearch && matchesDepartment && matchesGender) {
-                row.style.display = '';
-            } else {
-                row.style.display = 'none';
-            }
-        });
+    const applyFiltersBtn = document.getElementById('applyFiltersBtn');
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+
+    // Debounce function to limit API calls
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
     }
-    
-    searchInput.addEventListener('input', filterTable);
-    departmentFilter.addEventListener('change', filterTable);
-    genderFilter.addEventListener('change', filterTable);
+
+    // Apply filters function
+    function applyFilters() {
+        const filters = {
+            search_term: searchInput.value.trim(),
+            department: departmentFilter.value,
+            position: positionFilter.value,
+            gender: genderFilter.value
+        };
+
+        // Remove empty filters
+        Object.keys(filters).forEach(key => {
+            if (!filters[key]) delete filters[key];
+        });
+
+        console.log('Applying filters:', filters);
+        loadFilteredStaffData(filters);
+    }
+
+    // Clear filters function
+    function clearFilters() {
+        searchInput.value = '';
+        departmentFilter.value = '';
+        positionFilter.value = '';
+        genderFilter.value = '';
+
+        console.log('Clearing all filters');
+        loadFilteredStaffData({});
+    }
+
+    // Event listeners
+    searchInput.addEventListener('input', debounce(applyFilters, 300));
+    departmentFilter.addEventListener('change', applyFilters);
+    positionFilter.addEventListener('change', applyFilters);
+    genderFilter.addEventListener('change', applyFilters);
+    applyFiltersBtn.addEventListener('click', applyFilters);
+    clearFiltersBtn.addEventListener('click', clearFilters);
+
+    // Load initial data
+    loadFilteredStaffData({});
+}
+
+// Show loading state for table
+function showTableLoadingState() {
+    const tableBody = document.getElementById('staffTableBody');
+    const table = document.getElementById('staffTable');
+
+    if (table) {
+        table.classList.add('loading');
+    }
+
+    const loadingRow = document.createElement('tr');
+    loadingRow.innerHTML = `
+        <td colspan="7" class="text-center py-4 staff-loading-state">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 mb-0 text-muted">Filtering staff members...</p>
+        </td>
+    `;
+    tableBody.innerHTML = '';
+    tableBody.appendChild(loadingRow);
+}
+
+// Hide loading state for table
+function hideTableLoadingState() {
+    const table = document.getElementById('staffTable');
+    if (table) {
+        table.classList.remove('loading');
+    }
+}
+
+// Load filtered staff data from server
+function loadFilteredStaffData(filters = {}) {
+    const params = new URLSearchParams(filters);
+
+    // Show loading state
+    showTableLoadingState();
+
+    fetch(`/advanced_search_staff?${params}`)
+        .then(response => response.json())
+        .then(data => {
+            hideTableLoadingState();
+            if (data.success) {
+                console.log(`Found ${data.staff.length} staff members matching filters`);
+                renderFilteredStaffTable(data.staff);
+                updateFilteredStatsDisplay(data.staff.length);
+            } else {
+                showAlert('Error filtering staff: ' + data.error, 'danger');
+                renderFilteredStaffTable([]);
+            }
+        })
+        .catch(error => {
+            hideTableLoadingState();
+            console.error('Error filtering staff:', error);
+            showAlert('Error filtering staff: ' + error.message, 'danger');
+            renderFilteredStaffTable([]);
+        });
+}
+
+// Render filtered staff table
+function renderFilteredStaffTable(staffList) {
+    const tableBody = document.getElementById('staffTableBody');
+    const table = document.getElementById('staffTable');
+
+    // Preserve table layout by maintaining structure
+    tableBody.innerHTML = '';
+
+    if (staffList.length === 0) {
+        const noDataRow = document.createElement('tr');
+        noDataRow.innerHTML = `
+            <td colspan="7" class="text-center py-4">
+                <i class="bi bi-search text-muted" style="font-size: 3rem;"></i>
+                <p class="mt-3 mb-0 text-muted">No staff members found matching the current filters</p>
+                <p class="text-muted small">Try adjusting your search criteria</p>
+            </td>
+        `;
+        tableBody.appendChild(noDataRow);
+        return;
+    }
+
+    staffList.forEach((staff) => {
+        const row = document.createElement('tr');
+        row.setAttribute('data-staff-id', staff.id);
+
+        // Match the exact structure from the original HTML template
+        row.innerHTML = `
+            <td>
+                <strong>${staff.staff_id || 'N/A'}</strong>
+            </td>
+            <td>
+                <div class="d-flex align-items-center">
+                    <div class="user-avatar me-2">
+                        <i class="bi bi-person-circle"></i>
+                    </div>
+                    <div>
+                        <div class="fw-bold">${staff.first_name || ''} ${staff.last_name || ''}</div>
+                        <small class="text-muted">${staff.destination || 'N/A'}</small>
+                    </div>
+                </div>
+            </td>
+            <td>
+                <span class="badge bg-primary">${staff.department || 'N/A'}</span>
+            </td>
+            <td>${staff.position || 'N/A'}</td>
+            <td>
+                <div>
+                    <small class="d-block"><i class="bi bi-telephone"></i> ${staff.phone || 'N/A'}</small>
+                    <small class="d-block"><i class="bi bi-envelope"></i> ${staff.email || 'N/A'}</small>
+                </div>
+            </td>
+            <td>
+                <span class="badge bg-info">${staff.shift_type || 'General'}</span>
+            </td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn btn-sm btn-view-details edit-staff-btn"
+                            data-staff-id="${staff.id}"
+                            data-bs-toggle="modal"
+                            data-bs-target="#editStaffModal"
+                            title="Edit staff member">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger delete-staff-btn"
+                            data-staff-id="${staff.id}"
+                            data-staff-name="${staff.full_name || 'Unknown'}"
+                            title="Delete staff member">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        tableBody.appendChild(row);
+    });
+
+    // Force table layout recalculation to prevent alignment issues
+    if (table) {
+        table.style.tableLayout = 'fixed';
+        // Trigger reflow
+        table.offsetHeight;
+        table.style.tableLayout = 'auto';
+    }
+}
+
+// Update stats display for filtered results
+function updateFilteredStatsDisplay(filteredCount) {
+    const totalStaffCountElement = document.getElementById('totalStaffCount');
+    if (totalStaffCountElement) {
+        totalStaffCountElement.textContent = filteredCount;
+    }
+
+    // Update any other stats displays
+    const statsElements = document.querySelectorAll('.staff-count-display');
+    statsElements.forEach(element => {
+        element.textContent = filteredCount;
+    });
 }
 
 function initializeFormHandlers() {
@@ -221,18 +383,42 @@ function handleAddStaff(e) {
 
 function loadStaffForEdit(staffId) {
     const modalBody = document.getElementById('editStaffModalBody');
-    
+
+    // Show loading state
+    modalBody.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3 text-muted">Loading staff details...</p>
+        </div>
+    `;
+
     fetch(`/get_staff_details_enhanced?id=${staffId}`)
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            console.log('Staff data loaded:', data.staff); // Debug log
             populateEditForm(data.staff);
         } else {
             showAlert('Error loading staff details: ' + data.error, 'danger');
+            modalBody.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="bi bi-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
+                    <p class="mt-3 text-danger">Failed to load staff details</p>
+                </div>
+            `;
         }
     })
     .catch(error => {
+        console.error('Error loading staff details:', error);
         showAlert('Error: ' + error.message, 'danger');
+        modalBody.innerHTML = `
+            <div class="text-center py-4">
+                <i class="bi bi-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
+                <p class="mt-3 text-danger">Network error occurred</p>
+            </div>
+        `;
     });
 }
 
@@ -345,10 +531,135 @@ function populateEditForm(staff) {
                 </div>
             </div>
         </div>
+
+        <!-- Salary Information Section -->
+        <div class="rules-section">
+            <h6 class="section-title">
+                <i class="bi bi-currency-dollar text-success"></i> Salary Information
+            </h6>
+            <div class="rules-grid">
+                <div class="rule-item">
+                    <label for="editBasicSalary" class="form-label">
+                        <i class="bi bi-cash-stack"></i> Base Monthly Salary *
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">₹</span>
+                        <input type="number" class="form-control" id="editBasicSalary" name="basic_salary" step="0.01" min="0" value="${staff.basic_salary || ''}" title="Enter base monthly salary">
+                    </div>
+                    <small class="form-text">Base monthly salary for standard working hours</small>
+                </div>
+                <div class="rule-item">
+                    <label for="editHRA" class="form-label">
+                        <i class="bi bi-house"></i> HRA
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">₹</span>
+                        <input type="number" class="form-control" id="editHRA" name="hra" step="0.01" min="0" value="${staff.hra || ''}" title="Enter HRA amount">
+                    </div>
+                    <small class="form-text">House Rent Allowance</small>
+                </div>
+                <div class="rule-item">
+                    <label for="editTransportAllowance" class="form-label">
+                        <i class="bi bi-bus-front"></i> Transport Allowance
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">₹</span>
+                        <input type="number" class="form-control" id="editTransportAllowance" name="transport_allowance" step="0.01" min="0" value="${staff.transport_allowance || ''}" title="Enter transport allowance">
+                    </div>
+                    <small class="form-text">Monthly transport allowance</small>
+                </div>
+                <div class="rule-item">
+                    <label for="editOtherAllowances" class="form-label">
+                        <i class="bi bi-plus-circle"></i> Other Allowances
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">₹</span>
+                        <input type="number" class="form-control" id="editOtherAllowances" name="other_allowances" step="0.01" min="0" value="${staff.other_allowances || ''}" title="Enter other allowances">
+                    </div>
+                    <small class="form-text">Other monthly allowances</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Deductions Section -->
+        <div class="rules-section">
+            <h6 class="section-title">
+                <i class="bi bi-dash-circle text-danger"></i> Deductions
+            </h6>
+            <div class="rules-grid">
+                <div class="rule-item">
+                    <label for="editPFDeduction" class="form-label">
+                        <i class="bi bi-piggy-bank"></i> PF Deduction
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">₹</span>
+                        <input type="number" class="form-control" id="editPFDeduction" name="pf_deduction" step="0.01" min="0" value="${staff.pf_deduction || ''}" title="Enter PF deduction amount">
+                    </div>
+                    <small class="form-text">Provident Fund deduction</small>
+                </div>
+                <div class="rule-item">
+                    <label for="editESIDeduction" class="form-label">
+                        <i class="bi bi-shield-plus"></i> ESI Deduction
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">₹</span>
+                        <input type="number" class="form-control" id="editESIDeduction" name="esi_deduction" step="0.01" min="0" value="${staff.esi_deduction || ''}" title="Enter ESI deduction amount">
+                    </div>
+                    <small class="form-text">Employee State Insurance deduction</small>
+                </div>
+                <div class="rule-item">
+                    <label for="editProfessionalTax" class="form-label">
+                        <i class="bi bi-receipt"></i> Professional Tax
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">₹</span>
+                        <input type="number" class="form-control" id="editProfessionalTax" name="professional_tax" step="0.01" min="0" value="${staff.professional_tax || ''}" title="Enter professional tax amount">
+                    </div>
+                    <small class="form-text">Monthly professional tax</small>
+                </div>
+                <div class="rule-item">
+                    <label for="editOtherDeductions" class="form-label">
+                        <i class="bi bi-dash-square"></i> Other Deductions
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">₹</span>
+                        <input type="number" class="form-control" id="editOtherDeductions" name="other_deductions" step="0.01" min="0" value="${staff.other_deductions || ''}" title="Enter other deductions">
+                    </div>
+                    <small class="form-text">Other monthly deductions</small>
+                </div>
+            </div>
+        </div>
     `;
 
     // Set the staff ID for the form
     document.getElementById('editStaffDbId').value = staff.id;
+
+    // Debug: Log salary field values
+    console.log('Salary field values from database:');
+    console.log('Basic Salary:', staff.basic_salary);
+    console.log('HRA:', staff.hra);
+    console.log('Transport Allowance:', staff.transport_allowance);
+    console.log('Other Allowances:', staff.other_allowances);
+    console.log('PF Deduction:', staff.pf_deduction);
+    console.log('ESI Deduction:', staff.esi_deduction);
+    console.log('Professional Tax:', staff.professional_tax);
+    console.log('Other Deductions:', staff.other_deductions);
+
+    // Verify that salary fields are populated correctly
+    setTimeout(() => {
+        const basicSalaryField = document.getElementById('editBasicSalary');
+        const hraField = document.getElementById('editHRA');
+
+        console.log('Form field values after population:');
+        console.log('Basic Salary field value:', basicSalaryField ? basicSalaryField.value : 'Field not found');
+        console.log('HRA field value:', hraField ? hraField.value : 'Field not found');
+
+        // If basic salary field is empty but we have data, populate it manually
+        if (basicSalaryField && !basicSalaryField.value && staff.basic_salary) {
+            console.log('Manually setting basic salary field value');
+            basicSalaryField.value = staff.basic_salary;
+        }
+    }, 100);
 
     // Add event listeners to update full name automatically
     const firstNameInput = document.getElementById('editFirstName');
@@ -515,13 +826,20 @@ function renderDepartmentShiftMappings(mappings) {
     const container = document.getElementById('departmentShiftMappings');
     if (!container) return;
 
+    console.log(`🔍 Rendering ${mappings.length} department shift mappings`);
+
+    // Update count display in header
+    updateMappingCount(mappings.length);
+
     if (mappings.length === 0) {
         showEmptyDepartmentShifts();
         return;
     }
 
-    const mappingsHTML = mappings.map(mapping => `
-        <div class="col-md-6 col-lg-4 mb-3">
+    const mappingsHTML = mappings.map((mapping, index) => {
+        console.log(`📋 Mapping ${index + 1}: ${mapping.department} -> ${mapping.default_shift_type}`);
+        return `
+        <div class="col-xl-4 col-lg-4 col-md-6 col-sm-12 mb-3">
             <div class="card h-100 dept-shift-card">
                 <div class="card-body">
                     <div class="d-flex align-items-center mb-3">
@@ -555,15 +873,46 @@ function renderDepartmentShiftMappings(mappings) {
                     </div>
                 </div>
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 
     container.innerHTML = mappingsHTML;
+    
+    console.log(`✅ Successfully rendered ${mappings.length} department shift mapping cards in rows of 3`);
+}
+
+function updateMappingCount(count) {
+    const countElement = document.getElementById('mappingCount');
+    const countBadge = document.getElementById('mappingCountBadge');
+    const subtitle = document.getElementById('deptShiftSubtitle');
+    
+    if (countElement) {
+        countElement.textContent = count;
+    }
+    
+    if (countBadge) {
+        if (count > 0) {
+            countBadge.style.display = 'block';
+        } else {
+            countBadge.style.display = 'none';
+        }
+    }
+    
+    if (subtitle) {
+        if (count > 0) {
+            subtitle.textContent = `${count} department${count !== 1 ? 's' : ''} configured with default shift assignments`;
+        } else {
+            subtitle.textContent = 'Configure default shift types for departments';
+        }
+    }
 }
 
 function showEmptyDepartmentShifts() {
     const container = document.getElementById('departmentShiftMappings');
     if (!container) return;
+
+    // Update count to 0
+    updateMappingCount(0);
 
     container.innerHTML = `
         <div class="col-12">

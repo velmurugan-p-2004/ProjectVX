@@ -11,7 +11,218 @@ document.addEventListener('DOMContentLoaded', function() {
     loadDepartments();
     loadSalaryRules();
     setCurrentMonth();
+    
+    // Set up immediate save functionality for salary rules
+    setupSalaryRulesAutoSave();
 });
+
+// Storage key for localStorage backup
+const SALARY_RULES_STORAGE_KEY = 'vishnorex_salary_rules_backup';
+
+function setupSalaryRulesAutoSave() {
+    // List of salary rule input field IDs
+    const salaryRuleFields = [
+        'earlyArrivalBonus',
+        'earlyDeparturePenalty', 
+        'lateArrivalPenalty',
+        'overtimeMultiplier',
+        'absentDeductionRate',
+        'onDutyRate',
+        'bonusRatePercentage',
+        'minimumHoursForBonus'
+    ];
+    
+    // Add change event listeners for immediate save
+    salaryRuleFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            // Add change and input event listeners for immediate response
+            field.addEventListener('change', debounce(saveRuleImmediately, 1000));
+            field.addEventListener('input', debounce(saveRuleToLocalStorage, 300));
+        }
+    });
+}
+
+function saveRuleImmediately(event) {
+    const fieldElement = event.target;
+    const fieldId = fieldElement.id;
+    const value = parseFloat(fieldElement.value);
+    
+    if (isNaN(value)) {
+        showAlert('Please enter a valid number for ' + getFieldDisplayName(fieldId), 'warning');
+        return;
+    }
+    
+    // Show saving indicator
+    showSavingIndicator(fieldElement, true);
+    
+    // Prepare the rule update data
+    const ruleData = {};
+    ruleData[getRuleNameFromFieldId(fieldId)] = value;
+    
+    // Send to server
+    const formData = new FormData();
+    for (const [key, val] of Object.entries(ruleData)) {
+        formData.append(key, val);
+    }
+    
+    fetch('/update_salary_rules', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': document.querySelector('input[name="csrf_token"]')?.value || ''
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        showSavingIndicator(fieldElement, false);
+        if (data.success) {
+            showSaveSuccess(fieldElement);
+            // Update localStorage backup
+            saveRuleToLocalStorage();
+        } else {
+            showAlert('Error saving ' + getFieldDisplayName(fieldId) + ': ' + data.error, 'danger');
+        }
+    })
+    .catch(error => {
+        showSavingIndicator(fieldElement, false);
+        console.error('Error saving salary rule:', error);
+        showAlert('Error saving ' + getFieldDisplayName(fieldId) + '. Changes saved locally as backup.', 'warning');
+        // Save to localStorage as backup
+        saveRuleToLocalStorage();
+    });
+}
+
+function saveRuleToLocalStorage() {
+    try {
+        const currentRules = {};
+        const salaryRuleFields = [
+            'earlyArrivalBonus',
+            'earlyDeparturePenalty', 
+            'lateArrivalPenalty',
+            'overtimeMultiplier',
+            'absentDeductionRate',
+            'onDutyRate',
+            'bonusRatePercentage',
+            'minimumHoursForBonus'
+        ];
+        
+        salaryRuleFields.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field && field.value) {
+                currentRules[getRuleNameFromFieldId(fieldId)] = parseFloat(field.value);
+            }
+        });
+        
+        currentRules.lastSaved = new Date().toISOString();
+        localStorage.setItem(SALARY_RULES_STORAGE_KEY, JSON.stringify(currentRules));
+    } catch (error) {
+        console.error('Error saving to localStorage:', error);
+    }
+}
+
+function loadSalaryRulesFromLocalStorage() {
+    try {
+        const saved = localStorage.getItem(SALARY_RULES_STORAGE_KEY);
+        if (saved) {
+            const rules = JSON.parse(saved);
+            
+            // Check if we have a recent backup (within 24 hours)
+            if (rules.lastSaved) {
+                const saveTime = new Date(rules.lastSaved);
+                const now = new Date();
+                const hoursDiff = (now - saveTime) / (1000 * 60 * 60);
+                
+                if (hoursDiff <= 24) {
+                    return rules;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error loading from localStorage:', error);
+    }
+    return null;
+}
+
+function getRuleNameFromFieldId(fieldId) {
+    const fieldMap = {
+        'earlyArrivalBonus': 'early_arrival_bonus_per_hour',
+        'earlyDeparturePenalty': 'early_departure_penalty_per_hour',
+        'lateArrivalPenalty': 'late_arrival_penalty_per_hour',
+        'overtimeMultiplier': 'overtime_rate_multiplier',
+        'absentDeductionRate': 'absent_day_deduction_rate',
+        'onDutyRate': 'on_duty_rate',
+        'bonusRatePercentage': 'bonus_rate_percentage',
+        'minimumHoursForBonus': 'minimum_hours_for_bonus'
+    };
+    return fieldMap[fieldId] || fieldId;
+}
+
+function getFieldDisplayName(fieldId) {
+    const displayNames = {
+        'earlyArrivalBonus': 'Early Arrival Bonus',
+        'earlyDeparturePenalty': 'Early Departure Penalty',
+        'lateArrivalPenalty': 'Late Arrival Penalty',
+        'overtimeMultiplier': 'Overtime Multiplier',
+        'absentDeductionRate': 'Absent Day Deduction Rate',
+        'onDutyRate': 'On Duty Rate',
+        'bonusRatePercentage': 'Bonus Rate Percentage',
+        'minimumHoursForBonus': 'Minimum Hours for Bonus'
+    };
+    return displayNames[fieldId] || fieldId;
+}
+
+function showSavingIndicator(element, show) {
+    let indicator = element.nextElementSibling;
+    
+    if (show) {
+        if (!indicator || !indicator.classList.contains('saving-indicator')) {
+            indicator = document.createElement('small');
+            indicator.className = 'saving-indicator text-muted ms-2';
+            indicator.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Saving...';
+            element.parentNode.insertBefore(indicator, element.nextSibling);
+        }
+    } else {
+        if (indicator && indicator.classList.contains('saving-indicator')) {
+            indicator.remove();
+        }
+    }
+}
+
+function showSaveSuccess(element) {
+    let indicator = element.nextElementSibling;
+    
+    // Remove any existing indicator
+    if (indicator && (indicator.classList.contains('saving-indicator') || indicator.classList.contains('saved-indicator'))) {
+        indicator.remove();
+    }
+    
+    // Add success indicator
+    indicator = document.createElement('small');
+    indicator.className = 'saved-indicator text-success ms-2';
+    indicator.innerHTML = '<i class="bi bi-check-circle"></i> Saved';
+    element.parentNode.insertBefore(indicator, element.nextSibling);
+    
+    // Remove after 2 seconds
+    setTimeout(() => {
+        if (indicator && indicator.parentNode) {
+            indicator.remove();
+        }
+    }, 2000);
+}
+
+// Debounce function to limit API calls
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
 
 function initializeSalaryManagement() {
     // Event listeners
@@ -56,24 +267,58 @@ function loadDepartments() {
 }
 
 function loadSalaryRules() {
+    // First try to load from localStorage backup
+    const localBackup = loadSalaryRulesFromLocalStorage();
+    
     fetch('/get_salary_rules')
         .then(response => response.json())
         .then(data => {
             if (data.success) {
                 const rules = data.salary_rules;
+                populateSalaryRuleFields(rules);
                 
-                // Populate form fields
-                document.getElementById('earlyArrivalBonus').value = rules.early_arrival_bonus_per_hour || 50;
-                document.getElementById('earlyDeparturePenalty').value = rules.early_departure_penalty_per_hour || 100;
-                document.getElementById('lateArrivalPenalty').value = rules.late_arrival_penalty_per_hour || 75;
-                document.getElementById('overtimeMultiplier').value = rules.overtime_rate_multiplier || 1.5;
-                document.getElementById('absentDeductionRate').value = rules.absent_day_deduction_rate || 1.0;
-                document.getElementById('onDutyRate').value = rules.on_duty_rate || 1.0;
+                // Update localStorage backup with latest server data
+                saveRuleToLocalStorage();
+            } else {
+                // If server fails but we have local backup, use it
+                if (localBackup) {
+                    populateSalaryRuleFields(localBackup);
+                    showAlert('Loaded salary rules from local backup. Server connection failed.', 'warning');
+                } else {
+                    showAlert('Failed to load salary rules: ' + data.error, 'danger');
+                }
             }
         })
         .catch(error => {
             console.error('Error loading salary rules:', error);
+            
+            // If server request fails but we have local backup, use it
+            if (localBackup) {
+                populateSalaryRuleFields(localBackup);
+                showAlert('Loaded salary rules from local backup. Please check your connection.', 'warning');
+            } else {
+                showAlert('Error loading salary rules. Please refresh the page.', 'danger');
+            }
         });
+}
+
+function populateSalaryRuleFields(rules) {
+    // Populate form fields with proper fallback values
+    const setFieldValue = (fieldId, ruleKey, defaultValue) => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.value = rules[ruleKey] !== undefined ? rules[ruleKey] : defaultValue;
+        }
+    };
+    
+    setFieldValue('earlyArrivalBonus', 'early_arrival_bonus_per_hour', 50);
+    setFieldValue('earlyDeparturePenalty', 'early_departure_penalty_per_hour', 100);
+    setFieldValue('lateArrivalPenalty', 'late_arrival_penalty_per_hour', 75);
+    setFieldValue('overtimeMultiplier', 'overtime_rate_multiplier', 1.5);
+    setFieldValue('absentDeductionRate', 'absent_day_deduction_rate', 1.0);
+    setFieldValue('onDutyRate', 'on_duty_rate', 1.0);
+    setFieldValue('bonusRatePercentage', 'bonus_rate_percentage', 10.0);
+    setFieldValue('minimumHoursForBonus', 'minimum_hours_for_bonus', 5.0);
 }
 
 function calculateBulkSalaries() {
@@ -452,6 +697,11 @@ function displayDetailedSalaryBreakdown(data) {
 }
 
 function updateSalaryRules() {
+    // Show confirmation for manual bulk update
+    if (!confirm('Update all salary rules at once? Individual changes are saved automatically.')) {
+        return;
+    }
+    
     const formData = new FormData();
     
     formData.append('early_arrival_bonus_per_hour', document.getElementById('earlyArrivalBonus').value);
@@ -460,23 +710,44 @@ function updateSalaryRules() {
     formData.append('overtime_rate_multiplier', document.getElementById('overtimeMultiplier').value);
     formData.append('absent_day_deduction_rate', document.getElementById('absentDeductionRate').value);
     formData.append('on_duty_rate', document.getElementById('onDutyRate').value);
+
+    // Add new enhanced salary fields
+    if (document.getElementById('bonusRatePercentage')) {
+        formData.append('bonus_rate_percentage', document.getElementById('bonusRatePercentage').value);
+    }
+    if (document.getElementById('minimumHoursForBonus')) {
+        formData.append('minimum_hours_for_bonus', document.getElementById('minimumHoursForBonus').value);
+    }
+    
+    // Show loading state
+    const updateBtn = document.getElementById('updateSalaryRulesBtn');
+    const originalText = updateBtn.textContent;
+    updateBtn.disabled = true;
+    updateBtn.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Updating...';
     
     fetch('/update_salary_rules', {
         method: 'POST',
         body: formData,
         headers: {
-            'X-CSRFToken': document.querySelector('input[name="csrf_token"]').value
+            'X-CSRFToken': document.querySelector('input[name="csrf_token"]')?.value || ''
         }
     })
     .then(response => response.json())
     .then(data => {
+        updateBtn.disabled = false;
+        updateBtn.textContent = originalText;
+        
         if (data.success) {
-            showAlert('Salary rules updated successfully', 'success');
+            showAlert('All salary rules updated successfully', 'success');
+            // Update localStorage backup
+            saveRuleToLocalStorage();
         } else {
             showAlert('Error updating salary rules: ' + data.error, 'danger');
         }
     })
     .catch(error => {
+        updateBtn.disabled = false;
+        updateBtn.textContent = originalText;
         console.error('Error updating salary rules:', error);
         showAlert('Error updating salary rules. Please try again.', 'danger');
     });
@@ -586,14 +857,169 @@ function initializeTooltips() {
     }
 }
 
+// Enhanced salary calculation function
+function calculateEnhancedSalary() {
+    const year = document.getElementById('calculationYear').value;
+    const month = document.getElementById('calculationMonth').value;
+    const department = document.getElementById('departmentFilter').value;
+
+    if (!year || !month) {
+        showAlert('Please select year and month for calculation', 'warning');
+        return;
+    }
+
+    showLoading('Calculating enhanced salaries based on actual hours worked...');
+
+    // Get all staff for the selected department
+    fetch('/get_staff_list', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            department: department
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.staff && data.staff.length > 0) {
+            // Calculate enhanced salary for each staff member
+            const promises = data.staff.map(staff =>
+                fetch('/api/calculate_enhanced_salary', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        staff_id: staff.id,
+                        year: parseInt(year),
+                        month: parseInt(month)
+                    })
+                }).then(response => response.json())
+            );
+
+            Promise.all(promises)
+                .then(results => {
+                    hideLoading();
+                    displayEnhancedSalaryResults(results, year, month);
+                })
+                .catch(error => {
+                    hideLoading();
+                    console.error('Error calculating enhanced salaries:', error);
+                    showAlert('Error calculating enhanced salaries. Please try again.', 'error');
+                });
+        } else {
+            hideLoading();
+            showAlert('No staff found for the selected criteria', 'info');
+        }
+    })
+    .catch(error => {
+        hideLoading();
+        console.error('Error fetching staff list:', error);
+        showAlert('Error fetching staff list. Please try again.', 'error');
+    });
+}
+
+// Display enhanced salary results
+function displayEnhancedSalaryResults(results, year, month) {
+    const resultsContainer = document.getElementById('enhancedSalaryResultsContainer');
+    if (!resultsContainer) return;
+
+    let html = `
+        <div class="enhanced-salary-results">
+            <div class="results-header">
+                <h4><i class="bi bi-clock-history"></i> Enhanced Salary Results - ${year}-${month.toString().padStart(2, '0')}</h4>
+                <p class="text-muted">Salary calculations based on actual hours worked vs standard institution hours</p>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-striped salary-results-table">
+                    <thead>
+                        <tr>
+                            <th>Staff Name</th>
+                            <th>Base Salary</th>
+                            <th>Hourly Rate</th>
+                            <th>Standard Hours</th>
+                            <th>Actual Hours</th>
+                            <th>Hours Ratio</th>
+                            <th>Base Earned</th>
+                            <th>Extra Hours Bonus</th>
+                            <th>Total Earnings</th>
+                            <th>Total Deductions</th>
+                            <th>Net Salary</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    `;
+
+    results.forEach(result => {
+        if (result.success) {
+            const breakdown = result.salary_breakdown;
+            const hoursRatio = breakdown.hours_ratio || 1.0;
+            const hoursRatioPercent = (hoursRatio * 100).toFixed(1);
+            const hoursRatioClass = hoursRatio >= 1.0 ? 'text-success' : 'text-warning';
+
+            html += `
+                <tr>
+                    <td>
+                        <strong>${result.staff_name}</strong>
+                    </td>
+                    <td>₹${result.base_monthly_salary.toLocaleString()}</td>
+                    <td>₹${result.hourly_rate.toFixed(2)}</td>
+                    <td>${result.standard_monthly_hours.toFixed(1)} hrs</td>
+                    <td>${result.actual_hours_worked.toFixed(1)} hrs</td>
+                    <td class="${hoursRatioClass}">
+                        <strong>${hoursRatioPercent}%</strong>
+                    </td>
+                    <td>₹${breakdown.base_salary_earned.toLocaleString()}</td>
+                    <td class="text-success">₹${breakdown.bonus_for_extra_hours.toLocaleString()}</td>
+                    <td class="text-primary">₹${breakdown.total_earnings.toLocaleString()}</td>
+                    <td class="text-danger">₹${breakdown.total_deductions.toLocaleString()}</td>
+                    <td class="text-success">
+                        <strong>₹${breakdown.net_salary.toLocaleString()}</strong>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-info" onclick="showEnhancedSalaryDetails('${result.staff_id}', '${year}', '${month}')">
+                            <i class="bi bi-eye"></i> Details
+                        </button>
+                    </td>
+                </tr>
+            `;
+        } else {
+            html += `
+                <tr>
+                    <td colspan="12" class="text-danger">
+                        Error calculating salary: ${result.error}
+                    </td>
+                </tr>
+            `;
+        }
+    });
+
+    html += `
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    resultsContainer.innerHTML = html;
+}
+
 // Initialize enhanced UI when page loads
 document.addEventListener('DOMContentLoaded', function() {
     // Load salary rules on page load
     loadSalaryRules();
 
     // Set up event listeners
-    document.getElementById('calculateBulkSalaryBtn').addEventListener('click', calculateBulkSalary);
+    document.getElementById('calculateBulkSalaryBtn').addEventListener('click', calculateBulkSalaries);
     document.getElementById('updateSalaryRulesBtn').addEventListener('click', updateSalaryRules);
+
+    // Add enhanced salary calculation listener
+    const enhancedBtn = document.getElementById('calculateEnhancedSalaryBtn');
+    if (enhancedBtn) {
+        enhancedBtn.addEventListener('click', calculateEnhancedSalary);
+    }
 
     // Set current month as default
     const currentMonth = new Date().getMonth() + 1;

@@ -465,30 +465,139 @@ def get_institution_timings():
 def calculate_attendance_status(check_time, verification_type='check-in', grace_minutes=10):
     """
     Calculate attendance status based on institution timings.
-    
+
     Args:
         check_time (datetime.time): Time when staff checked in/out
         verification_type (str): 'check-in' or 'check-out'
         grace_minutes (int): Grace period in minutes for late arrival
-    
+
     Returns:
         str: Attendance status ('present', 'late', 'early_departure')
     """
     import datetime
-    
+
     timings = get_institution_timings()
-    
+
     if verification_type == 'check-in':
         # Calculate grace period cutoff
         checkin_dt = datetime.datetime.combine(datetime.date.today(), timings['checkin_time'])
         grace_cutoff = checkin_dt + datetime.timedelta(minutes=grace_minutes)
         grace_cutoff_time = grace_cutoff.time()
-        
+
         return 'late' if check_time > grace_cutoff_time else 'present'
-    
+
     elif verification_type == 'check-out':
         # For check-out, consider early departure
         return 'early_departure' if check_time < timings['checkout_time'] else 'present'
-    
+
     else:
         return 'present'
+
+
+def calculate_standard_working_hours_per_month():
+    """
+    Calculate standard working hours per month based on institution timing configuration.
+
+    Returns:
+        dict: {
+            'daily_hours': float,
+            'monthly_hours': float,
+            'working_days_per_month': int
+        }
+    """
+    import datetime
+    import calendar
+
+    try:
+        # Get institution timings
+        timings = get_institution_timings()
+        checkin_time = timings['checkin_time']
+        checkout_time = timings['checkout_time']
+
+        # Calculate daily working hours
+        checkin_dt = datetime.datetime.combine(datetime.date.today(), checkin_time)
+        checkout_dt = datetime.datetime.combine(datetime.date.today(), checkout_time)
+
+        # Handle overnight shifts (if checkout is before checkin)
+        if checkout_dt < checkin_dt:
+            checkout_dt += datetime.timedelta(days=1)
+
+        daily_hours = (checkout_dt - checkin_dt).total_seconds() / 3600
+
+        # Calculate working days per month (excluding Sundays)
+        # Use current month as reference
+        now = datetime.datetime.now()
+        total_days = calendar.monthrange(now.year, now.month)[1]
+        working_days = 0
+
+        for day in range(1, total_days + 1):
+            date_obj = datetime.date(now.year, now.month, day)
+            # Exclude Sundays (weekday 6)
+            if date_obj.weekday() != 6:
+                working_days += 1
+
+        monthly_hours = daily_hours * working_days
+
+        return {
+            'daily_hours': daily_hours,
+            'monthly_hours': monthly_hours,
+            'working_days_per_month': working_days
+        }
+
+    except Exception as e:
+        print(f"Error calculating standard working hours: {e}")
+        # Return default values (8 hours/day, 26 working days/month)
+        return {
+            'daily_hours': 8.0,
+            'monthly_hours': 208.0,  # 8 * 26
+            'working_days_per_month': 26
+        }
+
+
+def calculate_hourly_rate(base_monthly_salary):
+    """
+    Calculate hourly rate from base monthly salary using institution timing configuration.
+
+    Args:
+        base_monthly_salary (float): Base monthly salary amount
+
+    Returns:
+        dict: {
+            'hourly_rate': float,
+            'daily_rate': float,
+            'standard_monthly_hours': float,
+            'standard_daily_hours': float
+        }
+    """
+    try:
+        base_salary = float(base_monthly_salary)
+        if base_salary <= 0:
+            return {
+                'hourly_rate': 0.0,
+                'daily_rate': 0.0,
+                'standard_monthly_hours': 0.0,
+                'standard_daily_hours': 0.0
+            }
+
+        # Get standard working hours
+        working_hours = calculate_standard_working_hours_per_month()
+
+        # Calculate rates
+        hourly_rate = base_salary / working_hours['monthly_hours'] if working_hours['monthly_hours'] > 0 else 0
+        daily_rate = base_salary / working_hours['working_days_per_month'] if working_hours['working_days_per_month'] > 0 else 0
+
+        return {
+            'hourly_rate': round(hourly_rate, 2),
+            'daily_rate': round(daily_rate, 2),
+            'standard_monthly_hours': working_hours['monthly_hours'],
+            'standard_daily_hours': working_hours['daily_hours']
+        }
+
+    except Exception as e:
+        print(f"Error calculating hourly rate: {e}")
+        return {
+            'hourly_rate': 0.0,
+            'daily_rate': 0.0,
+            'standard_monthly_hours': 0.0,
+            'standard_daily_hours': 0.0
+        }

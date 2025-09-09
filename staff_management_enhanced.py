@@ -177,14 +177,6 @@ class StaffManager:
             where_conditions.append('gender = ?')
             params.append(filters['gender'])
         
-        if filters.get('date_from'):
-            where_conditions.append('date_of_joining >= ?')
-            params.append(filters['date_from'])
-        
-        if filters.get('date_to'):
-            where_conditions.append('date_of_joining <= ?')
-            params.append(filters['date_to'])
-        
         # Build final query
         query = f'''
             SELECT * FROM staff 

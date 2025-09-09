@@ -156,9 +156,11 @@
             font-size: 1rem !important;
         }
         
-        /* Compact department shift mapping cards */
-        #departmentShiftMappings .col-md-4,
-        #departmentShiftMappings .col-lg-3 {
+        /* Compact department shift mapping cards - Updated for 3 cards per row */
+        #departmentShiftMappings .col-xl-4,
+        #departmentShiftMappings .col-lg-4,
+        #departmentShiftMappings .col-md-6,
+        #departmentShiftMappings .col-sm-12 {
             margin-bottom: 0.75rem !important;
         }
         
@@ -166,6 +168,13 @@
             font-size: 0.8rem !important;
             box-shadow: 0 1px 4px rgba(0,0,0,0.1) !important;
             border-radius: 0.5rem !important;
+            height: 100% !important;
+            transition: transform 0.2s ease-in-out !important;
+        }
+        
+        #departmentShiftMappings .card:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.15) !important;
         }
         
         #departmentShiftMappings .card-header {
@@ -175,7 +184,14 @@
         }
         
         #departmentShiftMappings .card-body {
+            padding: 0.75rem !important;
+            flex-grow: 1 !important;
+        }
+        
+        #departmentShiftMappings .card-footer {
             padding: 0.5rem 0.75rem !important;
+            background: transparent !important;
+            border-top: 1px solid rgba(0,0,0,0.1) !important;
         }
         
         #departmentShiftMappings .badge {
@@ -186,6 +202,18 @@
         #departmentShiftMappings .btn {
             padding: 0.25rem 0.5rem !important;
             font-size: 0.75rem !important;
+        }
+        
+        /* Ensure consistent card heights */
+        #departmentShiftMappings .dept-shift-card {
+            min-height: 180px !important;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            #departmentShiftMappings .dept-shift-card {
+                min-height: auto !important;
+            }
         }
         
         /* Compact loading state */
@@ -403,6 +431,27 @@
                                 </select>
                             </div>
                             <div class="filter-group">
+                                <label for="positionFilter" class="form-label">
+                                    <i class="bi bi-briefcase"></i> Position
+                                </label>
+                                <select class="form-select enhanced-select" id="positionFilter" title="Filter by position">
+                                    <option value="">All Positions</option>
+                                    <option value="Principal">Principal</option>
+                                    <option value="Vice Principal">Vice Principal</option>
+                                    <option value="Teacher">Teacher</option>
+                                    <option value="Senior Teacher">Senior Teacher</option>
+                                    <option value="Assistant Teacher">Assistant Teacher</option>
+                                    <option value="Administrator">Administrator</option>
+                                    <option value="Clerk">Clerk</option>
+                                    <option value="Accountant">Accountant</option>
+                                    <option value="Librarian">Librarian</option>
+                                    <option value="Lab Assistant">Lab Assistant</option>
+                                    <option value="Security Guard">Security Guard</option>
+                                    <option value="Maintenance Staff">Maintenance Staff</option>
+                                    <option value="Peon">Peon</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
                                 <label for="genderFilter" class="form-label">
                                     <i class="bi bi-gender-ambiguous"></i> Gender
                                 </label>
@@ -414,8 +463,27 @@
                                 </select>
                             </div>
                             <div class="filter-group">
+                                <label for="dateFromFilter" class="form-label">
+                                    <i class="bi bi-calendar-date"></i> Joined From
+                                </label>
+                                <input type="date" class="form-control enhanced-select" id="dateFromFilter" title="Filter by joining date from">
+                            </div>
+                            <div class="filter-group">
+                                <label for="dateToFilter" class="form-label">
+                                    <i class="bi bi-calendar-check"></i> Joined To
+                                </label>
+                                <input type="date" class="form-control enhanced-select" id="dateToFilter" title="Filter by joining date to">
+                            </div>
+                            <div class="filter-group">
                                 <label class="form-label">&nbsp;</label>
-                                <button type="button" class="btn btn-primary btn-calculate" id="clearFiltersBtn" title="Clear all filters">
+                                <button type="button" class="btn btn-primary btn-calculate" id="applyFiltersBtn" title="Apply all filters">
+                                    <i class="bi bi-funnel"></i>
+                                    <span>Apply Filters</span>
+                                </button>
+                            </div>
+                            <div class="filter-group">
+                                <label class="form-label">&nbsp;</label>
+                                <button type="button" class="btn btn-outline-secondary btn-calculate" id="clearFiltersBtn" title="Clear all filters">
                                     <i class="bi bi-x-circle"></i>
                                     <span>Clear Filters</span>
                                 </button>
@@ -533,9 +601,15 @@
                         </div>
                         <div class="header-content">
                             <h5 class="card-title">Department Shift Assignments</h5>
-                            <p class="card-subtitle">Configure default shift types for departments</p>
+                            <p class="card-subtitle" id="deptShiftSubtitle">Configure default shift types for departments</p>
                         </div>
                         <div class="header-actions">
+                            <div class="mapping-count-badge me-2" id="mappingCountBadge" style="display: none;">
+                                <span class="badge bg-primary">
+                                    <i class="bi bi-building"></i>
+                                    <span id="mappingCount">0</span> Mappings
+                                </span>
+                            </div>
                             <a href="{{ url_for('department_shifts') }}" class="btn btn-outline-primary" title="Manage department shifts">
                                 <i class="bi bi-gear"></i> Manage Shifts
                             </a>
@@ -809,6 +883,104 @@
                                     </label>
                                     <input type="email" class="form-control" id="addEmail" name="email" title="Enter email address">
                                     <small class="form-text">Primary email address</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Salary Information Section -->
+                        <div class="rules-section">
+                            <h6 class="section-title">
+                                <i class="bi bi-currency-dollar text-success"></i> Salary Information
+                            </h6>
+                            <div class="rules-grid">
+                                <div class="rule-item">
+                                    <label for="addBasicSalary" class="form-label">
+                                        <i class="bi bi-cash-stack"></i> Base Monthly Salary *
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">₹</span>
+                                        <input type="number" class="form-control" id="addBasicSalary" name="basic_salary" step="0.01" min="0" required title="Enter base monthly salary">
+                                    </div>
+                                    <small class="form-text">Base monthly salary for standard working hours</small>
+                                </div>
+                                <div class="rule-item">
+                                    <label for="addHRA" class="form-label">
+                                        <i class="bi bi-house"></i> HRA
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">₹</span>
+                                        <input type="number" class="form-control" id="addHRA" name="hra" step="0.01" min="0" value="0" title="Enter HRA amount">
+                                    </div>
+                                    <small class="form-text">House Rent Allowance</small>
+                                </div>
+                                <div class="rule-item">
+                                    <label for="addTransportAllowance" class="form-label">
+                                        <i class="bi bi-bus-front"></i> Transport Allowance
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">₹</span>
+                                        <input type="number" class="form-control" id="addTransportAllowance" name="transport_allowance" step="0.01" min="0" value="0" title="Enter transport allowance">
+                                    </div>
+                                    <small class="form-text">Monthly transport allowance</small>
+                                </div>
+                                <div class="rule-item">
+                                    <label for="addOtherAllowances" class="form-label">
+                                        <i class="bi bi-plus-circle"></i> Other Allowances
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">₹</span>
+                                        <input type="number" class="form-control" id="addOtherAllowances" name="other_allowances" step="0.01" min="0" value="0" title="Enter other allowances">
+                                    </div>
+                                    <small class="form-text">Other monthly allowances</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Deductions Section -->
+                        <div class="rules-section">
+                            <h6 class="section-title">
+                                <i class="bi bi-dash-circle text-danger"></i> Deductions
+                            </h6>
+                            <div class="rules-grid">
+                                <div class="rule-item">
+                                    <label for="addPFDeduction" class="form-label">
+                                        <i class="bi bi-piggy-bank"></i> PF Deduction
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">₹</span>
+                                        <input type="number" class="form-control" id="addPFDeduction" name="pf_deduction" step="0.01" min="0" value="0" title="Enter PF deduction amount">
+                                    </div>
+                                    <small class="form-text">Provident Fund deduction</small>
+                                </div>
+                                <div class="rule-item">
+                                    <label for="addESIDeduction" class="form-label">
+                                        <i class="bi bi-shield-plus"></i> ESI Deduction
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">₹</span>
+                                        <input type="number" class="form-control" id="addESIDeduction" name="esi_deduction" step="0.01" min="0" value="0" title="Enter ESI deduction amount">
+                                    </div>
+                                    <small class="form-text">Employee State Insurance deduction</small>
+                                </div>
+                                <div class="rule-item">
+                                    <label for="addProfessionalTax" class="form-label">
+                                        <i class="bi bi-receipt"></i> Professional Tax
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">₹</span>
+                                        <input type="number" class="form-control" id="addProfessionalTax" name="professional_tax" step="0.01" min="0" value="0" title="Enter professional tax amount">
+                                    </div>
+                                    <small class="form-text">Monthly professional tax</small>
+                                </div>
+                                <div class="rule-item">
+                                    <label for="addOtherDeductions" class="form-label">
+                                        <i class="bi bi-dash-square"></i> Other Deductions
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">₹</span>
+                                        <input type="number" class="form-control" id="addOtherDeductions" name="other_deductions" step="0.01" min="0" value="0" title="Enter other deductions">
+                                    </div>
+                                    <small class="form-text">Other monthly deductions</small>
                                 </div>
                             </div>
                         </div>

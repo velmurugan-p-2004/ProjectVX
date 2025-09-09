@@ -23,22 +23,67 @@ class ShiftManager:
     def _load_shift_definitions(self) -> Dict:
         """Load shift definitions from database"""
         db = get_db()
-        shifts = db.execute('''
-            SELECT shift_type, start_time, end_time, grace_period_minutes, description
-            FROM shift_definitions
-            WHERE is_active = 1
-        ''').fetchall()
         
-        shift_dict = {}
-        for shift in shifts:
-            shift_dict[shift['shift_type']] = {
-                'start_time': datetime.datetime.strptime(shift['start_time'], '%H:%M:%S').time(),
-                'end_time': datetime.datetime.strptime(shift['end_time'], '%H:%M:%S').time(),
-                'grace_period_minutes': shift['grace_period_minutes'],
-                'description': shift['description']
+        # First try to load from shift_definitions table
+        try:
+            shifts = db.execute('''
+                SELECT shift_type, start_time, end_time, grace_period_minutes, description
+                FROM shift_definitions
+                WHERE is_active = 1
+            ''').fetchall()
+            
+            shift_dict = {}
+            for shift in shifts:
+                shift_dict[shift['shift_type']] = {
+                    'start_time': datetime.datetime.strptime(shift['start_time'], '%H:%M:%S').time(),
+                    'end_time': datetime.datetime.strptime(shift['end_time'], '%H:%M:%S').time(),
+                    'grace_period_minutes': shift['grace_period_minutes'],
+                    'description': shift['description']
+                }
+            
+            # If we have shifts, return them
+            if shift_dict:
+                return shift_dict
+                
+        except Exception as e:
+            print(f"Could not load shift definitions: {e}")
+        
+        # Fallback: Load from institution settings to create default general shift
+        try:
+            from database import get_institution_timings
+            timings = get_institution_timings()
+            
+            shift_dict = {
+                'general': {
+                    'start_time': timings['checkin_time'],
+                    'end_time': timings['checkout_time'],
+                    'grace_period_minutes': 10,
+                    'description': 'Default Institution Shift'
+                }
+            }
+            
+            print(f"✅ Created default general shift from institution timings: {timings['checkin_time']} - {timings['checkout_time']}")
+            return shift_dict
+            
+        except Exception as e:
+            print(f"Could not load institution timings: {e}")
+            
+            # Ultimate fallback: hardcoded default
+            return {
+                'general': {
+                    'start_time': datetime.time(9, 0),
+                    'end_time': datetime.time(17, 0),
+                    'grace_period_minutes': 10,
+                    'description': 'Default Hardcoded Shift'
+                }
             }
         
         return shift_dict
+    
+    def reload_shift_definitions(self):
+        """Reload shift definitions - useful when institution timings change"""
+        self.shift_definitions = self._load_shift_definitions()
+        print("✅ Shift definitions reloaded")
     
     def get_shift_info(self, shift_type: str) -> Optional[Dict]:
         """Get shift information for a given shift type"""

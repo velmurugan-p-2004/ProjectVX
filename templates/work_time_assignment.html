@@ -399,7 +399,7 @@
                                             <label for="institutionCheckinTime" class="form-label">
                                                 <i class="bi bi-sunrise"></i> Institution Check-in Time
                                             </label>
-                                            <input type="time" class="form-control time-picker" id="institutionCheckinTime" name="checkin_time" value="09:00" required>
+                                            <input type="time" class="form-control time-picker" id="institutionCheckinTime" name="checkin_time" required>
                                             <div class="form-text">
                                                 <i class="bi bi-info-circle"></i> Default time when staff should check in
                                             </div>
@@ -408,7 +408,7 @@
                                             <label for="institutionCheckoutTime" class="form-label">
                                                 <i class="bi bi-sunset"></i> Institution Check-out Time
                                             </label>
-                                            <input type="time" class="form-control time-picker" id="institutionCheckoutTime" name="checkout_time" value="17:00" required>
+                                            <input type="time" class="form-control time-picker" id="institutionCheckoutTime" name="checkout_time" required>
                                             <div class="form-text">
                                                 <i class="bi bi-info-circle"></i> Default time when staff should check out
                                             </div>
@@ -491,10 +491,106 @@
             document.getElementById('currentDate').textContent = new Date().toLocaleDateString();
             
             console.log('✅ WORK TIME ASSIGNMENT fixed sidebar initialized successfully');
+            
+            // Load current institution timings on page load
+            loadCurrentTimings();
         });
 
+        // Helper function to get CSRF token (similar to admin dashboard)
+        function getCSRFToken() {
+            const token = document.querySelector('input[name="csrf_token"]');
+            return token ? token.value : '';
+        }
+
+        // Helper function to check session status
+        function checkSessionStatus() {
+            return fetch('/api/debug_session', {
+                method: 'GET',
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Session status:', data);
+                return data.success && data.session_data.has_session;
+            })
+            .catch(error => {
+                console.error('Error checking session:', error);
+                return false;
+            });
+        }
+
+        // Helper function to test timing synchronization
+        function testTimingSync() {
+            fetch('/api/test_timing_sync', {
+                method: 'GET',
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('✅ Timing Sync Test Results:', data.sync_check);
+                    if (data.sync_check.systems_synced) {
+                        console.log('✅ All systems are synchronized with institution timings');
+                    } else {
+                        console.warn('⚠️ Systems may not be fully synchronized');
+                    }
+                } else {
+                    console.error('❌ Sync test failed:', data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error testing sync:', error);
+            });
+        }
+
+        // Function to load current timings from API
+        function loadCurrentTimings() {
+            fetch('/api/get_institution_timings', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'same-origin'  // Include session cookies
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    const checkinTime = data.checkin_time || '09:00';
+                    const checkoutTime = data.checkout_time || '17:00';
+                    
+                    // Update form inputs
+                    document.getElementById('institutionCheckinTime').value = checkinTime;
+                    document.getElementById('institutionCheckoutTime').value = checkoutTime;
+                    
+                    // Update display cards
+                    document.getElementById('currentCheckinTime').textContent = convertTo12Hour(checkinTime);
+                    document.getElementById('currentCheckoutTime').textContent = convertTo12Hour(checkoutTime);
+                } else {
+                    console.error('API returned error:', data.message);
+                    setDefaultTimings();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading timings:', error);
+                setDefaultTimings();
+            });
+        }
+
+        // Helper function to set default timings
+        function setDefaultTimings() {
+            document.getElementById('institutionCheckinTime').value = '09:00';
+            document.getElementById('institutionCheckoutTime').value = '17:00';
+            document.getElementById('currentCheckinTime').textContent = '09:00 AM';
+            document.getElementById('currentCheckoutTime').textContent = '05:00 PM';
+        }
+
         // Work time form functionality
-        document.getElementById('workTimeForm').addEventListener('submit', function(e) {
+        document.getElementById('workTimeForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
             const checkinTime = document.getElementById('institutionCheckinTime').value;
@@ -513,38 +609,133 @@
             const originalText = saveBtn.innerHTML;
             saveBtn.innerHTML = '<i class="bi bi-spinner-grow spinner-grow-sm"></i> Saving...';
             saveBtn.disabled = true;
-            
-            // Simulate API call (replace with actual implementation)
-            setTimeout(() => {
-                // Update display times
-                const checkinDisplay = convertTo12Hour(checkinTime);
-                const checkoutDisplay = convertTo12Hour(checkoutTime);
+
+            try {
+                // Check session status first
+                const hasValidSession = await checkSessionStatus();
+                if (!hasValidSession) {
+                    alert('Session expired. Please log in as admin and try again.');
+                    saveBtn.innerHTML = originalText;
+                    saveBtn.disabled = false;
+                    return;
+                }
+
+                // Prepare form data
+                const formData = new FormData();
+                formData.append('checkin_time', checkinTime);
+                formData.append('checkout_time', checkoutTime);
                 
-                document.getElementById('currentCheckinTime').textContent = checkinDisplay;
-                document.getElementById('currentCheckoutTime').textContent = checkoutDisplay;
+                // Add CSRF token if available
+                const csrfToken = getCSRFToken();
+                if (csrfToken) {
+                    formData.append('csrf_token', csrfToken);
+                }
+
+                // Make actual API call
+                const response = await fetch('/api/update_institution_timings', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'  // Include session cookies
+                });
+
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
                 
-                // Show success message
-                document.getElementById('timingSuccessMessage').style.display = 'block';
-                setTimeout(() => {
-                    document.getElementById('timingSuccessMessage').style.display = 'none';
-                }, 3000);
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        throw new Error('Unauthorized: Please log in as admin');
+                    } else if (response.status === 400) {
+                        throw new Error('Bad request: Invalid data submitted');
+                    } else if (response.status === 500) {
+                        throw new Error('Server error: Please try again later');
+                    } else {
+                        throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);
+                    }
+                }
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Update display times
+                    const checkinDisplay = convertTo12Hour(checkinTime);
+                    const checkoutDisplay = convertTo12Hour(checkoutTime);
+                    
+                    document.getElementById('currentCheckinTime').textContent = checkinDisplay;
+                    document.getElementById('currentCheckoutTime').textContent = checkoutDisplay;
+                    
+                    // Show enhanced success message with sync confirmation
+                    const successMsg = document.getElementById('timingSuccessMessage');
+                    successMsg.innerHTML = `
+                        <div class="alert alert-success">
+                            <h6><i class="bi bi-check-circle-fill"></i> Institution Timings Updated Successfully!</h6>
+                            <p class="mb-2">
+                                <strong>New Timings:</strong> ${checkinDisplay} - ${checkoutDisplay}
+                            </p>
+                            <small class="text-muted">
+                                <i class="bi bi-sync"></i> These timings are now active across the entire system:
+                                <br>• Staff attendance calculations
+                                <br>• Biometric device processing
+                                <br>• Late/early departure detection
+                                <br>• Reporting and analytics
+                            </small>
+                        </div>
+                    `;
+                    successMsg.style.display = 'block';
+                    
+                    // Auto-hide success message after 8 seconds
+                    setTimeout(() => {
+                        successMsg.style.display = 'none';
+                    }, 8000);
+                    
+                    // Test sync after a short delay
+                    setTimeout(() => {
+                        testTimingSync();
+                    }, 1000);
+                } else {
+                    // Show error message with specific details
+                    const errorMsg = data.message || 'Unknown error occurred';
+                    alert('Failed to update timings: ' + errorMsg);
+                    console.error('API Error:', data);
+                }
                 
+            } catch (error) {
+                console.error('Error updating timings:', error);
+                
+                // More specific error handling with debugging info
+                let errorMessage = 'Network error. Please try again.';
+                console.log('Full error details:', error);
+                
+                if (error.message.includes('Unauthorized')) {
+                    errorMessage = 'Please log in as admin to update institution timings.';
+                } else if (error.message.includes('Bad request')) {
+                    errorMessage = 'Invalid time format. Please check your input.';
+                } else if (error.message.includes('Server error')) {
+                    errorMessage = 'Server error. Please try again later.';
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Connection failed. Please check your internet connection.';
+                } else if (error.name === 'TypeError') {
+                    errorMessage = 'Request failed. Please ensure you are logged in as admin.';
+                }
+                
+                alert(errorMessage + '\n\nTechnical details: ' + error.message);
+            } finally {
                 // Reset button
                 saveBtn.innerHTML = originalText;
                 saveBtn.disabled = false;
-            }, 1000);
+            }
         });
         
         // Reset form
         document.getElementById('resetTimingBtn').addEventListener('click', function() {
-            document.getElementById('institutionCheckinTime').value = '09:00';
-            document.getElementById('institutionCheckoutTime').value = '17:00';
-            document.getElementById('timeValidationMessage').style.display = 'none';
+            if (confirm('Are you sure you want to reset to current saved timings?')) {
+                loadCurrentTimings();
+                document.getElementById('timeValidationMessage').style.display = 'none';
+            }
         });
 
         // Header action buttons
         document.getElementById('refreshTimingBtn').addEventListener('click', function() {
-            location.reload();
+            loadCurrentTimings();
         });
 
         document.getElementById('exportTimingBtn').addEventListener('click', function() {

@@ -103,6 +103,31 @@
                 display: none !important;
             }
         }
+        
+        /* Salary Rules Auto-Save Indicators */
+        .saving-indicator {
+            font-size: 0.75rem;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .saved-indicator {
+            font-size: 0.75rem;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .spin {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -332,6 +357,13 @@
                                         <span>Calculate Salaries</span>
                                     </button>
                                 </div>
+                                <div class="filter-group">
+                                    <label class="form-label">&nbsp;</label>
+                                    <button type="button" class="btn btn-warning btn-calculate" id="calculateEnhancedSalaryBtn" title="Calculate enhanced salaries based on actual hours worked">
+                                        <i class="bi bi-clock-history"></i>
+                                        <span>Enhanced Salaries</span>
+                                    </button>
+                                </div>
                             </div>
                         </form>
                     </div>
@@ -381,6 +413,26 @@
                                                 <span class="input-group-text">x</span>
                                             </div>
                                             <small class="form-text">Multiplier for overtime hours pay</small>
+                                        </div>
+                                        <div class="rule-item bonus-rule">
+                                            <label for="bonusRatePercentage" class="form-label">
+                                                <i class="bi bi-trophy"></i> Extra Hours Bonus Rate
+                                            </label>
+                                            <div class="input-group">
+                                                <input type="number" class="form-control" id="bonusRatePercentage" step="0.1" value="10.0" title="Bonus percentage for extra hours worked">
+                                                <span class="input-group-text">%</span>
+                                            </div>
+                                            <small class="form-text">Bonus percentage for working extra hours beyond standard</small>
+                                        </div>
+                                        <div class="rule-item bonus-rule">
+                                            <label for="minimumHoursForBonus" class="form-label">
+                                                <i class="bi bi-hourglass-split"></i> Minimum Hours for Bonus
+                                            </label>
+                                            <div class="input-group">
+                                                <input type="number" class="form-control" id="minimumHoursForBonus" step="0.5" value="5.0" title="Minimum extra hours to qualify for bonus">
+                                                <span class="input-group-text">hrs</span>
+                                            </div>
+                                            <small class="form-text">Minimum extra hours required to qualify for bonus</small>
                                         </div>
                                     </div>
                                 </div>
@@ -483,6 +535,12 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Enhanced Salary Results Section -->
+                <div class="salary-results-card mt-4" id="enhancedSalaryResultsContainer">
+                    <!-- Results will be populated by JavaScript -->
+                </div>
+
             </main>
         </div>
     </div>

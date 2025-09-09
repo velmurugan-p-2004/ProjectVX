@@ -506,6 +506,7 @@
 
 /* Results Section */
 .results-container {
+    overflow: auto;
     position: relative;
 }
 
@@ -560,6 +561,10 @@
     overflow: hidden;
     box-shadow: var(--salary-shadow);
     margin-top: 1rem;
+    table-layout: auto;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
 .salary-results-table th {
@@ -571,6 +576,9 @@
     font-size: 0.9rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 .salary-results-table td {
@@ -578,14 +586,85 @@
     vertical-align: middle;
     border-color: #f1f3f4;
     font-size: 0.95rem;
+    border-bottom: 1px solid #f1f3f4;
 }
 
 .salary-results-table tbody tr {
     transition: var(--salary-transition);
+    min-height: 60px;
 }
 
 .salary-results-table tbody tr:hover {
     background-color: #f8f9fa;
+}
+
+.salary-results-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Staff Directory Layout Stability */
+#staffTable {
+    min-height: 200px;
+    position: relative;
+}
+
+#staffTableBody {
+    min-height: 100px;
+}
+
+/* Prevent layout shifts during filtering */
+.table-responsive {
+    position: relative;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive .salary-results-table {
+    margin-bottom: 0;
+    min-width: 800px; /* Ensure minimum width for proper column alignment */
+}
+
+/* Column width constraints for consistent alignment */
+.salary-results-table th:nth-child(1),
+.salary-results-table td:nth-child(1) {
+    width: 120px;
+    min-width: 120px;
+}
+
+.salary-results-table th:nth-child(2),
+.salary-results-table td:nth-child(2) {
+    width: 200px;
+    min-width: 200px;
+}
+
+.salary-results-table th:nth-child(3),
+.salary-results-table td:nth-child(3) {
+    width: 140px;
+    min-width: 140px;
+}
+
+.salary-results-table th:nth-child(4),
+.salary-results-table td:nth-child(4) {
+    width: 140px;
+    min-width: 140px;
+}
+
+.salary-results-table th:nth-child(5),
+.salary-results-table td:nth-child(5) {
+    width: 180px;
+    min-width: 180px;
+}
+
+.salary-results-table th:nth-child(6),
+.salary-results-table td:nth-child(6) {
+    width: 120px;
+    min-width: 120px;
+}
+
+.salary-results-table th:nth-child(7),
+.salary-results-table td:nth-child(7) {
+    width: 120px;
+    min-width: 120px;
 }
 
 /* Enhanced Badge Styles */
@@ -631,6 +710,90 @@
     display: flex;
     gap: 0.5rem;
     justify-content: center;
+    min-width: 100px;
+}
+
+/* Loading and Empty States */
+.staff-loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+    min-height: 200px;
+}
+
+.staff-loading-state .spinner-border {
+    width: 3rem;
+    height: 3rem;
+    margin-bottom: 1rem;
+}
+
+.staff-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+    min-height: 200px;
+    text-align: center;
+}
+
+.staff-empty-state i {
+    font-size: 4rem;
+    color: #6c757d;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+/* Prevent content jumping during filter operations */
+.salary-results-card .card-body {
+    min-height: 300px;
+    position: relative;
+}
+
+.results-container {
+    position: relative;
+    min-height: 250px;
+}
+
+/* Smooth transitions for content changes */
+.salary-results-table tbody {
+    transition: opacity 0.2s ease-in-out;
+}
+
+.salary-results-table.loading tbody {
+    opacity: 0.5;
+}
+
+/* User avatar styling consistency */
+.user-avatar {
+    font-size: 1.5rem;
+    color: var(--salary-primary);
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Badge consistency */
+.badge {
+    font-size: 0.75rem;
+    padding: 0.35em 0.65em;
+    font-weight: 500;
+}
+
+/* Contact info styling */
+.salary-results-table td small {
+    line-height: 1.4;
+    margin-bottom: 0.25rem;
+}
+
+.salary-results-table td small i {
+    width: 12px;
+    margin-right: 0.25rem;
+    opacity: 0.7;
 }
 
 .btn-view-details {
@@ -695,17 +858,87 @@
         align-items: stretch;
     }
 
+    /* Mobile table adjustments */
     .salary-results-table {
         font-size: 0.8rem;
+        min-width: 600px; /* Maintain minimum width on mobile */
     }
 
     .salary-results-table th,
     .salary-results-table td {
-        padding: 0.5rem;
+        padding: 0.5rem 0.25rem;
+    }
+
+    /* Adjust column widths for mobile */
+    .salary-results-table th:nth-child(1),
+    .salary-results-table td:nth-child(1) {
+        width: 80px;
+        min-width: 80px;
+    }
+
+    .salary-results-table th:nth-child(2),
+    .salary-results-table td:nth-child(2) {
+        width: 150px;
+        min-width: 150px;
+    }
+
+    .salary-results-table th:nth-child(3),
+    .salary-results-table td:nth-child(3) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .salary-results-table th:nth-child(4),
+    .salary-results-table td:nth-child(4) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .salary-results-table th:nth-child(5),
+    .salary-results-table td:nth-child(5) {
+        width: 120px;
+        min-width: 120px;
+    }
+
+    .salary-results-table th:nth-child(6),
+    .salary-results-table td:nth-child(6) {
+        width: 80px;
+        min-width: 80px;
+    }
+
+    .salary-results-table th:nth-child(7),
+    .salary-results-table td:nth-child(7) {
+        width: 90px;
+        min-width: 90px;
     }
 
     .action-buttons {
-        flex-direction: column;
+        flex-direction: row;
+        gap: 0.25rem;
+    }
+
+    .action-buttons .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    /* Mobile user avatar */
+    .user-avatar {
+        font-size: 1.2rem;
+        width: 24px;
+        height: 24px;
+    }
+
+    /* Mobile badges */
+    .badge {
+        font-size: 0.65rem;
+        padding: 0.25em 0.5em;
+    }
+
+    /* Mobile contact info */
+    .salary-results-table td small {
+        font-size: 0.7rem;
+        line-height: 1.2;
     }
 }
 

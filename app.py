@@ -2951,7 +2951,9 @@ def get_staff_details_enhanced():
     staff = db.execute('''
         SELECT id, staff_id, full_name, first_name, last_name,
                date_of_birth, date_of_joining, department, destination,
-               position, gender, phone, email, shift_type, photo_url
+               position, gender, phone, email, shift_type, photo_url,
+               basic_salary, hra, transport_allowance, other_allowances,
+               pf_deduction, esi_deduction, professional_tax, other_deductions
         FROM staff
         WHERE id = ?
     ''', (staff_id,)).fetchone()
@@ -2981,6 +2983,17 @@ def update_staff_enhanced():
     phone = request.form.get('phone')
     email = request.form.get('email')
     shift_type = request.form.get('shift_type', 'general')
+
+    # Salary fields
+    basic_salary = request.form.get('basic_salary', type=float)
+    hra = request.form.get('hra', type=float)
+    transport_allowance = request.form.get('transport_allowance', type=float)
+    other_allowances = request.form.get('other_allowances', type=float)
+    pf_deduction = request.form.get('pf_deduction', type=float)
+    esi_deduction = request.form.get('esi_deduction', type=float)
+    professional_tax = request.form.get('professional_tax', type=float)
+    other_deductions = request.form.get('other_deductions', type=float)
+
     school_id = session['school_id']
 
     # Create full_name from first_name and last_name
@@ -3043,6 +3056,32 @@ def update_staff_enhanced():
         if 'photo_url' in column_names and photo_url:
             update_parts.append('photo_url = ?')
             update_values.append(photo_url)
+
+        # Add salary fields
+        if 'basic_salary' in column_names and basic_salary is not None:
+            update_parts.append('basic_salary = ?')
+            update_values.append(basic_salary)
+        if 'hra' in column_names and hra is not None:
+            update_parts.append('hra = ?')
+            update_values.append(hra)
+        if 'transport_allowance' in column_names and transport_allowance is not None:
+            update_parts.append('transport_allowance = ?')
+            update_values.append(transport_allowance)
+        if 'other_allowances' in column_names and other_allowances is not None:
+            update_parts.append('other_allowances = ?')
+            update_values.append(other_allowances)
+        if 'pf_deduction' in column_names and pf_deduction is not None:
+            update_parts.append('pf_deduction = ?')
+            update_values.append(pf_deduction)
+        if 'esi_deduction' in column_names and esi_deduction is not None:
+            update_parts.append('esi_deduction = ?')
+            update_values.append(esi_deduction)
+        if 'professional_tax' in column_names and professional_tax is not None:
+            update_parts.append('professional_tax = ?')
+            update_values.append(professional_tax)
+        if 'other_deductions' in column_names and other_deductions is not None:
+            update_parts.append('other_deductions = ?')
+            update_values.append(other_deductions)
 
         # Add WHERE clause values
         update_values.extend([staff_db_id, school_id])
@@ -5187,7 +5226,8 @@ def calculate_salary():
     if not all([staff_id, year, month]):
         return jsonify({'success': False, 'error': 'Staff ID, year, and month are required'})
 
-    salary_calculator = SalaryCalculator()
+    school_id = session.get('school_id')
+    salary_calculator = SalaryCalculator(school_id=school_id)
     result = salary_calculator.calculate_monthly_salary(staff_id, year, month)
 
     return jsonify(result)
@@ -5204,7 +5244,8 @@ def generate_salary_report():
     if not all([staff_id, year, month]):
         return jsonify({'success': False, 'error': 'Staff ID, year, and month are required'})
 
-    salary_calculator = SalaryCalculator()
+    school_id = session.get('school_id')
+    salary_calculator = SalaryCalculator(school_id=school_id)
     result = salary_calculator.generate_salary_report(staff_id, year, month)
 
     return jsonify(result)
@@ -5233,7 +5274,8 @@ def bulk_salary_calculation():
 
         staff_list = get_db().execute(query, params).fetchall()
 
-        salary_calculator = SalaryCalculator()
+        school_id = session.get('school_id')
+        salary_calculator = SalaryCalculator(school_id=school_id)
         results = []
 
         for staff in staff_list:
@@ -5276,7 +5318,9 @@ def update_salary_rules():
             'late_arrival_penalty_per_hour',
             'absent_day_deduction_rate',
             'overtime_rate_multiplier',
-            'on_duty_rate'
+            'on_duty_rate',
+            'bonus_rate_percentage',
+            'minimum_hours_for_bonus'
         ]
 
         for field in rule_fields:
@@ -5284,10 +5328,94 @@ def update_salary_rules():
             if value is not None:
                 new_rules[field] = value
 
-        salary_calculator = SalaryCalculator()
+        school_id = session.get('school_id')
+        salary_calculator = SalaryCalculator(school_id=school_id)
         result = salary_calculator.update_salary_rules(new_rules)
 
         return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/calculate_hourly_rate', methods=['POST'])
+def calculate_hourly_rate_api():
+    """Calculate hourly rate from base monthly salary"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized - Admin access required'})
+
+    try:
+        from database import calculate_hourly_rate
+
+        base_salary = request.json.get('base_salary', 0)
+        if not base_salary or base_salary <= 0:
+            return jsonify({'success': False, 'error': 'Valid base salary is required'})
+
+        result = calculate_hourly_rate(base_salary)
+        return jsonify({'success': True, 'data': result})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/calculate_enhanced_salary', methods=['POST'])
+def calculate_enhanced_salary_api():
+    """Calculate enhanced salary based on actual hours worked"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized - Admin access required'})
+
+    try:
+        staff_id = request.json.get('staff_id')
+        year = request.json.get('year')
+        month = request.json.get('month')
+
+        if not all([staff_id, year, month]):
+            return jsonify({'success': False, 'error': 'Staff ID, year, and month are required'})
+
+        school_id = session.get('school_id')
+        salary_calculator = SalaryCalculator(school_id=school_id)
+        result = salary_calculator.calculate_enhanced_monthly_salary(int(staff_id), int(year), int(month))
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/get_staff_hourly_rate/<int:staff_id>')
+def get_staff_hourly_rate(staff_id):
+    """Get hourly rate for a specific staff member"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized - Admin access required'})
+
+    try:
+        from database import calculate_hourly_rate
+
+        db = get_db()
+        school_id = session['school_id']
+
+        # Get staff basic salary
+        staff = db.execute('''
+            SELECT basic_salary, full_name
+            FROM staff
+            WHERE id = ? AND school_id = ?
+        ''', (staff_id, school_id)).fetchone()
+
+        if not staff:
+            return jsonify({'success': False, 'error': 'Staff member not found'})
+
+        basic_salary = float(staff['basic_salary'] or 0)
+        if basic_salary <= 0:
+            return jsonify({'success': False, 'error': 'Base salary not set for this staff member'})
+
+        hourly_rate_info = calculate_hourly_rate(basic_salary)
+
+        return jsonify({
+            'success': True,
+            'staff_name': staff['full_name'],
+            'basic_salary': basic_salary,
+            'hourly_rate_info': hourly_rate_info
+        })
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -5297,7 +5425,8 @@ def get_salary_rules():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    salary_calculator = SalaryCalculator()
+    school_id = session.get('school_id')
+    salary_calculator = SalaryCalculator(school_id=school_id)
 
     return jsonify({
         'success': True,
@@ -5446,7 +5575,67 @@ def update_institution_timings():
                 VALUES (?, ?, CURRENT_TIMESTAMP)
             """, (setting_name, setting_value))
         
+        # Sync with shift definitions - update 'general' shift to match institution timings
+        try:
+            # Check if shift_definitions table exists
+            cursor = db.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='shift_definitions'
+            """)
+            
+            if cursor.fetchone():
+                # Update or insert general shift to match institution timings
+                db.execute("""
+                    INSERT OR REPLACE INTO shift_definitions 
+                    (shift_type, start_time, end_time, grace_period_minutes, description, is_active)
+                    VALUES ('general', ?, ?, 10, 'Institution Default Shift', 1)
+                """, (checkin_time + ':00', checkout_time + ':00'))
+                
+                print(f"✅ Synced general shift: {checkin_time} - {checkout_time}")
+            else:
+                # Create shift_definitions table and insert general shift
+                db.execute("""
+                    CREATE TABLE IF NOT EXISTS shift_definitions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        shift_type TEXT UNIQUE NOT NULL,
+                        start_time TEXT NOT NULL,
+                        end_time TEXT NOT NULL,
+                        grace_period_minutes INTEGER DEFAULT 10,
+                        description TEXT,
+                        is_active INTEGER DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                db.execute("""
+                    INSERT INTO shift_definitions 
+                    (shift_type, start_time, end_time, grace_period_minutes, description, is_active)
+                    VALUES ('general', ?, ?, 10, 'Institution Default Shift', 1)
+                """, (checkin_time + ':00', checkout_time + ':00'))
+                
+                print(f"✅ Created shift_definitions table and synced general shift: {checkin_time} - {checkout_time}")
+                
+        except Exception as sync_error:
+            print(f"⚠️ Warning: Could not sync shift definitions: {sync_error}")
+            # Continue execution even if shift sync fails
+        
         db.commit()
+        
+        # Notify all systems to refresh their configurations
+        try:
+            # Reload shift manager if it exists
+            from shift_management import ShiftManager
+            if hasattr(app, 'shift_manager'):
+                app.shift_manager.reload_shift_definitions()
+            else:
+                # Create new shift manager to ensure latest timings are loaded
+                app.shift_manager = ShiftManager()
+                
+            print(f"✅ Institution timings updated and synced across all systems")
+            
+        except Exception as reload_error:
+            print(f"⚠️ Warning: Could not reload shift manager: {reload_error}")
         
         return jsonify({
             'success': True,
@@ -5460,6 +5649,65 @@ def update_institution_timings():
         return jsonify({
             'success': False,
             'message': 'Failed to update institution timings'
+        }), 500
+
+@app.route('/api/debug_session', methods=['GET'])
+def debug_session():
+    """Debug route to check session status"""
+    try:
+        return jsonify({
+            'success': True,
+            'session_data': {
+                'user_id': session.get('user_id'),
+                'user_type': session.get('user_type'),
+                'full_name': session.get('full_name'),
+                'has_session': 'user_id' in session
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/test_timing_sync', methods=['GET'])
+def test_timing_sync():
+    """Test route to verify that all systems are using the same institution timings"""
+    try:
+        from database import get_institution_timings, calculate_attendance_status
+        from shift_management import ShiftManager
+        import datetime
+        
+        # Get institution timings
+        institution_timings = get_institution_timings()
+        
+        # Get shift manager timings
+        shift_manager = ShiftManager()
+        general_shift = shift_manager.get_shift_info('general')
+        
+        # Test attendance calculation
+        test_time = datetime.time(9, 30)  # 9:30 AM
+        status = calculate_attendance_status(test_time, 'check-in')
+        
+        return jsonify({
+            'success': True,
+            'sync_check': {
+                'institution_checkin': institution_timings['checkin_time'].strftime('%H:%M'),
+                'institution_checkout': institution_timings['checkout_time'].strftime('%H:%M'),
+                'institution_is_custom': institution_timings['is_custom'],
+                'shift_manager_checkin': general_shift['start_time'].strftime('%H:%M') if general_shift else 'Not found',
+                'shift_manager_checkout': general_shift['end_time'].strftime('%H:%M') if general_shift else 'Not found',
+                'attendance_status_test': f"9:30 AM check-in status: {status}",
+                'systems_synced': (
+                    institution_timings['checkin_time'] == general_shift['start_time'] and
+                    institution_timings['checkout_time'] == general_shift['end_time']
+                ) if general_shift else False
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500
 
 if __name__ == '__main__':
