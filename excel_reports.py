@@ -96,6 +96,15 @@ class ExcelReportGenerator:
         
         return self._save_workbook_to_response(wb, f"Monthly_Report_{year}_{month:02d}.xlsx")
     
+    def create_staff_profile_report(self, school_id):
+        """Create comprehensive staff profile report"""
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        
+        self._create_staff_profile_sheet(wb, school_id)
+        
+        return self._save_workbook_to_response(wb, f"Staff_Profile_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    
     def _create_summary_sheet(self, wb, school_id, start_date, end_date):
         """Create summary sheet with key metrics"""
         ws = wb.create_sheet("Summary")

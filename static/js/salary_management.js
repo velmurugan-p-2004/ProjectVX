@@ -1324,16 +1324,73 @@ function generateReport(reportType) {
 
     showAlert(`<i class="bi bi-gear me-2"></i>Generating ${reportName}...`, 'info');
 
-    // Simulate report generation
-    setTimeout(() => {
-        const filters = [];
-        if (month) filters.push(`Month: ${getMonthName(month)}`);
-        if (department) filters.push(`Department: ${department}`);
-        filters.push(`Format: ${format.toUpperCase()}`);
+    // Build parameters for the request
+    const params = new URLSearchParams({
+        report_type: reportType,
+        year: year,
+        format: format
+    });
+    
+    if (month) params.append('month', month);
+    if (department) params.append('department', department);
+    
+    // Add current date for daily reports
+    if (reportType === 'daily_attendance') {
+        params.append('date', new Date().toISOString().split('T')[0]);
+    }
 
-        const filterText = filters.length > 0 ? ` (${filters.join(', ')})` : '';
-        showAlert(`<i class="bi bi-check-circle me-2"></i>${reportName} generated successfully!${filterText}`, 'success');
-    }, 2000);
+    // Make the actual request to generate and download the report
+    fetch(`/generate_admin_report?${params}`)
+        .then(response => {
+            if (response.ok) {
+                // Check if it's a file download (Excel/PDF) or JSON error
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) {
+                    // It's an Excel file, trigger download
+                    return response.blob().then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        
+                        // Extract filename from Content-Disposition header or create default
+                        const disposition = response.headers.get('content-disposition');
+                        let filename = `${reportType}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                        if (disposition && disposition.includes('filename=')) {
+                            filename = disposition.split('filename=')[1].replace(/"/g, '');
+                        }
+                        
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        
+                        const filters = [];
+                        if (month) filters.push(`Month: ${getMonthName(month)}`);
+                        if (department) filters.push(`Department: ${department}`);
+                        filters.push(`Format: ${format.toUpperCase()}`);
+
+                        const filterText = filters.length > 0 ? ` (${filters.join(', ')})` : '';
+                        showAlert(`<i class="bi bi-check-circle me-2"></i>${reportName} generated and downloaded successfully!${filterText}`, 'success');
+                    });
+                } else {
+                    // It might be a JSON response with an error
+                    return response.json().then(data => {
+                        if (data.success === false) {
+                            showAlert(`<i class="bi bi-exclamation-triangle me-2"></i>Error: ${data.error}`, 'danger');
+                        } else {
+                            showAlert(`<i class="bi bi-check-circle me-2"></i>${reportName} generated successfully!`, 'success');
+                        }
+                    });
+                }
+            } else {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+        })
+        .catch(error => {
+            console.error('Report generation error:', error);
+            showAlert(`<i class="bi bi-exclamation-triangle me-2"></i>Error generating ${reportName}: ${error.message}`, 'danger');
+        });
 }
 
 function openCustomReportBuilder() {

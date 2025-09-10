@@ -4,6 +4,7 @@ from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import datetime
+import calendar
 import time
 from database import get_db, init_db
 from zk_biometric import sync_attendance_from_device, ZKBiometricDevice, verify_staff_biometric, process_device_attendance_automatically
@@ -1197,6 +1198,329 @@ def export_report_excel():
     today = datetime.datetime.now().strftime('%Y-%m-%d')
     return excel_generator.create_staff_attendance_report(school_id, today, today)
 
+@app.route('/generate_admin_report')
+def generate_admin_report():
+    """Generate and download reports from admin reports page"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    try:
+        school_id = session['school_id']
+        report_type = request.args.get('report_type')
+        format_type = request.args.get('format', 'excel').lower()
+        
+        if not report_type:
+            return jsonify({'success': False, 'error': 'Report type is required'})
+
+        # Get filter parameters
+        year = request.args.get('year', datetime.datetime.now().year, type=int)
+        month = request.args.get('month', type=int)
+        department = request.args.get('department', '')
+        
+        # Create Excel generator for all reports
+        excel_generator = ExcelReportGenerator()
+        
+        # Route to appropriate report generation based on report_type
+        if report_type == 'monthly_salary':
+            return generate_monthly_salary_report(school_id, year, month, department, format_type)
+        elif report_type == 'payroll_summary':
+            return generate_payroll_summary_report(school_id, year, month, format_type)
+        elif report_type == 'department_salary':
+            return generate_department_salary_report(school_id, year, department, format_type)
+        elif report_type == 'staff_directory':
+            return generate_staff_directory_report(school_id, format_type)
+        elif report_type == 'department_report':
+            return generate_department_analysis_report(school_id, year, format_type)
+        elif report_type == 'performance_report':
+            return generate_performance_report(school_id, year, format_type)
+        elif report_type == 'daily_attendance':
+            date = request.args.get('date', datetime.datetime.now().strftime('%Y-%m-%d'))
+            return excel_generator.create_staff_attendance_report(school_id, date, date)
+        elif report_type == 'monthly_attendance':
+            if month:
+                return excel_generator.create_monthly_report(school_id, year, month)
+            else:
+                # Current month
+                return excel_generator.create_monthly_report(school_id, year, datetime.datetime.now().month)
+        elif report_type == 'overtime_report':
+            return generate_overtime_report(school_id, year, month, format_type)
+        elif report_type == 'cost_analysis':
+            return generate_cost_analysis_report(school_id, year, format_type)
+        elif report_type == 'trend_analysis':
+            return generate_trend_analysis_report(school_id, year, format_type)
+        elif report_type == 'executive_summary':
+            return generate_executive_summary_report(school_id, year, format_type)
+        else:
+            return jsonify({'success': False, 'error': f'Unknown report type: {report_type}'})
+            
+    except Exception as e:
+        print(f"Report generation error: {str(e)}")
+        return jsonify({'success': False, 'error': f'Report generation failed: {str(e)}'})
+
+def generate_monthly_salary_report(school_id, year, month, department, format_type):
+    """Generate monthly salary report"""
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+    
+    db = get_db()
+    
+    # Build query based on filters
+    where_conditions = ['s.school_id = ?']
+    params = [school_id]
+    
+    if department:
+        where_conditions.append('s.department = ?')
+        params.append(department)
+    
+    # Get staff with salary information
+    staff_query = f'''
+        SELECT s.id, s.staff_id, s.full_name, s.department, s.position,
+               s.basic_salary, 
+               (COALESCE(s.hra, 0) + COALESCE(s.transport_allowance, 0) + COALESCE(s.other_allowances, 0)) as allowances,
+               (COALESCE(s.pf_deduction, 0) + COALESCE(s.esi_deduction, 0) + COALESCE(s.professional_tax, 0) + COALESCE(s.other_deductions, 0)) as deductions,
+               COALESCE(s.basic_salary, 0) + (COALESCE(s.hra, 0) + COALESCE(s.transport_allowance, 0) + COALESCE(s.other_allowances, 0)) - (COALESCE(s.pf_deduction, 0) + COALESCE(s.esi_deduction, 0) + COALESCE(s.professional_tax, 0) + COALESCE(s.other_deductions, 0)) as net_salary,
+               s.date_of_joining
+        FROM staff s
+        WHERE {' AND '.join(where_conditions)}
+        ORDER BY s.department, s.full_name
+    '''
+    
+    staff_data = db.execute(staff_query, params).fetchall()
+    
+    # Create workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Monthly Salary Report"
+    
+    # Define styles
+    header_font = Font(bold=True, size=12, color="FFFFFF")
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    title_font = Font(bold=True, size=16, color="2F5597")
+    border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+    
+    # Add title
+    month_name = calendar.month_name[month] if month else 'All Months'
+    ws.merge_cells('A1:H1')
+    title_cell = ws['A1']
+    title_cell.value = f"Monthly Salary Report - {month_name} {year}"
+    title_cell.font = title_font
+    title_cell.alignment = Alignment(horizontal='center')
+    
+    # Add summary
+    ws['A3'] = f"Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    if department:
+        ws['A4'] = f"Department: {department}"
+    
+    # Headers
+    headers = ['S.No', 'Staff ID', 'Name', 'Department', 'Position', 'Basic Salary', 'Allowances', 'Deductions', 'Net Salary']
+    header_row = 6
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=header_row, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center')
+    
+    # Add data
+    total_basic = total_allowances = total_deductions = total_net = 0
+    
+    for row_idx, staff in enumerate(staff_data, header_row + 1):
+        ws.cell(row=row_idx, column=1, value=row_idx - header_row)
+        ws.cell(row=row_idx, column=2, value=staff['staff_id'] or 'N/A')
+        ws.cell(row=row_idx, column=3, value=staff['full_name'])
+        ws.cell(row=row_idx, column=4, value=staff['department'] or 'N/A')
+        ws.cell(row=row_idx, column=5, value=staff['position'] or 'N/A')
+        ws.cell(row=row_idx, column=6, value=staff['basic_salary'] or 0)
+        ws.cell(row=row_idx, column=7, value=staff['allowances'] or 0)
+        ws.cell(row=row_idx, column=8, value=staff['deductions'] or 0)
+        ws.cell(row=row_idx, column=9, value=staff['net_salary'] or 0)
+        
+        # Add to totals
+        total_basic += staff['basic_salary'] or 0
+        total_allowances += staff['allowances'] or 0
+        total_deductions += staff['deductions'] or 0
+        total_net += staff['net_salary'] or 0
+        
+        # Apply border to all cells
+        for col in range(1, 10):
+            ws.cell(row=row_idx, column=col).border = border
+    
+    # Add totals row
+    total_row = len(staff_data) + header_row + 1
+    ws.cell(row=total_row, column=5, value="TOTAL").font = Font(bold=True)
+    ws.cell(row=total_row, column=6, value=total_basic).font = Font(bold=True)
+    ws.cell(row=total_row, column=7, value=total_allowances).font = Font(bold=True)
+    ws.cell(row=total_row, column=8, value=total_deductions).font = Font(bold=True)
+    ws.cell(row=total_row, column=9, value=total_net).font = Font(bold=True)
+    
+    # Auto-adjust column widths
+    for col in range(1, 10):
+        ws.column_dimensions[get_column_letter(col)].width = 15
+    
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    # Create response
+    from flask import make_response
+    response = make_response(output.getvalue())
+    filename = f'monthly_salary_report_{year}_{month or "all"}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    
+    return response
+
+def generate_staff_directory_report(school_id, format_type):
+    """Generate comprehensive staff directory report"""
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+    
+    db = get_db()
+    
+    # Get comprehensive staff information
+    staff_data = db.execute('''
+        SELECT s.staff_id, s.full_name, s.first_name, s.last_name,
+               s.date_of_birth, s.date_of_joining, s.department, s.position,
+               s.gender, s.phone, s.email, s.address, s.emergency_contact,
+               s.qualification, s.experience, s.shift_type, s.basic_salary,
+               s.created_at, s.updated_at
+        FROM staff s
+        WHERE s.school_id = ?
+        ORDER BY s.department, s.full_name
+    ''', (school_id,)).fetchall()
+    
+    # Create workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Staff Directory"
+    
+    # Define styles
+    header_font = Font(bold=True, size=12, color="FFFFFF")
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    title_font = Font(bold=True, size=16, color="2F5597")
+    border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+    
+    # Add title
+    ws.merge_cells('A1:O1')
+    title_cell = ws['A1']
+    title_cell.value = f"Staff Directory Report - Generated on {datetime.datetime.now().strftime('%Y-%m-%d')}"
+    title_cell.font = title_font
+    title_cell.alignment = Alignment(horizontal='center')
+    
+    # Headers
+    headers = [
+        'S.No', 'Staff ID', 'Full Name', 'Department', 'Position',
+        'Gender', 'Phone', 'Email', 'Date of Joining', 'Date of Birth',
+        'Address', 'Emergency Contact', 'Qualification', 'Experience', 'Shift Type'
+    ]
+    
+    header_row = 3
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=header_row, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center')
+    
+    # Add data
+    for row_idx, staff in enumerate(staff_data, header_row + 1):
+        ws.cell(row=row_idx, column=1, value=row_idx - header_row)
+        ws.cell(row=row_idx, column=2, value=staff['staff_id'] or 'N/A')
+        ws.cell(row=row_idx, column=3, value=staff['full_name'])
+        ws.cell(row=row_idx, column=4, value=staff['department'] or 'N/A')
+        ws.cell(row=row_idx, column=5, value=staff['position'] or 'N/A')
+        ws.cell(row=row_idx, column=6, value=staff['gender'] or 'N/A')
+        ws.cell(row=row_idx, column=7, value=staff['phone'] or 'N/A')
+        ws.cell(row=row_idx, column=8, value=staff['email'] or 'N/A')
+        ws.cell(row=row_idx, column=9, value=staff['date_of_joining'] or 'N/A')
+        ws.cell(row=row_idx, column=10, value=staff['date_of_birth'] or 'N/A')
+        ws.cell(row=row_idx, column=11, value=staff['address'] or 'N/A')
+        ws.cell(row=row_idx, column=12, value=staff['emergency_contact'] or 'N/A')
+        ws.cell(row=row_idx, column=13, value=staff['qualification'] or 'N/A')
+        ws.cell(row=row_idx, column=14, value=staff['experience'] or 'N/A')
+        ws.cell(row=row_idx, column=15, value=staff['shift_type'] or 'General')
+        
+        # Apply border to all cells
+        for col in range(1, 16):
+            ws.cell(row=row_idx, column=col).border = border
+    
+    # Auto-adjust column widths
+    for col in range(1, 16):
+        ws.column_dimensions[get_column_letter(col)].width = 15
+    
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    # Create response
+    from flask import make_response
+    response = make_response(output.getvalue())
+    filename = f'staff_directory_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    
+    return response
+
+# Placeholder functions for other report types - can be expanded later
+def generate_payroll_summary_report(school_id, year, month, format_type):
+    """Generate payroll summary report - placeholder"""
+    # Use existing salary report as base
+    return generate_monthly_salary_report(school_id, year, month, '', format_type)
+
+def generate_department_salary_report(school_id, year, department, format_type):
+    """Generate department salary report - placeholder"""
+    return generate_monthly_salary_report(school_id, year, None, department, format_type)
+
+def generate_department_analysis_report(school_id, year, format_type):
+    """Generate department analysis report - placeholder"""
+    # Use existing staff directory as base
+    return generate_staff_directory_report(school_id, format_type)
+
+def generate_performance_report(school_id, year, format_type):
+    """Generate performance report - placeholder"""
+    return generate_staff_directory_report(school_id, format_type)
+
+def generate_overtime_report(school_id, year, month, format_type):
+    """Generate overtime report - placeholder"""
+    excel_generator = ExcelReportGenerator()
+    if month:
+        return excel_generator.create_monthly_report(school_id, year, month)
+    else:
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        return excel_generator.create_staff_attendance_report(school_id, today, today)
+
+def generate_cost_analysis_report(school_id, year, format_type):
+    """Generate cost analysis report - placeholder"""
+    return generate_monthly_salary_report(school_id, year, None, '', format_type)
+
+def generate_trend_analysis_report(school_id, year, format_type):
+    """Generate trend analysis report - placeholder"""
+    excel_generator = ExcelReportGenerator()
+    start_date = f"{year}-01-01"
+    end_date = f"{year}-12-31"
+    return excel_generator.create_staff_attendance_report(school_id, start_date, end_date)
+
+def generate_executive_summary_report(school_id, year, format_type):
+    """Generate executive summary report - placeholder"""
+    return generate_staff_directory_report(school_id, format_type)
+
 # Analytics Dashboard Routes
 @app.route('/analytics_dashboard')
 def analytics_dashboard():
@@ -1876,6 +2200,305 @@ def admin_dashboard():
                              attendance_summary=attendance_summary,
                              today_attendance=today_attendance,
                              today=today)
+
+
+@app.route('/admin/export_dashboard_data')
+def export_dashboard_data():
+    """Comprehensive admin dashboard data export with multiple format support"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    try:
+        school_id = session['school_id']
+        export_format = request.args.get('format', 'excel').lower()
+        export_type = request.args.get('type', 'all').lower()  # all, staff, attendance, applications
+        
+        # Use the ExcelReportGenerator for comprehensive reports
+        excel_generator = ExcelReportGenerator()
+        
+        if export_type == 'staff':
+            # Export only staff data using the existing method
+            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            return excel_generator.create_staff_profile_report(school_id)
+        elif export_type == 'attendance':
+            # Export attendance data for current month
+            today = datetime.date.today()
+            start_date = today.replace(day=1).strftime('%Y-%m-%d')
+            end_date = today.strftime('%Y-%m-%d')
+            return excel_generator.create_staff_attendance_report(school_id, start_date, end_date)
+        elif export_type == 'applications':
+            # Export applications data
+            return export_applications_data(school_id, export_format)
+        else:
+            # Export comprehensive dashboard data
+            return export_comprehensive_dashboard_data(school_id, export_format)
+            
+    except Exception as e:
+        print(f"Dashboard export error: {str(e)}")
+        return jsonify({'success': False, 'error': f'Export failed: {str(e)}'})
+
+def export_applications_data(school_id, export_format='excel'):
+    """Export applications data (leave, on-duty, permission)"""
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+    
+    db = get_db()
+    
+    # Create workbook
+    wb = openpyxl.Workbook()
+    
+    # Remove default sheet
+    wb.remove(wb.active)
+    
+    # Define styles
+    header_font = Font(bold=True, size=12, color="FFFFFF")
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+    
+    # 1. Leave Applications Sheet
+    ws_leave = wb.create_sheet("Leave Applications")
+    leave_headers = ['S.No', 'Staff Name', 'Leave Type', 'Start Date', 'End Date', 'Days', 'Reason', 'Status', 'Applied Date']
+    
+    # Add headers
+    for col, header in enumerate(leave_headers, 1):
+        cell = ws_leave.cell(row=1, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center')
+    
+    # Get leave applications data
+    leave_apps = db.execute('''
+        SELECT l.*, s.full_name
+        FROM leave_applications l
+        JOIN staff s ON l.staff_id = s.id
+        WHERE l.school_id = ?
+        ORDER BY l.applied_at DESC
+    ''', (school_id,)).fetchall()
+    
+    for row_idx, app in enumerate(leave_apps, 2):
+        ws_leave.cell(row=row_idx, column=1, value=row_idx-1)
+        ws_leave.cell(row=row_idx, column=2, value=app['full_name'])
+        ws_leave.cell(row=row_idx, column=3, value=app['leave_type'])
+        ws_leave.cell(row=row_idx, column=4, value=app['start_date'])
+        ws_leave.cell(row=row_idx, column=5, value=app['end_date'])
+        ws_leave.cell(row=row_idx, column=6, value=app.get('total_days', 'N/A'))
+        ws_leave.cell(row=row_idx, column=7, value=app['reason'] or 'N/A')
+        ws_leave.cell(row=row_idx, column=8, value=app['status'])
+        ws_leave.cell(row=row_idx, column=9, value=app['applied_at'])
+    
+    # 2. On-Duty Applications Sheet
+    ws_duty = wb.create_sheet("On-Duty Applications")
+    duty_headers = ['S.No', 'Staff Name', 'Duty Type', 'Start Date', 'End Date', 'Start Time', 'End Time', 'Location', 'Purpose', 'Status']
+    
+    for col, header in enumerate(duty_headers, 1):
+        cell = ws_duty.cell(row=1, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center')
+    
+    duty_apps = db.execute('''
+        SELECT od.*, s.full_name
+        FROM on_duty_applications od
+        JOIN staff s ON od.staff_id = s.id
+        WHERE od.school_id = ?
+        ORDER BY od.applied_at DESC
+    ''', (school_id,)).fetchall()
+    
+    for row_idx, app in enumerate(duty_apps, 2):
+        ws_duty.cell(row=row_idx, column=1, value=row_idx-1)
+        ws_duty.cell(row=row_idx, column=2, value=app['full_name'])
+        ws_duty.cell(row=row_idx, column=3, value=app['duty_type'])
+        ws_duty.cell(row=row_idx, column=4, value=app['start_date'])
+        ws_duty.cell(row=row_idx, column=5, value=app['end_date'])
+        ws_duty.cell(row=row_idx, column=6, value=app['start_time'])
+        ws_duty.cell(row=row_idx, column=7, value=app['end_time'])
+        ws_duty.cell(row=row_idx, column=8, value=app['location'])
+        ws_duty.cell(row=row_idx, column=9, value=app['purpose'])
+        ws_duty.cell(row=row_idx, column=10, value=app['status'])
+    
+    # 3. Permission Applications Sheet
+    ws_perm = wb.create_sheet("Permission Applications")
+    perm_headers = ['S.No', 'Staff Name', 'Permission Type', 'Date', 'Start Time', 'End Time', 'Duration (Hours)', 'Reason', 'Status']
+    
+    for col, header in enumerate(perm_headers, 1):
+        cell = ws_perm.cell(row=1, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center')
+    
+    perm_apps = db.execute('''
+        SELECT p.*, s.full_name
+        FROM permission_applications p
+        JOIN staff s ON p.staff_id = s.id
+        WHERE p.school_id = ?
+        ORDER BY p.applied_at DESC
+    ''', (school_id,)).fetchall()
+    
+    for row_idx, app in enumerate(perm_apps, 2):
+        ws_perm.cell(row=row_idx, column=1, value=row_idx-1)
+        ws_perm.cell(row=row_idx, column=2, value=app['full_name'])
+        ws_perm.cell(row=row_idx, column=3, value=app['permission_type'])
+        ws_perm.cell(row=row_idx, column=4, value=app['permission_date'])
+        ws_perm.cell(row=row_idx, column=5, value=app['start_time'])
+        ws_perm.cell(row=row_idx, column=6, value=app['end_time'])
+        ws_perm.cell(row=row_idx, column=7, value=app['duration_hours'])
+        ws_perm.cell(row=row_idx, column=8, value=app['reason'])
+        ws_perm.cell(row=row_idx, column=9, value=app['status'])
+    
+    # Auto-adjust column widths for all sheets
+    for ws in [ws_leave, ws_duty, ws_perm]:
+        for col in range(1, ws.max_column + 1):
+            ws.column_dimensions[get_column_letter(col)].width = 15
+    
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    # Create response
+    from flask import make_response
+    response = make_response(output.getvalue())
+    filename = f'applications_report_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    
+    return response
+
+def export_comprehensive_dashboard_data(school_id, export_format='excel'):
+    """Export comprehensive dashboard data including all sections"""
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+    
+    db = get_db()
+    today = datetime.date.today()
+    
+    # Create workbook
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    
+    # Define styles
+    header_font = Font(bold=True, size=12, color="FFFFFF")
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    title_font = Font(bold=True, size=16, color="2F5597")
+    border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+    
+    # 1. Dashboard Summary Sheet
+    ws_summary = wb.create_sheet("Dashboard Summary")
+    
+    # Title
+    ws_summary.merge_cells('A1:F1')
+    title_cell = ws_summary['A1']
+    title_cell.value = f"Admin Dashboard Summary - {today.strftime('%Y-%m-%d')}"
+    title_cell.font = title_font
+    title_cell.alignment = Alignment(horizontal='center')
+    
+    # Attendance Summary
+    attendance_summary = db.execute('''
+        SELECT
+            COUNT(*) as total_staff,
+            SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present,
+            SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent,
+            SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late,
+            SUM(CASE WHEN a.status = 'leave' THEN 1 ELSE 0 END) as on_leave,
+            SUM(CASE WHEN a.status = 'on_duty' THEN 1 ELSE 0 END) as on_duty
+        FROM (
+            SELECT s.id, COALESCE(a.status, 'absent') as status
+            FROM staff s
+            LEFT JOIN attendance a ON s.id = a.staff_id AND a.date = ?
+            WHERE s.school_id = ?
+        ) a
+    ''', (today, school_id)).fetchone()
+    
+    # Add attendance summary
+    ws_summary['A3'] = "Today's Attendance Summary"
+    ws_summary['A3'].font = Font(bold=True, size=14)
+    
+    summary_data = [
+        ['Metric', 'Count'],
+        ['Total Staff', attendance_summary['total_staff']],
+        ['Present', attendance_summary['present']],
+        ['Absent', attendance_summary['absent']],
+        ['Late', attendance_summary['late']],
+        ['On Leave', attendance_summary['on_leave']],
+        ['On Duty', attendance_summary['on_duty']]
+    ]
+    
+    for row_idx, row_data in enumerate(summary_data, 4):
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_summary.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            if row_idx == 4:  # Header row
+                cell.font = header_font
+                cell.fill = header_fill
+            cell.border = border
+    
+    # 2. Today's Attendance Sheet
+    ws_attendance = wb.create_sheet("Today's Attendance")
+    
+    attendance_headers = ['S.No', 'Staff ID', 'Staff Name', 'Department', 'Status', 'Time In', 'Time Out']
+    
+    for col, header in enumerate(attendance_headers, 1):
+        cell = ws_attendance.cell(row=1, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+    
+    today_attendance = db.execute('''
+        SELECT s.staff_id, s.full_name, s.department,
+               COALESCE(a.status, 'absent') as status,
+               a.time_in, a.time_out
+        FROM staff s
+        LEFT JOIN attendance a ON s.id = a.staff_id AND a.date = ?
+        WHERE s.school_id = ?
+        ORDER BY s.full_name
+    ''', (today, school_id)).fetchall()
+    
+    for row_idx, record in enumerate(today_attendance, 2):
+        ws_attendance.cell(row=row_idx, column=1, value=row_idx-1)
+        ws_attendance.cell(row=row_idx, column=2, value=record['staff_id'] or 'N/A')
+        ws_attendance.cell(row=row_idx, column=3, value=record['full_name'])
+        ws_attendance.cell(row=row_idx, column=4, value=record['department'] or 'N/A')
+        ws_attendance.cell(row=row_idx, column=5, value=record['status'])
+        ws_attendance.cell(row=row_idx, column=6, value=record['time_in'] or 'N/A')
+        ws_attendance.cell(row=row_idx, column=7, value=record['time_out'] or 'N/A')
+    
+    # Auto-adjust column widths
+    for ws in [ws_summary, ws_attendance]:
+        for col in range(1, ws.max_column + 1):
+            ws.column_dimensions[get_column_letter(col)].width = 15
+    
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    # Create response
+    from flask import make_response
+    response = make_response(output.getvalue())
+    filename = f'dashboard_comprehensive_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    
+    return response
 
 
 @app.route('/toggle_modern_ui')
@@ -3100,58 +3723,119 @@ def export_staff_excel():
     if 'user_id' not in session or session['user_type'] != 'admin':
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    school_id = session['school_id']
-    db = get_db()
+    try:
+        school_id = session['school_id']
+        db = get_db()
 
-    # Get all staff with comprehensive details
-    staff = db.execute('''
-        SELECT staff_id, full_name, first_name, last_name,
-               date_of_birth, date_of_joining, department, destination,
-               position, gender, phone, email, shift_type, created_at
-        FROM staff
-        WHERE school_id = ?
-        ORDER BY full_name
-    ''', (school_id,)).fetchall()
+        # Get all staff with comprehensive details
+        staff = db.execute('''
+            SELECT staff_id, full_name, first_name, last_name,
+                   date_of_birth, date_of_joining, department, destination,
+                   position, gender, phone, email, shift_type, created_at
+            FROM staff
+            WHERE school_id = ?
+            ORDER BY full_name
+        ''', (school_id,)).fetchall()
 
-    # Create CSV (Excel-compatible format)
-    import csv
-    from io import StringIO
-
-    output = StringIO()
-    writer = csv.writer(output)
-
-    # Write header
-    writer.writerow([
-        'S.No', 'Staff ID', 'First Name', 'Last Name', 'Full Name',
-        'Date of Birth', 'Date of Joining', 'Department', 'Destination/Position',
-        'Gender', 'Phone Number', 'Email ID', 'Shift Type', 'Created Date'
-    ])
-
-    # Write data
-    for i, staff_member in enumerate(staff, 1):
-        writer.writerow([
-            i,
-            staff_member['staff_id'] or 'N/A',
-            staff_member['first_name'] or 'N/A',
-            staff_member['last_name'] or 'N/A',
-            staff_member['full_name'] or 'N/A',
-            staff_member['date_of_birth'] or 'N/A',
-            staff_member['date_of_joining'] or 'N/A',
-            staff_member['department'] or 'N/A',
-            staff_member['destination'] or staff_member['position'] or 'N/A',
-            staff_member['gender'] or 'N/A',
-            staff_member['phone'] or 'N/A',
-            staff_member['email'] or 'N/A',
-            staff_member['shift_type'] or 'General',
-            staff_member['created_at'] or 'N/A'
-        ])
-
-    from flask import make_response
-    response = make_response(output.getvalue())
-    filename = f'staff_details_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
-    response.headers['Content-type'] = 'text/csv'
-    return response
+        # Create proper Excel file using openpyxl
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from openpyxl.utils import get_column_letter
+        from io import BytesIO
+        
+        # Create workbook and worksheet
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Staff Details"
+        
+        # Define styles
+        header_font = Font(bold=True, size=12, color="FFFFFF")
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Add title
+        ws.merge_cells('A1:N1')
+        title_cell = ws['A1']
+        title_cell.value = f"Staff Details Report - Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        title_cell.font = Font(bold=True, size=16, color="2F5597")
+        title_cell.alignment = Alignment(horizontal='center')
+        
+        # Add headers
+        headers = [
+            'S.No', 'Staff ID', 'First Name', 'Last Name', 'Full Name',
+            'Date of Birth', 'Date of Joining', 'Department', 'Destination/Position',
+            'Gender', 'Phone Number', 'Email ID', 'Shift Type', 'Created Date'
+        ]
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=3, column=col)
+            cell.value = header
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border = border
+        
+        # Add data
+        for row_idx, staff_member in enumerate(staff, 4):
+            row_data = [
+                row_idx - 3,  # S.No
+                staff_member['staff_id'] or 'N/A',
+                staff_member['first_name'] or 'N/A',
+                staff_member['last_name'] or 'N/A',
+                staff_member['full_name'] or 'N/A',
+                staff_member['date_of_birth'] or 'N/A',
+                staff_member['date_of_joining'] or 'N/A',
+                staff_member['department'] or 'N/A',
+                staff_member['destination'] or staff_member['position'] or 'N/A',
+                staff_member['gender'] or 'N/A',
+                staff_member['phone'] or 'N/A',
+                staff_member['email'] or 'N/A',
+                staff_member['shift_type'] or 'General',
+                staff_member['created_at'] or 'N/A'
+            ]
+            
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.value = value
+                cell.border = border
+                cell.alignment = Alignment(vertical='center')
+        
+        # Auto-adjust column widths
+        for col in range(1, len(headers) + 1):
+            column_letter = get_column_letter(col)
+            ws.column_dimensions[column_letter].width = 15
+        
+        # Freeze header row
+        ws.freeze_panes = 'A4'
+        
+        # Save to BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # Create response with proper Excel headers
+        from flask import make_response
+        response = make_response(output.getvalue())
+        filename = f'staff_details_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        # Log the error and return JSON error response
+        print(f"Excel export error: {str(e)}")
+        return jsonify({'success': False, 'error': f'Excel export failed: {str(e)}'})
+    
+    return jsonify({'success': False, 'error': 'Unknown error occurred'})
 
 @app.route('/admin/add_department_shift', methods=['POST'])
 def add_department_shift():

@@ -404,11 +404,49 @@ function exportToExcel() {
         return;
     }
     
+    // Show loading state
+    const btn = document.getElementById('exportExcelBtn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Generating Excel...';
+    
     const params = new URLSearchParams();
     params.append('report_type', currentReportData.report_type);
-    params.append('report_data', JSON.stringify(currentReportData));
     
-    window.open(`/export_report_excel?${params}`, '_blank');
+    // Add date parameters based on report type
+    if (currentReportData.report_type === 'daily' && currentReportData.date) {
+        params.append('date', currentReportData.date);
+    } else if (['weekly', 'custom', 'trends'].includes(currentReportData.report_type)) {
+        if (currentReportData.start_date) params.append('start_date', currentReportData.start_date);
+        if (currentReportData.end_date) params.append('end_date', currentReportData.end_date);
+    } else if (currentReportData.report_type === 'monthly') {
+        if (currentReportData.year) params.append('year', currentReportData.year);
+        if (currentReportData.month) params.append('month', currentReportData.month);
+    } else if (currentReportData.report_type === 'yearly') {
+        if (currentReportData.year) params.append('year', currentReportData.year);
+    }
+    
+    // Add department filter if exists
+    if (currentReportData.department) {
+        params.append('department', currentReportData.department);
+    }
+    
+    try {
+        // Use window.location.href for better file download handling
+        window.location.href = `/export_report_excel?${params}`;
+        
+        // Reset button after a delay
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            showAlert('<i class="bi bi-check-circle me-2"></i>Excel report exported successfully!', 'success');
+        }, 2000);
+        
+    } catch (error) {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        showAlert('Error exporting report: ' + error.message, 'danger');
+    }
 }
 
 function exportToPdf() {

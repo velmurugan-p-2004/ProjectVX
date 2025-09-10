@@ -1078,22 +1078,272 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // Export Staff
+    // Export Staff - Updated to use new Excel export functionality
     document.getElementById('exportStaffBtn')?.addEventListener('click', function () {
-        const start = prompt('Start date (YYYY-MM-DD):');
-        const end = prompt('End date (YYYY-MM-DD):');
-        if (!start || !end) return;
-
-        fetch(`/export_staff_data?start_date=${start}&end_date=${end}`)
-            .then(res => res.blob())
-            .then(blob => {
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `staff_data_${start}_to_${end}.csv`;
-                a.click();
-                URL.revokeObjectURL(a.href);
-            });
+        showExportModal();
     });
+    
+    // Add export dashboard button functionality
+    document.getElementById('exportDashboardBtn')?.addEventListener('click', function () {
+        showDashboardExportModal();
+    });
+
+    function showExportModal() {
+        const modalHtml = `
+            <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header bg-success text-white">
+                            <h5 class="modal-title" id="exportModalLabel">
+                                <i class="bi bi-download me-2"></i>Export Staff Data
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="export-option-card">
+                                        <div class="export-icon">
+                                            <i class="bi bi-file-earmark-excel text-success" style="font-size: 2rem;"></i>
+                                        </div>
+                                        <h6>Excel Export</h6>
+                                        <p>Download comprehensive staff data in Excel format with proper formatting</p>
+                                        <button type="button" class="btn btn-success" onclick="exportStaffExcel()">
+                                            <i class="bi bi-download"></i> Export to Excel
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="export-option-card">
+                                        <div class="export-icon">
+                                            <i class="bi bi-file-earmark-text text-primary" style="font-size: 2rem;"></i>
+                                        </div>
+                                        <h6>Staff with Attendance</h6>
+                                        <p>Export staff data with attendance records for a specific date range</p>
+                                        <div class="mb-2">
+                                            <input type="date" class="form-control form-control-sm mb-1" id="startDate" placeholder="Start Date">
+                                            <input type="date" class="form-control form-control-sm" id="endDate" placeholder="End Date">
+                                        </div>
+                                        <button type="button" class="btn btn-primary" onclick="exportStaffWithAttendance()">
+                                            <i class="bi bi-download"></i> Export Report
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Remove existing modal if any
+        const existingModal = document.getElementById('exportModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Add modal to body
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+        modal.show();
+        
+        // Set default dates
+        const today = new Date();
+        const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+        document.getElementById('startDate').value = lastWeek.toISOString().split('T')[0];
+        document.getElementById('endDate').value = today.toISOString().split('T')[0];
+    }
+
+    function showDashboardExportModal() {
+        const modalHtml = `
+            <div class="modal fade" id="dashboardExportModal" tabindex="-1" aria-labelledby="dashboardExportModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header bg-primary text-white">
+                            <h5 class="modal-title" id="dashboardExportModalLabel">
+                                <i class="bi bi-download me-2"></i>Export Dashboard Data
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="export-option-card">
+                                        <div class="export-icon">
+                                            <i class="bi bi-speedometer2 text-info" style="font-size: 2rem;"></i>
+                                        </div>
+                                        <h6>Complete Dashboard</h6>
+                                        <p>Export all dashboard data including attendance summary and today's records</p>
+                                        <button type="button" class="btn btn-info" onclick="exportDashboardData('all')">
+                                            <i class="bi bi-download"></i> Export All
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="export-option-card">
+                                        <div class="export-icon">
+                                            <i class="bi bi-calendar-check text-success" style="font-size: 2rem;"></i>
+                                        </div>
+                                        <h6>Today's Attendance</h6>
+                                        <p>Export only today's attendance records with detailed status information</p>
+                                        <button type="button" class="btn btn-success" onclick="exportDashboardData('attendance')">
+                                            <i class="bi bi-download"></i> Export Attendance
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row mt-3">
+                                <div class="col-md-6">
+                                    <div class="export-option-card">
+                                        <div class="export-icon">
+                                            <i class="bi bi-people text-primary" style="font-size: 2rem;"></i>
+                                        </div>
+                                        <h6>Staff Profiles</h6>
+                                        <p>Export complete staff profiles with personal and professional details</p>
+                                        <button type="button" class="btn btn-primary" onclick="exportDashboardData('staff')">
+                                            <i class="bi bi-download"></i> Export Staff
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="export-option-card">
+                                        <div class="export-icon">
+                                            <i class="bi bi-file-earmark-text text-warning" style="font-size: 2rem;"></i>
+                                        </div>
+                                        <h6>Applications</h6>
+                                        <p>Export leave, on-duty, and permission applications with their status</p>
+                                        <button type="button" class="btn btn-warning" onclick="exportDashboardData('applications')">
+                                            <i class="bi bi-download"></i> Export Applications
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Remove existing modal if any
+        const existingModal = document.getElementById('dashboardExportModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Add modal to body
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('dashboardExportModal'));
+        modal.show();
+    }
+
+    // Export functions
+    window.exportStaffExcel = function() {
+        const btn = event.target;
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Exporting...';
+        
+        // Use the updated Excel export route
+        window.location.href = '/export_staff_excel';
+        
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+            if (modal) modal.hide();
+        }, 2000);
+    };
+
+    window.exportStaffWithAttendance = function() {
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        
+        if (!startDate || !endDate) {
+            showAlert('Please select both start and end dates', 'warning');
+            return;
+        }
+        
+        if (new Date(startDate) > new Date(endDate)) {
+            showAlert('Start date cannot be later than end date', 'warning');
+            return;
+        }
+        
+        const btn = event.target;
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Exporting...';
+        
+        // Use the report export route
+        const url = `/export_report_excel?report_type=custom&start_date=${startDate}&end_date=${endDate}`;
+        window.location.href = url;
+        
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+            if (modal) modal.hide();
+        }, 2000);
+    };
+
+    window.exportDashboardData = function(type) {
+        const btn = event.target;
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Exporting...';
+        
+        // Use the new dashboard export route
+        const url = `/admin/export_dashboard_data?type=${type}&format=excel`;
+        window.location.href = url;
+        
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('dashboardExportModal'));
+            if (modal) modal.hide();
+        }, 2000);
+    };
+
+    // Add CSS for export option cards
+    const exportStyles = `
+        <style>
+        .export-option-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            height: 100%;
+            transition: all 0.3s ease;
+        }
+        .export-option-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        .export-option-card h6 {
+            margin: 15px 0 10px 0;
+            font-weight: 600;
+        }
+        .export-option-card p {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+        }
+        .export-icon {
+            margin-bottom: 10px;
+        }
+        </style>
+    `;
+    
+    if (!document.getElementById('exportStyles')) {
+        document.head.insertAdjacentHTML('beforeend', exportStyles);
+        document.head.lastElementChild.id = 'exportStyles';
+    }
 
     // Biometric Enrollment (Fake Simulation)
     const biometricModal = document.getElementById('biometricModal');

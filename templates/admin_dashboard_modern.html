@@ -493,10 +493,10 @@ function setupQuickActions() {
     
     window.exportAttendance = function() {
         window.showLoading();
-        // Implement export functionality
+        // Use the new dashboard export functionality
+        window.location.href = '/admin/export_dashboard_data?type=all&format=excel';
         setTimeout(() => {
             window.hideLoading();
-            alert('Export functionality would be implemented here');
         }, 2000);
     };
     
