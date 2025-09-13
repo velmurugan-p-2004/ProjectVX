@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, g
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, g, make_response
 import sqlite3
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -897,7 +897,6 @@ def download_staff_template():
 
     output.seek(0)
 
-    from flask import make_response
     response = make_response(output.getvalue())
     response.headers['Content-Disposition'] = 'attachment; filename=staff_import_template.xlsx'
     response.headers['Content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -1244,12 +1243,6 @@ def generate_admin_report():
                 return excel_generator.create_monthly_report(school_id, year, datetime.datetime.now().month)
         elif report_type == 'overtime_report':
             return generate_overtime_report(school_id, year, month, format_type)
-        elif report_type == 'cost_analysis':
-            return generate_cost_analysis_report(school_id, year, format_type)
-        elif report_type == 'trend_analysis':
-            return generate_trend_analysis_report(school_id, year, format_type)
-        elif report_type == 'executive_summary':
-            return generate_executive_summary_report(school_id, year, format_type)
         else:
             return jsonify({'success': False, 'error': f'Unknown report type: {report_type}'})
             
@@ -1370,7 +1363,6 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
     output.seek(0)
     
     # Create response
-    from flask import make_response
     response = make_response(output.getvalue())
     filename = f'monthly_salary_report_{year}_{month or "all"}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
@@ -1392,9 +1384,8 @@ def generate_staff_directory_report(school_id, format_type):
     staff_data = db.execute('''
         SELECT s.staff_id, s.full_name, s.first_name, s.last_name,
                s.date_of_birth, s.date_of_joining, s.department, s.position,
-               s.gender, s.phone, s.email, s.address, s.emergency_contact,
-               s.qualification, s.experience, s.shift_type, s.basic_salary,
-               s.created_at, s.updated_at
+               s.gender, s.phone, s.email, s.shift_type, s.basic_salary,
+               s.created_at
         FROM staff s
         WHERE s.school_id = ?
         ORDER BY s.department, s.full_name
@@ -1415,7 +1406,7 @@ def generate_staff_directory_report(school_id, format_type):
     )
     
     # Add title
-    ws.merge_cells('A1:O1')
+    ws.merge_cells('A1:K1')
     title_cell = ws['A1']
     title_cell.value = f"Staff Directory Report - Generated on {datetime.datetime.now().strftime('%Y-%m-%d')}"
     title_cell.font = title_font
@@ -1424,8 +1415,7 @@ def generate_staff_directory_report(school_id, format_type):
     # Headers
     headers = [
         'S.No', 'Staff ID', 'Full Name', 'Department', 'Position',
-        'Gender', 'Phone', 'Email', 'Date of Joining', 'Date of Birth',
-        'Address', 'Emergency Contact', 'Qualification', 'Experience', 'Shift Type'
+        'Gender', 'Phone', 'Email', 'Date of Joining', 'Date of Birth', 'Shift Type'
     ]
     
     header_row = 3
@@ -1449,18 +1439,14 @@ def generate_staff_directory_report(school_id, format_type):
         ws.cell(row=row_idx, column=8, value=staff['email'] or 'N/A')
         ws.cell(row=row_idx, column=9, value=staff['date_of_joining'] or 'N/A')
         ws.cell(row=row_idx, column=10, value=staff['date_of_birth'] or 'N/A')
-        ws.cell(row=row_idx, column=11, value=staff['address'] or 'N/A')
-        ws.cell(row=row_idx, column=12, value=staff['emergency_contact'] or 'N/A')
-        ws.cell(row=row_idx, column=13, value=staff['qualification'] or 'N/A')
-        ws.cell(row=row_idx, column=14, value=staff['experience'] or 'N/A')
-        ws.cell(row=row_idx, column=15, value=staff['shift_type'] or 'General')
+        ws.cell(row=row_idx, column=11, value=staff['shift_type'] or 'General')
         
         # Apply border to all cells
-        for col in range(1, 16):
+        for col in range(1, 12):
             ws.cell(row=row_idx, column=col).border = border
     
     # Auto-adjust column widths
-    for col in range(1, 16):
+    for col in range(1, 12):
         ws.column_dimensions[get_column_letter(col)].width = 15
     
     # Save to BytesIO
@@ -1469,7 +1455,6 @@ def generate_staff_directory_report(school_id, format_type):
     output.seek(0)
     
     # Create response
-    from flask import make_response
     response = make_response(output.getvalue())
     filename = f'staff_directory_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
@@ -1506,20 +1491,7 @@ def generate_overtime_report(school_id, year, month, format_type):
         today = datetime.datetime.now().strftime('%Y-%m-%d')
         return excel_generator.create_staff_attendance_report(school_id, today, today)
 
-def generate_cost_analysis_report(school_id, year, format_type):
-    """Generate cost analysis report - placeholder"""
-    return generate_monthly_salary_report(school_id, year, None, '', format_type)
 
-def generate_trend_analysis_report(school_id, year, format_type):
-    """Generate trend analysis report - placeholder"""
-    excel_generator = ExcelReportGenerator()
-    start_date = f"{year}-01-01"
-    end_date = f"{year}-12-31"
-    return excel_generator.create_staff_attendance_report(school_id, start_date, end_date)
-
-def generate_executive_summary_report(school_id, year, format_type):
-    """Generate executive summary report - placeholder"""
-    return generate_staff_directory_report(school_id, format_type)
 
 # Analytics Dashboard Routes
 @app.route('/analytics_dashboard')
@@ -2367,7 +2339,6 @@ def export_applications_data(school_id, export_format='excel'):
     output.seek(0)
     
     # Create response
-    from flask import make_response
     response = make_response(output.getvalue())
     filename = f'applications_report_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
@@ -2491,7 +2462,6 @@ def export_comprehensive_dashboard_data(school_id, export_format='excel'):
     output.seek(0)
     
     # Create response
-    from flask import make_response
     response = make_response(output.getvalue())
     filename = f'dashboard_comprehensive_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
@@ -3819,7 +3789,6 @@ def export_staff_excel():
         output.seek(0)
         
         # Create response with proper Excel headers
-        from flask import make_response
         response = make_response(output.getvalue())
         filename = f'staff_details_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
         response.headers['Content-Disposition'] = f'attachment; filename={filename}'
@@ -5366,20 +5335,26 @@ def get_comprehensive_staff_profile():
             LIMIT 20
         ''', (staff_id,)).fetchall()
 
-        # Calculate attendance statistics
+        # Calculate attendance statistics (excluding holidays from total days)
         total_days = len(attendance)
         present_days = len([a for a in attendance if a['status'] in ['present', 'late', 'on_duty']])
         absent_days = len([a for a in attendance if a['status'] == 'absent'])
         late_days = len([a for a in attendance if a['status'] == 'late'])
         on_duty_days = len([a for a in attendance if a['status'] == 'on_duty'])
+        holiday_days = len([a for a in attendance if a['status'] == 'holiday'])
+
+        # Calculate working days (excluding holidays)
+        working_days = total_days - holiday_days
 
         attendance_stats = {
             'total_days': total_days,
+            'working_days': working_days,
             'present_days': present_days,
             'absent_days': absent_days,
             'late_days': late_days,
             'on_duty_days': on_duty_days,
-            'attendance_rate': round((present_days / total_days * 100) if total_days > 0 else 0, 1)
+            'holiday_days': holiday_days,
+            'attendance_rate': round((present_days / working_days * 100) if working_days > 0 else 0, 1)
         }
 
         # Format attendance times to 12-hour format
@@ -6117,6 +6092,416 @@ def get_salary_rules():
         'salary_rules': salary_calculator.salary_rules
     })
 
+@app.route('/export_salary_calculation_results', methods=['POST'])
+def export_salary_calculation_results():
+    """Export salary calculation results to Excel"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    try:
+        # Get the calculation parameters from the request
+        year = request.form.get('year', type=int)
+        month = request.form.get('month', type=int)
+        department = request.form.get('department')
+        export_format = request.form.get('format', 'excel').lower()
+
+        if not year or not month:
+            return jsonify({'success': False, 'error': 'Year and month are required'})
+
+        school_id = session.get('school_id')
+
+        # Re-run the bulk salary calculation to get fresh data
+        salary_calculator = SalaryCalculator(school_id=school_id)
+
+        # Get staff list based on filters
+        query = 'SELECT id, staff_id, full_name, department FROM staff WHERE school_id = ?'
+        params = [school_id]
+
+        if department:
+            query += ' AND department = ?'
+            params.append(department)
+
+        db = get_db()
+        staff_list = db.execute(query, params).fetchall()
+
+        # Calculate salaries for all staff
+        salary_results = []
+        for staff in staff_list:
+            salary_result = salary_calculator.calculate_monthly_salary(staff['id'], year, month)
+            if salary_result['success']:
+                salary_results.append({
+                    'id': staff['id'],
+                    'staff_id': staff['staff_id'],
+                    'staff_name': staff['full_name'],
+                    'department': staff['department'],
+                    'salary_data': salary_result
+                })
+
+        # Generate report in requested format
+        if export_format == 'excel':
+            return generate_salary_calculation_excel(salary_results, year, month, department)
+        elif export_format == 'csv':
+            return generate_salary_calculation_csv(salary_results, year, month, department)
+        elif export_format == 'pdf':
+            return generate_salary_calculation_pdf(salary_results, year, month, department)
+        else:
+            return jsonify({'success': False, 'error': 'Supported formats: excel, csv, pdf'})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Export failed: {str(e)}'})
+
+def generate_salary_calculation_excel(salary_results, year, month, department=None):
+    """Generate Excel report for salary calculation results"""
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    from openpyxl.utils import get_column_letter
+    import io
+    import calendar
+
+    # Create workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Salary Calculation Results"
+
+    # Define styles
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # Title
+    title = f"Salary Calculation Results - {calendar.month_name[month]} {year}"
+    if department:
+        title += f" - {department} Department"
+
+    ws.merge_cells('A1:P1')
+    ws['A1'] = title
+    ws['A1'].font = Font(bold=True, size=16)
+    ws['A1'].alignment = Alignment(horizontal='center')
+
+    # Headers
+    headers = [
+        'Staff ID', 'Staff Name', 'Department', 'Base Salary', 'Present Days', 'Absent Days',
+        'Total Earnings', 'Bonuses', 'Allowances', 'Total Deductions', 'Penalties',
+        'Other Deductions', 'Net Salary', 'Hourly Rate', 'Hours Worked', 'Attendance Rate'
+    ]
+
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center')
+
+    # Data rows
+    row = 4
+    total_earnings = 0
+    total_deductions = 0
+    total_net_salary = 0
+
+    for result in salary_results:
+        salary_data = result['salary_data']
+        breakdown = salary_data['salary_breakdown']
+        attendance = breakdown['attendance_summary']
+        earnings = breakdown['earnings']
+        deductions = breakdown['deductions']
+
+        # Calculate attendance rate
+        total_days = attendance['present_days'] + attendance['absent_days']
+        attendance_rate = (attendance['present_days'] / total_days * 100) if total_days > 0 else 0
+
+        # Row data
+        row_data = [
+            result['staff_id'],
+            result['staff_name'],
+            result['department'],
+            breakdown.get('base_salary', 0),
+            attendance['present_days'],
+            attendance['absent_days'],
+            earnings['total_earnings'],
+            earnings.get('bonuses', 0),
+            earnings.get('allowances', 0),
+            deductions['total_deductions'],
+            deductions.get('penalties', 0),
+            deductions.get('other_deductions', 0),
+            breakdown['net_salary'],
+            salary_data.get('hourly_rate', 0),
+            salary_data.get('actual_hours_worked', 0),
+            f"{attendance_rate:.1f}%"
+        ]
+
+        for col, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.border = border
+            if col >= 4 and col <= 15:  # Numeric columns
+                cell.alignment = Alignment(horizontal='right')
+                if isinstance(value, (int, float)) and col != 16:  # Not percentage
+                    cell.number_format = '#,##0.00'
+
+        # Update totals
+        total_earnings += earnings['total_earnings']
+        total_deductions += deductions['total_deductions']
+        total_net_salary += breakdown['net_salary']
+        row += 1
+
+    # Summary row
+    summary_row = row + 1
+    ws.cell(row=summary_row, column=1, value="TOTALS").font = Font(bold=True)
+    ws.cell(row=summary_row, column=7, value=total_earnings).font = Font(bold=True)
+    ws.cell(row=summary_row, column=10, value=total_deductions).font = Font(bold=True)
+    ws.cell(row=summary_row, column=13, value=total_net_salary).font = Font(bold=True)
+
+    # Format summary row
+    for col in [7, 10, 13]:
+        cell = ws.cell(row=summary_row, column=col)
+        cell.number_format = '#,##0.00'
+        cell.border = border
+        cell.fill = PatternFill(start_color="E6E6E6", end_color="E6E6E6", fill_type="solid")
+
+    # Auto-adjust column widths
+    for col in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 15
+
+    # Save to BytesIO
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    # Create response
+    response = make_response(output.getvalue())
+    filename = f'salary_calculation_results_{year}_{month:02d}'
+    if department:
+        filename += f'_{department.replace(" ", "_")}'
+    filename += f'_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+
+    return response
+
+def generate_salary_calculation_csv(salary_results, year, month, department=None):
+    """Generate CSV report for salary calculation results"""
+    import csv
+    import io
+    import calendar
+
+    # Create CSV content
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Title
+    title = f"Salary Calculation Results - {calendar.month_name[month]} {year}"
+    if department:
+        title += f" - {department} Department"
+    writer.writerow([title])
+    writer.writerow([])  # Empty row
+
+    # Headers
+    headers = [
+        'Staff ID', 'Staff Name', 'Department', 'Base Salary', 'Present Days', 'Absent Days',
+        'Total Earnings', 'Bonuses', 'Allowances', 'Total Deductions', 'Penalties',
+        'Other Deductions', 'Net Salary', 'Hourly Rate', 'Hours Worked', 'Attendance Rate'
+    ]
+    writer.writerow(headers)
+
+    # Data rows
+    total_earnings = 0
+    total_deductions = 0
+    total_net_salary = 0
+
+    for result in salary_results:
+        salary_data = result['salary_data']
+        breakdown = salary_data['salary_breakdown']
+        attendance = breakdown['attendance_summary']
+        earnings = breakdown['earnings']
+        deductions = breakdown['deductions']
+
+        # Calculate attendance rate
+        total_days = attendance['present_days'] + attendance['absent_days']
+        attendance_rate = (attendance['present_days'] / total_days * 100) if total_days > 0 else 0
+
+        # Row data
+        row_data = [
+            result['staff_id'],
+            result['staff_name'],
+            result['department'],
+            breakdown.get('base_salary', 0),
+            attendance['present_days'],
+            attendance['absent_days'],
+            earnings['total_earnings'],
+            earnings.get('bonuses', 0),
+            earnings.get('allowances', 0),
+            deductions['total_deductions'],
+            deductions.get('penalties', 0),
+            deductions.get('other_deductions', 0),
+            breakdown['net_salary'],
+            salary_data.get('hourly_rate', 0),
+            salary_data.get('actual_hours_worked', 0),
+            f"{attendance_rate:.1f}%"
+        ]
+
+        writer.writerow(row_data)
+
+        # Update totals
+        total_earnings += earnings['total_earnings']
+        total_deductions += deductions['total_deductions']
+        total_net_salary += breakdown['net_salary']
+
+    # Summary row
+    writer.writerow([])  # Empty row
+    summary_row = ['TOTALS', '', '', '', '', '', total_earnings, '', '', total_deductions, '', '', total_net_salary, '', '', '']
+    writer.writerow(summary_row)
+
+    # Create response
+    csv_content = output.getvalue()
+    output.close()
+
+    response = make_response(csv_content)
+    filename = f'salary_calculation_results_{year}_{month:02d}'
+    if department:
+        filename += f'_{department.replace(" ", "_")}'
+    filename += f'_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    response.headers['Content-Type'] = 'text/csv'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+
+    return response
+
+def generate_salary_calculation_pdf(salary_results, year, month, department=None):
+    """Generate PDF report for salary calculation results"""
+    try:
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        from reportlab.lib.units import inch
+        import io
+        import calendar
+
+        # Create PDF buffer
+        buffer = io.BytesIO()
+
+        # Create PDF document
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+
+        # Container for the 'Flowable' objects
+        elements = []
+
+        # Define styles
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=30,
+            alignment=1  # Center alignment
+        )
+
+        # Title
+        title = f"Salary Calculation Results<br/>{calendar.month_name[month]} {year}"
+        if department:
+            title += f"<br/>{department} Department"
+
+        title_para = Paragraph(title, title_style)
+        elements.append(title_para)
+        elements.append(Spacer(1, 12))
+
+        # Prepare table data
+        table_data = [
+            ['Staff ID', 'Name', 'Dept', 'Base Salary', 'Present', 'Absent', 'Earnings', 'Deductions', 'Net Salary']
+        ]
+
+        total_earnings = 0
+        total_deductions = 0
+        total_net_salary = 0
+
+        for result in salary_results:
+            salary_data = result['salary_data']
+            breakdown = salary_data['salary_breakdown']
+            attendance = breakdown['attendance_summary']
+            earnings = breakdown['earnings']
+            deductions = breakdown['deductions']
+
+            row_data = [
+                result['staff_id'],
+                result['staff_name'][:15] + '...' if len(result['staff_name']) > 15 else result['staff_name'],
+                result['department'][:8] + '...' if len(result['department']) > 8 else result['department'],
+                f"₹{breakdown.get('base_salary', 0):,.0f}",
+                str(attendance['present_days']),
+                str(attendance['absent_days']),
+                f"₹{earnings['total_earnings']:,.0f}",
+                f"₹{deductions['total_deductions']:,.0f}",
+                f"₹{breakdown['net_salary']:,.0f}"
+            ]
+
+            table_data.append(row_data)
+
+            # Update totals
+            total_earnings += earnings['total_earnings']
+            total_deductions += deductions['total_deductions']
+            total_net_salary += breakdown['net_salary']
+
+        # Add totals row
+        table_data.append([
+            'TOTALS', '', '', '', '', '',
+            f"₹{total_earnings:,.0f}",
+            f"₹{total_deductions:,.0f}",
+            f"₹{total_net_salary:,.0f}"
+        ])
+
+        # Create table
+        table = Table(table_data)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -2), colors.beige),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.lightgrey),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
+        ]))
+
+        elements.append(table)
+
+        # Build PDF
+        doc.build(elements)
+
+        # Get PDF content
+        pdf_content = buffer.getvalue()
+        buffer.close()
+
+        # Create response
+        response = make_response(pdf_content)
+        filename = f'salary_calculation_results_{year}_{month:02d}'
+        if department:
+            filename += f'_{department.replace(" ", "_")}'
+        filename += f'_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+
+        return response
+
+    except ImportError:
+        # If reportlab is not installed, return error
+        return jsonify({
+            'success': False,
+            'error': 'PDF generation requires reportlab library. Please install it with: pip install reportlab'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'PDF generation failed: {str(e)}'})
+
 @app.route('/get_staff_count')
 def get_staff_count():
     """Get total staff count for sidebar stats"""
@@ -6393,6 +6778,374 @@ def test_timing_sync():
             'success': False,
             'error': str(e)
         }), 500
+
+
+# Holiday Management API Routes
+
+@app.route('/api/holidays', methods=['GET'])
+def get_holidays_api():
+    """Get holidays for the current school"""
+    try:
+        # Check authorization
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+
+        from database import get_holidays
+        import json
+
+        # Get query parameters
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        department = request.args.get('department')
+
+        # Get holidays
+        holidays = get_holidays(
+            start_date=start_date,
+            end_date=end_date,
+            department=department
+        )
+
+        # Convert to list of dictionaries for JSON serialization
+        holidays_list = []
+        for holiday in holidays:
+            holiday_dict = dict(holiday)
+            # Parse departments JSON if present
+            if holiday_dict.get('departments'):
+                try:
+                    holiday_dict['departments'] = json.loads(holiday_dict['departments'])
+                except (json.JSONDecodeError, TypeError):
+                    holiday_dict['departments'] = []
+            else:
+                holiday_dict['departments'] = []
+            holidays_list.append(holiday_dict)
+
+        return jsonify({
+            'success': True,
+            'holidays': holidays_list,
+            'count': len(holidays_list)
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to retrieve holidays'
+        }), 500
+
+
+@app.route('/api/holidays', methods=['POST'])
+def create_holiday_api():
+    """Create a new holiday"""
+    try:
+        # Check authorization
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+
+        from database import create_holiday
+
+        # Get form data
+        holiday_data = {
+            'holiday_name': request.form.get('holiday_name'),
+            'start_date': request.form.get('start_date'),
+            'end_date': request.form.get('end_date'),
+            'holiday_type': request.form.get('holiday_type', 'institution_wide'),
+            'description': request.form.get('description', ''),
+            'is_recurring': bool(request.form.get('is_recurring')),
+            'recurring_type': request.form.get('recurring_type')
+        }
+
+        # Handle departments for department-specific holidays
+        if holiday_data['holiday_type'] == 'department_specific':
+            departments = request.form.getlist('departments')
+            if not departments:
+                departments_str = request.form.get('departments')
+                if departments_str:
+                    departments = [dept.strip() for dept in departments_str.split(',')]
+            holiday_data['departments'] = departments
+
+        # Validate required fields
+        if not holiday_data['holiday_name'] or not holiday_data['start_date'] or not holiday_data['end_date']:
+            return jsonify({
+                'success': False,
+                'message': 'Holiday name, start date, and end date are required'
+            }), 400
+
+        # Create holiday
+        result = create_holiday(holiday_data)
+
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to create holiday'
+        }), 500
+
+
+@app.route('/api/holidays/<int:holiday_id>', methods=['PUT'])
+def update_holiday_api(holiday_id):
+    """Update an existing holiday"""
+    try:
+        # Check authorization
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+
+        from database import update_holiday
+
+        # Get form data
+        holiday_data = {
+            'holiday_name': request.form.get('holiday_name'),
+            'start_date': request.form.get('start_date'),
+            'end_date': request.form.get('end_date'),
+            'holiday_type': request.form.get('holiday_type'),
+            'description': request.form.get('description'),
+            'is_recurring': bool(request.form.get('is_recurring')),
+            'recurring_type': request.form.get('recurring_type')
+        }
+
+        # Handle departments for department-specific holidays
+        if holiday_data['holiday_type'] == 'department_specific':
+            departments = request.form.getlist('departments')
+            if not departments:
+                departments_str = request.form.get('departments')
+                if departments_str:
+                    departments = [dept.strip() for dept in departments_str.split(',')]
+            holiday_data['departments'] = departments
+
+        # Update holiday
+        result = update_holiday(holiday_id, holiday_data)
+
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to update holiday'
+        }), 500
+
+
+@app.route('/api/holidays/<int:holiday_id>', methods=['DELETE'])
+def delete_holiday_api(holiday_id):
+    """Delete a holiday"""
+    try:
+        # Check authorization
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+
+        from database import delete_holiday
+
+        # Delete holiday
+        result = delete_holiday(holiday_id)
+
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to delete holiday'
+        }), 500
+
+
+@app.route('/api/departments', methods=['GET'])
+def get_departments_api():
+    """Get list of departments for the current school"""
+    try:
+        # Check authorization
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+
+        from database import get_departments_list
+
+        departments = get_departments_list()
+
+        return jsonify({
+            'success': True,
+            'departments': departments,
+            'count': len(departments)
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to retrieve departments'
+        }), 500
+
+
+@app.route('/api/staff/holidays', methods=['GET'])
+def get_staff_holidays_api():
+    """Get holidays applicable to a specific staff member based on their department"""
+    try:
+        # Check authorization - both admin and staff can access this
+        if 'user_id' not in session:
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+
+        # Get staff_id - either from parameter (admin) or session (staff)
+        staff_id = request.args.get('staff_id')
+        if session['user_type'] == 'staff':
+            staff_id = session['user_id']
+        elif session['user_type'] in ['admin', 'company_admin'] and staff_id:
+            staff_id = staff_id
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Staff ID required'
+            }), 400
+
+        # Get date range parameters
+        start_date = request.args.get('start_date')  # YYYY-MM-DD format
+        end_date = request.args.get('end_date')      # YYYY-MM-DD format
+
+        db = get_db()
+
+        # Get staff information including department
+        staff_info = db.execute('''
+            SELECT id, staff_id, full_name, department
+            FROM staff
+            WHERE id = ?
+        ''', (staff_id,)).fetchone()
+
+        if not staff_info:
+            return jsonify({
+                'success': False,
+                'message': 'Staff member not found'
+            }), 404
+
+        staff_department = staff_info['department'] or ''
+
+        # Build query to get applicable holidays
+        query_conditions = ['h.is_active = 1']
+        query_params = []
+
+        # Base query for holidays
+        base_query = '''
+            SELECT h.id, h.holiday_name, h.start_date, h.end_date, h.holiday_type, 
+                   h.description, h.is_recurring, h.recurring_type, h.created_at, h.departments
+            FROM holidays h
+        '''
+
+        # Add date range filter if provided
+        if start_date and end_date:
+            query_conditions.append('''
+                ((h.start_date BETWEEN ? AND ?) OR 
+                 (h.end_date BETWEEN ? AND ?) OR 
+                 (h.start_date <= ? AND h.end_date >= ?))
+            ''')
+            query_params.extend([start_date, end_date, start_date, end_date, start_date, end_date])
+
+        # Combine query
+        full_query = base_query + ' WHERE ' + ' AND '.join(query_conditions)
+        full_query += ' ORDER BY h.start_date ASC'
+
+        # Execute query to get all holidays in date range
+        holidays_data = db.execute(full_query, query_params).fetchall()
+
+        # Filter holidays applicable to this staff member
+        holidays = []
+        import json
+        for holiday in holidays_data:
+            # Always include institution_wide and common_leave holidays
+            if holiday['holiday_type'] in ['institution_wide', 'common_leave']:
+                holiday_dict = {
+                    'id': holiday['id'],
+                    'name': holiday['holiday_name'],  # Use 'name' to match JS expectations
+                    'holiday_name': holiday['holiday_name'],
+                    'start_date': holiday['start_date'],
+                    'end_date': holiday['end_date'],
+                    'type': holiday['holiday_type'],  # Use 'type' to match JS expectations
+                    'holiday_type': holiday['holiday_type'],
+                    'description': holiday['description'],
+                    'is_recurring': bool(holiday['is_recurring']),
+                    'recurring_type': holiday['recurring_type'],
+                    'created_at': holiday['created_at']
+                }
+                holidays.append(holiday_dict)
+            
+            # For department-specific holidays, check if staff's department is included
+            elif holiday['holiday_type'] == 'department_specific' and staff_department:
+                try:
+                    departments = json.loads(holiday['departments'] or '[]')
+                    if staff_department in departments:
+                        holiday_dict = {
+                            'id': holiday['id'],
+                            'name': holiday['holiday_name'],  # Use 'name' to match JS expectations
+                            'holiday_name': holiday['holiday_name'],
+                            'start_date': holiday['start_date'],
+                            'end_date': holiday['end_date'],
+                            'type': holiday['holiday_type'],  # Use 'type' to match JS expectations
+                            'holiday_type': holiday['holiday_type'],
+                            'description': holiday['description'],
+                            'is_recurring': bool(holiday['is_recurring']),
+                            'recurring_type': holiday['recurring_type'],
+                            'created_at': holiday['created_at']
+                        }
+                        holidays.append(holiday_dict)
+                except (json.JSONDecodeError, TypeError):
+                    # Skip holidays with invalid department JSON
+                    continue
+
+        return jsonify({
+            'success': True,
+            'holidays': holidays,
+            'count': len(holidays),
+            'staff_info': {
+                'id': staff_info['id'],
+                'staff_id': staff_info['staff_id'],
+                'full_name': staff_info['full_name'],
+                'department': staff_department
+            },
+            'date_range': {
+                'start_date': start_date,
+                'end_date': end_date
+            }
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to retrieve holidays for staff member'
+        }), 500
+
+
+@app.route('/admin/holiday_management')
+def holiday_management():
+    """Holiday Management page for administrators"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return redirect(url_for('index'))
+    
+    return render_template('holiday_management.html')
+
 
 if __name__ == '__main__':
     init_db(app)

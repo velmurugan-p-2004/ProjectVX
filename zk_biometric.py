@@ -375,8 +375,17 @@ class ZKBiometricDevice:
         from database import calculate_attendance_status
 
         if verification_type == 'check-in':
-            # Check-in verification using dynamic institution timings
-            status = calculate_attendance_status(timestamp.time(), 'check-in')
+            # Get staff department for holiday checking
+            staff_info = db.execute('''
+                SELECT department FROM staff WHERE id = ?
+            ''', (staff_db_id,)).fetchone()
+
+            department = staff_info['department'] if staff_info else None
+
+            # Check-in verification using dynamic institution timings and holiday checking
+            status = calculate_attendance_status(timestamp.time(), 'check-in',
+                                               date_obj=datetime.strptime(today, '%Y-%m-%d').date(),
+                                               department=department)
             if existing_attendance:
                 # Update existing record
                 db.execute('''
@@ -969,9 +978,18 @@ class AttendanceSync:
                             ''', (staff_id, date)).fetchone()
 
                             if not existing:
-                                # Use dynamic institution timings for status calculation
+                                # Get staff department for holiday checking
+                                staff_info = db.execute('''
+                                    SELECT department FROM staff WHERE id = ?
+                                ''', (staff_id,)).fetchone()
+
+                                department = staff_info['department'] if staff_info else None
+
+                                # Use dynamic institution timings and holiday checking for status calculation
                                 from database import calculate_attendance_status
-                                status = calculate_attendance_status(time_val, 'check-in')
+                                status = calculate_attendance_status(time_val, 'check-in',
+                                                                   date_obj=datetime.strptime(date, '%Y-%m-%d').date(),
+                                                                   department=department)
 
                                 # Convert time to string format for SQLite
                                 time_str = time_val.strftime('%H:%M:%S')

@@ -88,7 +88,7 @@ def init_db(app):
             overtime_out TIME,
             work_hours REAL DEFAULT 0,
             overtime_hours REAL DEFAULT 0,
-            status TEXT CHECK(status IN ('present', 'absent', 'late', 'leave', 'left_soon', 'on_duty')),
+            status TEXT CHECK(status IN ('present', 'absent', 'late', 'leave', 'left_soon', 'on_duty', 'holiday')),
             notes TEXT,
             on_duty_type TEXT,
             on_duty_location TEXT,
@@ -250,6 +250,28 @@ def init_db(app):
             FOREIGN KEY (staff_id) REFERENCES staff(id),
             FOREIGN KEY (school_id) REFERENCES schools(id),
             FOREIGN KEY (processed_by) REFERENCES admins(id)
+        )
+        ''')
+
+        # Create holidays table for comprehensive holiday management
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS holidays (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            holiday_name TEXT NOT NULL,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            holiday_type TEXT CHECK(holiday_type IN ('institution_wide', 'department_specific')) NOT NULL DEFAULT 'institution_wide',
+            description TEXT,
+            departments TEXT,  -- JSON array of department names for department-specific holidays
+            is_recurring BOOLEAN DEFAULT 0,
+            recurring_type TEXT CHECK(recurring_type IN ('yearly', 'monthly', 'weekly')),
+            created_by INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active BOOLEAN DEFAULT 1,
+            FOREIGN KEY (school_id) REFERENCES schools(id),
+            FOREIGN KEY (created_by) REFERENCES admins(id)
         )
         ''')
 
@@ -462,19 +484,28 @@ def get_institution_timings():
         }
 
 
-def calculate_attendance_status(check_time, verification_type='check-in', grace_minutes=10):
+def calculate_attendance_status(check_time, verification_type='check-in', grace_minutes=10, date_obj=None, department=None):
     """
-    Calculate attendance status based on institution timings.
+    Calculate attendance status based on institution timings, considering holidays.
 
     Args:
         check_time (datetime.time): Time when staff checked in/out
         verification_type (str): 'check-in' or 'check-out'
         grace_minutes (int): Grace period in minutes for late arrival
+        date_obj (datetime.date, optional): Date to check for holidays
+        department (str, optional): Department for department-specific holidays
 
     Returns:
-        str: Attendance status ('present', 'late', 'early_departure')
+        str: Attendance status ('present', 'late', 'early_departure', 'holiday')
     """
     import datetime
+
+    # Check if the date is a holiday
+    if date_obj is None:
+        date_obj = datetime.date.today()
+
+    if is_holiday(date_obj, department):
+        return 'holiday'
 
     timings = get_institution_timings()
 
@@ -524,7 +555,7 @@ def calculate_standard_working_hours_per_month():
 
         daily_hours = (checkout_dt - checkin_dt).total_seconds() / 3600
 
-        # Calculate working days per month (excluding Sundays)
+        # Calculate working days per month (excluding Sundays and holidays)
         # Use current month as reference
         now = datetime.datetime.now()
         total_days = calendar.monthrange(now.year, now.month)[1]
@@ -532,8 +563,8 @@ def calculate_standard_working_hours_per_month():
 
         for day in range(1, total_days + 1):
             date_obj = datetime.date(now.year, now.month, day)
-            # Exclude Sundays (weekday 6)
-            if date_obj.weekday() != 6:
+            # Exclude Sundays (weekday 6) and holidays
+            if date_obj.weekday() != 6 and not is_holiday(date_obj):
                 working_days += 1
 
         monthly_hours = daily_hours * working_days
@@ -601,3 +632,377 @@ def calculate_hourly_rate(base_monthly_salary):
             'standard_monthly_hours': 0.0,
             'standard_daily_hours': 0.0
         }
+
+
+def is_holiday(date_obj, department=None, school_id=None):
+    """
+    Check if a given date is a holiday.
+
+    Args:
+        date_obj (datetime.date): Date to check
+        department (str, optional): Department name for department-specific holidays
+        school_id (int, optional): School ID, defaults to current session school_id
+
+    Returns:
+        bool: True if the date is a holiday, False otherwise
+    """
+    import json
+    from flask import session, has_request_context
+
+    try:
+        if school_id is None:
+            if has_request_context():
+                school_id = session.get('school_id')
+            else:
+                school_id = 1  # Default for testing
+
+        if not school_id:
+            return False
+
+        db = get_db()
+
+        # Check for institution-wide holidays
+        institution_holidays = db.execute('''
+            SELECT * FROM holidays
+            WHERE school_id = ?
+            AND holiday_type = 'institution_wide'
+            AND is_active = 1
+            AND ? BETWEEN start_date AND end_date
+        ''', (school_id, date_obj.isoformat())).fetchall()
+
+        if institution_holidays:
+            return True
+
+        # Check for department-specific holidays if department is provided
+        if department:
+            dept_holidays = db.execute('''
+                SELECT * FROM holidays
+                WHERE school_id = ?
+                AND holiday_type = 'department_specific'
+                AND is_active = 1
+                AND ? BETWEEN start_date AND end_date
+            ''', (school_id, date_obj.isoformat())).fetchall()
+
+            for holiday in dept_holidays:
+                if holiday['departments']:
+                    try:
+                        departments = json.loads(holiday['departments'])
+                        if department in departments:
+                            return True
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+        return False
+
+    except Exception as e:
+        print(f"Error checking holiday status: {e}")
+        return False
+
+
+def get_holidays(school_id=None, start_date=None, end_date=None, department=None):
+    """
+    Get holidays for a school within a date range.
+
+    Args:
+        school_id (int, optional): School ID, defaults to current session school_id
+        start_date (str, optional): Start date in YYYY-MM-DD format
+        end_date (str, optional): End date in YYYY-MM-DD format
+        department (str, optional): Filter by department for department-specific holidays
+
+    Returns:
+        list: List of holiday records
+    """
+    import json
+    from flask import session, has_request_context
+
+    try:
+        if school_id is None:
+            if has_request_context():
+                school_id = session.get('school_id')
+            else:
+                school_id = 1  # Default for testing
+
+        if not school_id:
+            return []
+
+        db = get_db()
+
+        # Build query conditions
+        conditions = ['school_id = ?', 'is_active = 1']
+        params = [school_id]
+
+        if start_date:
+            conditions.append('end_date >= ?')
+            params.append(start_date)
+
+        if end_date:
+            conditions.append('start_date <= ?')
+            params.append(end_date)
+
+        query = f'''
+            SELECT * FROM holidays
+            WHERE {' AND '.join(conditions)}
+            ORDER BY start_date ASC
+        '''
+
+        holidays = db.execute(query, params).fetchall()
+
+        # Filter department-specific holidays if department is specified
+        if department:
+            filtered_holidays = []
+            for holiday in holidays:
+                if holiday['holiday_type'] == 'institution_wide':
+                    filtered_holidays.append(holiday)
+                elif holiday['holiday_type'] == 'department_specific' and holiday['departments']:
+                    try:
+                        departments = json.loads(holiday['departments'])
+                        if department in departments:
+                            filtered_holidays.append(holiday)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+            return filtered_holidays
+
+        return holidays
+
+    except Exception as e:
+        print(f"Error getting holidays: {e}")
+        return []
+
+
+def create_holiday(holiday_data):
+    """
+    Create a new holiday.
+
+    Args:
+        holiday_data (dict): Holiday information including name, dates, type, etc.
+
+    Returns:
+        dict: Result with success status and holiday_id or error message
+    """
+    import json
+    from flask import session, has_request_context
+
+    try:
+        # Handle session data - use provided values or get from session
+        if 'school_id' in holiday_data:
+            school_id = holiday_data['school_id']
+        elif has_request_context():
+            school_id = session.get('school_id')
+        else:
+            return {'success': False, 'message': 'School ID required'}
+
+        if 'created_by' in holiday_data:
+            created_by = holiday_data['created_by']
+        elif has_request_context():
+            created_by = session.get('user_id')
+        else:
+            created_by = 1  # Default for testing
+
+        if not school_id:
+            return {'success': False, 'message': 'Invalid session or school ID'}
+
+        db = get_db()
+
+        # Validate required fields
+        required_fields = ['holiday_name', 'start_date', 'end_date', 'holiday_type']
+        for field in required_fields:
+            if not holiday_data.get(field):
+                return {'success': False, 'error': f'Missing required field: {field}'}
+
+        # Prepare departments JSON
+        departments_json = None
+        if holiday_data.get('departments') and holiday_data['holiday_type'] == 'department_specific':
+            departments_json = json.dumps(holiday_data['departments'])
+
+        # Insert holiday
+        cursor = db.execute('''
+            INSERT INTO holidays (
+                school_id, holiday_name, start_date, end_date, holiday_type,
+                description, departments, is_recurring, recurring_type, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            school_id,
+            holiday_data['holiday_name'],
+            holiday_data['start_date'],
+            holiday_data['end_date'],
+            holiday_data['holiday_type'],
+            holiday_data.get('description', ''),
+            departments_json,
+            holiday_data.get('is_recurring', 0),
+            holiday_data.get('recurring_type'),
+            created_by
+        ))
+
+        db.commit()
+
+        return {
+            'success': True,
+            'holiday_id': cursor.lastrowid,
+            'message': 'Holiday created successfully'
+        }
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def update_holiday(holiday_id, holiday_data):
+    """
+    Update an existing holiday.
+
+    Args:
+        holiday_id (int): Holiday ID to update
+        holiday_data (dict): Updated holiday information
+
+    Returns:
+        dict: Result with success status and message
+    """
+    import json
+    from flask import session, has_request_context
+
+    try:
+        # Handle session data - use provided values or get from session
+        if 'school_id' in holiday_data:
+            school_id = holiday_data['school_id']
+        elif has_request_context():
+            school_id = session.get('school_id')
+        else:
+            return {'success': False, 'message': 'School ID required'}
+
+        if not school_id:
+            return {'success': False, 'message': 'Invalid session or school ID'}
+
+        db = get_db()
+
+        # Check if holiday exists and belongs to the school
+        existing_holiday = db.execute('''
+            SELECT * FROM holidays WHERE id = ? AND school_id = ?
+        ''', (holiday_id, school_id)).fetchone()
+
+        if not existing_holiday:
+            return {'success': False, 'error': 'Holiday not found'}
+
+        # Prepare departments JSON
+        departments_json = None
+        if holiday_data.get('departments') and holiday_data.get('holiday_type') == 'department_specific':
+            departments_json = json.dumps(holiday_data['departments'])
+
+        # Update holiday
+        db.execute('''
+            UPDATE holidays SET
+                holiday_name = ?,
+                start_date = ?,
+                end_date = ?,
+                holiday_type = ?,
+                description = ?,
+                departments = ?,
+                is_recurring = ?,
+                recurring_type = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND school_id = ?
+        ''', (
+            holiday_data.get('holiday_name', existing_holiday['holiday_name']),
+            holiday_data.get('start_date', existing_holiday['start_date']),
+            holiday_data.get('end_date', existing_holiday['end_date']),
+            holiday_data.get('holiday_type', existing_holiday['holiday_type']),
+            holiday_data.get('description', existing_holiday['description']),
+            departments_json,
+            holiday_data.get('is_recurring', existing_holiday['is_recurring']),
+            holiday_data.get('recurring_type', existing_holiday['recurring_type']),
+            holiday_id,
+            school_id
+        ))
+
+        db.commit()
+
+        return {
+            'success': True,
+            'message': 'Holiday updated successfully'
+        }
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def delete_holiday(holiday_id):
+    """
+    Delete a holiday (soft delete by setting is_active to 0).
+
+    Args:
+        holiday_id (int): Holiday ID to delete
+
+    Returns:
+        dict: Result with success status and message
+    """
+    from flask import session
+
+    try:
+        school_id = session.get('school_id')
+
+        if not school_id:
+            return {'success': False, 'error': 'Invalid session'}
+
+        db = get_db()
+
+        # Check if holiday exists and belongs to the school
+        existing_holiday = db.execute('''
+            SELECT * FROM holidays WHERE id = ? AND school_id = ? AND is_active = 1
+        ''', (holiday_id, school_id)).fetchone()
+
+        if not existing_holiday:
+            return {'success': False, 'error': 'Holiday not found'}
+
+        # Soft delete holiday
+        db.execute('''
+            UPDATE holidays SET
+                is_active = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND school_id = ?
+        ''', (holiday_id, school_id))
+
+        db.commit()
+
+        return {
+            'success': True,
+            'message': 'Holiday deleted successfully'
+        }
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def get_departments_list(school_id=None):
+    """
+    Get list of departments for the school.
+
+    Args:
+        school_id (int, optional): School ID, defaults to current session school_id
+
+    Returns:
+        list: List of department names
+    """
+    from flask import session, has_request_context
+
+    try:
+        if school_id is None:
+            if has_request_context():
+                school_id = session.get('school_id')
+            else:
+                school_id = 1  # Default for testing
+
+        if not school_id:
+            return []
+
+        db = get_db()
+
+        # Get unique departments from staff table
+        departments = db.execute('''
+            SELECT DISTINCT department FROM staff
+            WHERE school_id = ? AND department IS NOT NULL AND department != ''
+            ORDER BY department ASC
+        ''', (school_id,)).fetchall()
+
+        return [dept['department'] for dept in departments]
+
+    except Exception as e:
+        print(f"Error getting departments list: {e}")
+        return []

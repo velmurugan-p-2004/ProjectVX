@@ -3,6 +3,9 @@
  * Handles salary calculations, rule management, and reporting
  */
 
+// Global variables for salary management
+let currentSalaryCalculationResults = null;
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize salary management
     initializeSalaryManagement();
@@ -370,6 +373,9 @@ function displaySalaryResults(data) {
     const resultsSubtitle = document.getElementById('resultsSubtitle');
     const resultsStats = document.getElementById('resultsStats');
     const exportBtn = document.getElementById('exportResultsBtn');
+
+    // Store results globally for export functionality
+    currentSalaryCalculationResults = data;
 
     if (!data.success) {
         container.innerHTML = `
@@ -825,12 +831,290 @@ function initializeEnhancedUI() {
     initializeTooltips();
 }
 
-function exportSalaryResults() {
-    showAlert('<i class="bi bi-download me-2"></i>Exporting salary results...', 'info');
-    // Implementation for exporting results
-    setTimeout(() => {
-        showAlert('<i class="bi bi-check-circle me-2"></i>Export completed successfully!', 'success');
-    }, 1500);
+function exportSalaryResults(format = null) {
+    if (!currentSalaryCalculationResults || !currentSalaryCalculationResults.success) {
+        showAlert('<i class="bi bi-exclamation-triangle me-2"></i>No salary calculation results to export', 'warning');
+        return;
+    }
+
+    // Get current calculation parameters
+    const year = document.getElementById('calculationYear').value;
+    const month = document.getElementById('calculationMonth').value;
+    const department = document.getElementById('departmentFilter').value;
+
+    if (!year || !month) {
+        showAlert('<i class="bi bi-exclamation-triangle me-2"></i>Missing calculation parameters', 'warning');
+        return;
+    }
+
+    // If no format specified, show format selection modal
+    if (!format) {
+        showExportFormatModal();
+        return;
+    }
+
+    const formatNames = {
+        'excel': 'Excel',
+        'csv': 'CSV',
+        'pdf': 'PDF'
+    };
+
+    showAlert(`<i class="bi bi-download me-2"></i>Exporting salary calculation results as ${formatNames[format]}...`, 'info');
+
+    // Prepare form data
+    const formData = new FormData();
+    formData.append('year', year);
+    formData.append('month', month);
+    formData.append('format', format);
+    if (department) {
+        formData.append('department', department);
+    }
+
+    // Add CSRF token
+    const csrfToken = document.querySelector('input[name="csrf_token"]');
+    if (csrfToken) {
+        formData.append('csrf_token', csrfToken.value);
+    }
+
+    // Make the export request
+    fetch('/export_salary_calculation_results', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': csrfToken ? csrfToken.value : ''
+        }
+    })
+    .then(response => {
+        if (response.ok) {
+            // Check if it's a file download
+            const contentType = response.headers.get('content-type');
+            const isFileDownload = contentType && (
+                contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') ||
+                contentType.includes('text/csv') ||
+                contentType.includes('application/pdf')
+            );
+
+            if (isFileDownload) {
+                // It's a file, trigger download
+                return response.blob().then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+
+                    // Extract filename from Content-Disposition header or create default
+                    const disposition = response.headers.get('Content-Disposition');
+                    let filename = 'salary_calculation_results';
+                    if (disposition && disposition.includes('filename=')) {
+                        filename = disposition.split('filename=')[1].replace(/"/g, '');
+                    } else {
+                        // Create default filename based on format
+                        const extension = contentType.includes('excel') ? '.xlsx' :
+                                        contentType.includes('csv') ? '.csv' : '.pdf';
+                        filename += extension;
+                    }
+
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+
+                    showAlert('<i class="bi bi-check-circle me-2"></i>Salary calculation results exported successfully!', 'success');
+                });
+            } else {
+                // It might be a JSON response with an error
+                return response.json().then(data => {
+                    if (data.success === false) {
+                        showAlert(`<i class="bi bi-exclamation-triangle me-2"></i>Export failed: ${data.error}`, 'danger');
+                    } else {
+                        showAlert('<i class="bi bi-check-circle me-2"></i>Export completed successfully!', 'success');
+                    }
+                });
+            }
+        } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+    })
+    .catch(error => {
+        console.error('Export error:', error);
+        showAlert(`<i class="bi bi-exclamation-triangle me-2"></i>Export failed: ${error.message}`, 'danger');
+    });
+}
+
+function showExportFormatModal() {
+    // Create modal HTML
+    const modalHtml = `
+        <div class="modal fade" id="exportFormatModal" tabindex="-1" aria-labelledby="exportFormatModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="exportFormatModalLabel">
+                            <i class="bi bi-download me-2"></i>Export Salary Calculation Results
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-3">Choose the format for exporting your salary calculation results:</p>
+                        <div class="export-format-options">
+                            <div class="format-option" data-format="excel">
+                                <div class="format-icon">
+                                    <i class="bi bi-file-earmark-excel text-success"></i>
+                                </div>
+                                <div class="format-details">
+                                    <h6>Excel (.xlsx)</h6>
+                                    <p>Comprehensive spreadsheet with formatting and formulas</p>
+                                </div>
+                                <div class="format-check">
+                                    <i class="bi bi-check-circle-fill text-success d-none"></i>
+                                </div>
+                            </div>
+                            <div class="format-option" data-format="csv">
+                                <div class="format-icon">
+                                    <i class="bi bi-file-earmark-text text-primary"></i>
+                                </div>
+                                <div class="format-details">
+                                    <h6>CSV (.csv)</h6>
+                                    <p>Simple comma-separated values for data analysis</p>
+                                </div>
+                                <div class="format-check">
+                                    <i class="bi bi-check-circle-fill text-success d-none"></i>
+                                </div>
+                            </div>
+                            <div class="format-option" data-format="pdf">
+                                <div class="format-icon">
+                                    <i class="bi bi-file-earmark-pdf text-danger"></i>
+                                </div>
+                                <div class="format-details">
+                                    <h6>PDF (.pdf)</h6>
+                                    <p>Professional report format for printing and sharing</p>
+                                </div>
+                                <div class="format-check">
+                                    <i class="bi bi-check-circle-fill text-success d-none"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="confirmExportBtn" disabled onclick="confirmExport()">
+                            <i class="bi bi-download me-2"></i>Export
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <style>
+        .export-format-options {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .format-option {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .format-option:hover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+
+        .format-option.selected {
+            border-color: #28a745;
+            background-color: #f8fff9;
+        }
+
+        .format-icon {
+            font-size: 2rem;
+            margin-right: 15px;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .format-details {
+            flex: 1;
+        }
+
+        .format-details h6 {
+            margin: 0 0 5px 0;
+            font-weight: 600;
+        }
+
+        .format-details p {
+            margin: 0;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .format-check {
+            margin-left: 15px;
+        }
+        </style>
+    `;
+
+    // Remove existing modal if present
+    const existingModal = document.getElementById('exportFormatModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // Add modal to body
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('exportFormatModal'));
+    modal.show();
+
+    // Add event listeners for format options
+    document.querySelectorAll('.format-option').forEach(option => {
+        option.addEventListener('click', function() {
+            const format = this.getAttribute('data-format');
+            selectExportFormat(format, this);
+        });
+    });
+
+    // Clean up when modal is hidden
+    document.getElementById('exportFormatModal').addEventListener('hidden.bs.modal', function() {
+        this.remove();
+    });
+}
+
+let selectedExportFormat = null;
+
+function selectExportFormat(format, element) {
+    // Remove previous selection
+    document.querySelectorAll('.format-option').forEach(option => {
+        option.classList.remove('selected');
+        option.querySelector('.format-check i').classList.add('d-none');
+    });
+
+    // Add selection to clicked option
+    const targetOption = element ? element.closest('.format-option') :
+                        document.querySelector(`[onclick*="${format}"]`).closest('.format-option');
+    targetOption.classList.add('selected');
+    targetOption.querySelector('.format-check i').classList.remove('d-none');
+
+    // Enable export button
+    selectedExportFormat = format;
+    document.getElementById('confirmExportBtn').disabled = false;
+}
+
+function confirmExport() {
+    if (selectedExportFormat) {
+        // Hide modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('exportFormatModal'));
+        modal.hide();
+
+        // Start export with selected format
+        exportSalaryResults(selectedExportFormat);
+    }
 }
 
 function resetSalaryRulesToDefaults() {
@@ -1314,10 +1598,7 @@ function generateReport(reportType) {
         'performance_report': 'Performance Evaluation Report',
         'daily_attendance': 'Daily Attendance Report',
         'monthly_attendance': 'Monthly Attendance Report',
-        'overtime_report': 'Overtime Analysis Report',
-        'cost_analysis': 'Cost Analysis Report',
-        'trend_analysis': 'Trend Analysis Report',
-        'executive_summary': 'Executive Summary Report'
+        'overtime_report': 'Overtime Analysis Report'
     };
 
     const reportName = reportNames[reportType] || 'Report';

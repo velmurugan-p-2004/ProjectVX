@@ -748,7 +748,7 @@
 
 /* Prevent content jumping during filter operations */
 .salary-results-card .card-body {
-    min-height: 300px;
+    height:fit-content;
     position: relative;
 }
 

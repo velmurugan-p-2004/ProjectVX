@@ -101,8 +101,6 @@ class WeeklyAttendanceCalendar {
             this.goToCurrentWeek();
         });
 
-        // Add keyboard navigation support
-        this.addKeyboardNavigation();
     }
     
     navigateWeek(direction) {
@@ -116,26 +114,103 @@ class WeeklyAttendanceCalendar {
     
     loadWeeklyData() {
         const weekStartStr = this.formatDate(this.currentWeekStart);
-        let url = `/get_weekly_attendance?week_start=${weekStartStr}`;
+        const weekEndStr = this.formatDate(new Date(this.currentWeekStart.getTime() + 6 * 24 * 60 * 60 * 1000));
         
+        let attendanceUrl = `/get_weekly_attendance?week_start=${weekStartStr}`;
         if (this.options.staffId) {
-            url += `&staff_id=${this.options.staffId}`;
+            attendanceUrl += `&staff_id=${this.options.staffId}`;
         }
         
-        fetch(url)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    this.weeklyData = data.weekly_data;
-                    this.renderWeeklyGrid(data);
+        // Load both attendance and holiday data simultaneously
+        Promise.all([
+            fetch(attendanceUrl).then(response => response.json()),
+            this.loadHolidaysData(weekStartStr, weekEndStr)
+        ])
+            .then(([attendanceData, holidaysData]) => {
+                if (attendanceData.success) {
+                    this.weeklyData = attendanceData.weekly_data;
+                    this.holidaysData = holidaysData;
+                    
+                    // Merge holiday information into weekly data
+                    this.mergeHolidaysWithWeeklyData();
+                    
+                    this.renderWeeklyGrid(attendanceData);
                 } else {
-                    this.showError(data.error || 'Failed to load weekly data');
+                    this.showError(attendanceData.error || 'Failed to load weekly data');
                 }
             })
             .catch(error => {
                 console.error('Error loading weekly data:', error);
                 this.showError('Failed to load weekly attendance data');
             });
+    }
+    
+    loadHolidaysData(startDate, endDate) {
+        let holidayUrl = `/api/staff/holidays?start_date=${startDate}&end_date=${endDate}`;
+        if (this.options.staffId) {
+            holidayUrl += `&staff_id=${this.options.staffId}`;
+        }
+        
+        return fetch(holidayUrl)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    return data.holidays || [];
+                } else {
+                    console.warn('Failed to load holidays:', data.message);
+                    return [];
+                }
+            })
+            .catch(error => {
+                console.error('Error loading holidays:', error);
+                return [];
+            });
+    }
+    
+    mergeHolidaysWithWeeklyData() {
+        if (!this.holidaysData || !this.weeklyData) return;
+        
+        // Create a map of holidays by date
+        const holidaysByDate = new Map();
+        
+        this.holidaysData.forEach(holiday => {
+            const startDate = new Date(holiday.start_date);
+            const endDate = new Date(holiday.end_date);
+            
+            // Add holiday to each date it covers
+            for (let date = new Date(startDate); date <= endDate; date.setDate(date.getDate() + 1)) {
+                const dateStr = this.formatDate(date);
+                if (!holidaysByDate.has(dateStr)) {
+                    holidaysByDate.set(dateStr, []);
+                }
+                holidaysByDate.get(dateStr).push({
+                    id: holiday.id,
+                    name: holiday.holiday_name,
+                    type: holiday.holiday_type,
+                    description: holiday.description,
+                    isRecurring: holiday.is_recurring,
+                    departments: holiday.departments
+                });
+            }
+        });
+        
+        // Merge holidays into weekly data
+        this.weeklyData.forEach(dayData => {
+            const holidays = holidaysByDate.get(dayData.date) || [];
+            dayData.holidays = holidays;
+            
+            // If there are holidays on this day, mark it as a holiday
+            if (holidays.length > 0) {
+                dayData.is_holiday = true;
+                dayData.holiday_types = holidays.map(h => h.type);
+                
+                // Override present status if it's a holiday and staff wasn't present
+                if (dayData.present_status === 'Absent' && holidays.some(h => h.type !== 'department_specific' || dayData.present_status === 'Absent')) {
+                    dayData.present_status = 'Holiday';
+                    dayData.holiday_info = holidays.map(h => h.name).join(', ');
+                }
+            }
+        });
     }
     
     renderWeeklyGrid(data) {
@@ -176,17 +251,35 @@ class WeeklyAttendanceCalendar {
     renderDayCell(dayData) {
         let html = '<div class="day-content">';
 
-        // Present/Absent/On Duty status
+        // Check if there are holidays on this day
+        if (dayData.holidays && dayData.holidays.length > 0) {
+            html += this.renderHolidayInfo(dayData.holidays);
+        }
+
+        // Present/Absent/On Duty/Holiday status
         let statusClass = 'text-danger'; // Default for absent
+        let statusText = dayData.present_status;
+        
         if (dayData.present_status === 'Present') {
             statusClass = 'text-success';
         } else if (dayData.present_status === 'On Duty') {
             statusClass = 'text-info';
+        } else if (dayData.present_status === 'Holiday') {
+            statusClass = 'text-warning';
+            statusText = 'Holiday';
         }
-        html += `<div class="status-badge"><strong class="${statusClass}">${dayData.present_status}</strong></div>`;
+        
+        html += `<div class="status-badge"><strong class="${statusClass}">${statusText}</strong></div>`;
+
+        // Holiday-specific information
+        if (dayData.present_status === 'Holiday' && dayData.holiday_info) {
+            html += `<div class="holiday-info">`;
+            html += `<div class="holiday-details"><small class="text-warning"><i class="bi bi-calendar-event"></i> ${dayData.holiday_info}</small></div>`;
+            html += `</div>`;
+        }
 
         // Handle On Duty status display
-        if (dayData.present_status === 'On Duty') {
+        else if (dayData.present_status === 'On Duty') {
             html += `<div class="on-duty-info">`;
             html += `<div class="duty-type"><small class="text-info"><strong>Type:</strong> ${dayData.on_duty_type}</small></div>`;
             if (dayData.on_duty_location && dayData.on_duty_location !== 'Not specified') {
@@ -199,7 +292,10 @@ class WeeklyAttendanceCalendar {
                 html += `<div class="duty-purpose"><small class="text-secondary" title="${dayData.on_duty_purpose}"><strong>Purpose:</strong> ${truncatedPurpose}</small></div>`;
             }
             html += `</div>`;
-        } else {
+        } 
+        
+        // Regular attendance display (but not if it's a holiday without attendance)
+        else if (dayData.present_status !== 'Holiday') {
             // Shift type and timing (only for regular attendance)
             html += `<div class="shift-info">`;
             html += `<div class="shift-type"><small class="text-muted">${dayData.shift_type_display}</small></div>`;
@@ -209,6 +305,7 @@ class WeeklyAttendanceCalendar {
             html += `</div>`;
         }
 
+        // Show attendance details only if present (regardless of holiday status)
         if (dayData.present_status === 'Present') {
             // Morning thumb timing
             if (dayData.morning_thumb) {
@@ -265,6 +362,41 @@ class WeeklyAttendanceCalendar {
             }
         }
 
+        html += '</div>';
+        return html;
+    }
+    
+    renderHolidayInfo(holidays) {
+        let html = '<div class="holiday-badges">';
+        
+        holidays.forEach(holiday => {
+            let badgeClass = 'badge-secondary';
+            let iconClass = 'bi-calendar-event';
+            
+            switch (holiday.type) {
+                case 'institution_wide':
+                    badgeClass = 'badge bg-success';
+                    iconClass = 'bi-building';
+                    break;
+                case 'department_specific':
+                    badgeClass = 'badge bg-warning';
+                    iconClass = 'bi-people';
+                    break;
+                case 'common_leave':
+                    badgeClass = 'badge bg-info';
+                    iconClass = 'bi-calendar-heart';
+                    break;
+            }
+            
+            const holidayName = holiday.name.length > 15 ? 
+                holiday.name.substring(0, 15) + '...' : 
+                holiday.name;
+            
+            html += `<div class="${badgeClass} mb-1" title="${holiday.name}${holiday.description ? ' - ' + holiday.description : ''}">`;
+            html += `<i class="bi ${iconClass}"></i> ${holidayName}`;
+            html += `</div>`;
+        });
+        
         html += '</div>';
         return html;
     }
