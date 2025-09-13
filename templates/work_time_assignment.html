@@ -1024,6 +1024,39 @@
             return token ? token.value : '';
         }
 
+        // Helper function to refresh CSRF token
+        async function refreshCSRFToken() {
+            try {
+                console.log('🔄 Refreshing CSRF token...');
+                const response = await fetch('/admin/work_time_assignment', {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                });
+
+                if (response.ok) {
+                    const html = await response.text();
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const tokenInput = doc.querySelector('input[name="csrf_token"]');
+
+                    if (tokenInput) {
+                        // Update the token in the current page
+                        const currentTokenInput = document.querySelector('input[name="csrf_token"]');
+                        if (currentTokenInput) {
+                            currentTokenInput.value = tokenInput.value;
+                        }
+                        console.log('✅ CSRF token refreshed successfully');
+                        return tokenInput.value;
+                    }
+                }
+                console.warn('⚠️ Could not refresh CSRF token');
+                return null;
+            } catch (error) {
+                console.error('❌ Error refreshing CSRF token:', error);
+                return null;
+            }
+        }
+
         // Helper function to check session status
         function checkSessionStatus() {
             return fetch('/api/debug_session', {
@@ -1751,47 +1784,86 @@
         }
 
         // Confirm Delete Holiday
-        function confirmDeleteHoliday() {
-            if (!editingHolidayId) return;
+        async function confirmDeleteHoliday() {
+            if (!editingHolidayId) {
+                console.error('❌ No holiday ID found for deletion');
+                return;
+            }
+
+            console.log('🗑️ Confirming deletion of holiday:', editingHolidayId);
 
             const deleteBtn = document.getElementById('confirmDeleteHolidayBtn');
             const originalText = deleteBtn.innerHTML;
             deleteBtn.innerHTML = '<i class="bi bi-spinner-grow spinner-grow-sm"></i> Deleting...';
             deleteBtn.disabled = true;
 
-            fetch(`/api/holidays/${editingHolidayId}`, {
-                method: 'DELETE',
-                credentials: 'same-origin'
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            try {
+                // Get CSRF token with fallback refresh
+                let csrfToken = getCSRFToken();
+                if (!csrfToken) {
+                    console.warn('⚠️ Initial CSRF token not found, attempting refresh...');
+                    csrfToken = await refreshCSRFToken();
                 }
-                return response.json();
-            })
-            .then(data => {
-                if (data.success) {
-                    showHolidaySuccess('Holiday deleted successfully');
-                    loadHolidays();
-                    
+
+                if (!csrfToken) {
+                    showHolidayError('CSRF token not found. Please refresh the page and try again.');
+                    return;
+                }
+
+                // Create FormData with CSRF token
+                const formData = new FormData();
+                formData.append('csrf_token', csrfToken);
+
+                console.log('🗑️ Sending DELETE request with CSRF token');
+
+                const response = await fetch(`/api/holidays/${editingHolidayId}`, {
+                    method: 'DELETE',
+                    body: formData,
+                    credentials: 'same-origin'
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    console.error('❌ Delete request failed:', response.status, text);
+
+                    try {
+                        const errorData = JSON.parse(text);
+                        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+                    } catch (parseError) {
+                        if (text.includes('CSRF')) {
+                            throw new Error('CSRF token error. Please refresh the page and try again.');
+                        } else {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                    }
+                }
+
+                const result = await response.json();
+
+                if (result.success) {
+                    console.log('✅ Holiday deleted successfully:', result.message);
+                    showHolidaySuccess(result.message || 'Holiday deleted successfully');
+
                     // Close modal
                     const modal = bootstrap.Modal.getInstance(document.getElementById('deleteHolidayModal'));
                     if (modal) {
                         modal.hide();
                     }
+
+                    // Reload holidays to refresh the display
+                    loadHolidays();
                 } else {
-                    showHolidayError(data.message || 'Failed to delete holiday');
+                    console.error('❌ Delete failed:', result.message);
+                    showHolidayError(result.message || 'Failed to delete holiday');
                 }
-            })
-            .catch(error => {
+            } catch (error) {
                 console.error('❌ Error deleting holiday:', error);
-                showHolidayError('Failed to delete holiday');
-            })
-            .finally(() => {
+                showHolidayError(error.message || 'Failed to delete holiday. Please try again.');
+            } finally {
                 deleteBtn.innerHTML = originalText;
                 deleteBtn.disabled = false;
                 editingHolidayId = null;
-            });
+            }
         }
 
         // Show Holiday Details
