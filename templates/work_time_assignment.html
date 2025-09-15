@@ -261,46 +261,139 @@
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            /* Enable horizontal scrolling */
+            overflow-x: auto;
+            overflow-y: hidden;
+            /* Smooth scrolling behavior */
+            scroll-behavior: smooth;
+            /* Custom scrollbar styling */
+            scrollbar-width: thin;
+            scrollbar-color: #007bff #f8f9fa;
+        }
+
+        /* Custom scrollbar for webkit browsers */
+        .calendar-container::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .calendar-container::-webkit-scrollbar-track {
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .calendar-container::-webkit-scrollbar-thumb {
+            background: #007bff;
+            border-radius: 4px;
+        }
+
+        .calendar-container::-webkit-scrollbar-thumb:hover {
+            background: #0056b3;
+        }
+
+        /* Holiday calendar section enhancements for horizontal scrolling */
+        .holiday-calendar-section {
+            position: relative;
+        }
+
+        /* Scroll indicator for better UX */
+        .calendar-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 20px;
+            height: 100%;
+            background: linear-gradient(to left, rgba(255,255,255,0.8), transparent);
+            pointer-events: none;
+            z-index: 1;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .calendar-container:hover::before {
+            opacity: 1;
+        }
+
+        /* Ensure FullCalendar toolbar remains accessible */
+        .fc-toolbar {
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .fc-toolbar-chunk {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
         }
 
         #holidayCalendar {
             height: 500px;
+            /* Ensure minimum width for horizontal scrolling */
+            min-width: 800px;
+            /* Prevent calendar from shrinking too much */
+            width: 100%;
         }
 
+        /* Enhanced Calendar Legend Styling */
         .calendar-legend {
             display: flex;
             flex-wrap: wrap;
-            gap: 1rem;
+            gap: 1.5rem;
             justify-content: center;
-            padding: 1rem;
-            background: #f8f9fa;
-            border-radius: 8px;
+            padding: 1.5rem;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            margin-top: 1rem;
+            border: 1px solid #dee2e6;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
 
         .legend-item {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 0.75rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #495057;
+            padding: 0.5rem 1rem;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .legend-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
         }
 
         .legend-color {
-            width: 16px;
-            height: 16px;
-            border-radius: 4px;
-            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            border: 2px solid transparent;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
+        /* Institution-wide holidays - Enhanced Green gradient */
         .legend-color.institution-wide {
-            background: linear-gradient(135deg, #28a745, #20c997);
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            border-color: #28a745;
         }
 
+        /* Department-specific holidays - Enhanced Orange gradient */
         .legend-color.department-specific {
-            background: linear-gradient(135deg, #ffc107, #fd7e14);
+            background: linear-gradient(135deg, #fd7e14 0%, #ffc107 100%);
+            border-color: #fd7e14;
         }
 
+        /* Common leave holidays - Enhanced Blue/Purple gradient */
         .legend-color.common-leave {
-            background: linear-gradient(135deg, #17a2b8, #6f42c1);
+            background: linear-gradient(135deg, #6f42c1 0%, #17a2b8 100%);
+            border-color: #6f42c1;
         }
+
+        /* Weekly off legend styling removed per requirements */
 
         /* Holiday List Styles */
         .holiday-list-section {
@@ -372,29 +465,61 @@
             font-weight: 500;
         }
 
-        /* FullCalendar Custom Styling */
+        /* FullCalendar Custom Styling - Enhanced Color Coding */
         .fc-event.holiday-event {
-            border-radius: 6px;
-            padding: 2px 4px;
-            font-weight: 500;
+            border-radius: 8px;
+            padding: 3px 6px;
+            font-weight: 600;
             font-size: 0.85rem;
+            border-width: 2px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
         }
 
+        /* Institution-wide holidays - Green gradient (applies to all staff) */
         .fc-event.institution-wide {
-            background: linear-gradient(135deg, #28a745, #20c997);
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
             border-color: #28a745;
+            color: white;
         }
 
+        /* Department-specific holidays - Orange gradient (applies to specific departments) */
         .fc-event.department-specific {
-            background: linear-gradient(135deg, #ffc107, #fd7e14);
-            border-color: #ffc107;
+            background: linear-gradient(135deg, #fd7e14 0%, #ffc107 100%);
+            border-color: #fd7e14;
             color: #212529;
         }
 
+        /* Common leave holidays - Blue/Purple gradient (general leave days) */
         .fc-event.common-leave {
-            background: linear-gradient(135deg, #17a2b8, #6f42c1);
-            border-color: #17a2b8;
+            background: linear-gradient(135deg, #6f42c1 0%, #17a2b8 100%);
+            border-color: #6f42c1;
+            color: white;
         }
+
+        /* Weekly off event styling removed per requirements */
+
+        /* Enhanced hover effects with type-specific styling */
+        .fc-event.holiday-event:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+
+        .fc-event.institution-wide:hover {
+            box-shadow: 0 6px 12px rgba(40, 167, 69, 0.4);
+        }
+
+        .fc-event.department-specific:hover {
+            box-shadow: 0 6px 12px rgba(253, 126, 20, 0.4);
+        }
+
+        .fc-event.common-leave:hover {
+            box-shadow: 0 6px 12px rgba(111, 66, 193, 0.4);
+        }
+
+        /* Weekly off hover styling removed per requirements */
 
         /* Holiday Form Styles */
         #holidayModal .modal-content {
@@ -451,6 +576,23 @@
             
             #holidayCalendar {
                 height: 400px;
+                /* Maintain minimum width on mobile for horizontal scrolling */
+                min-width: 600px;
+            }
+
+            /* Enhanced calendar container for mobile */
+            .calendar-container {
+                /* Show scrollbar on mobile for better UX */
+                -webkit-overflow-scrolling: touch;
+                /* Add padding for touch scrolling */
+                padding-bottom: 10px;
+            }
+
+            /* Calendar legend responsive adjustments */
+            .calendar-legend {
+                /* Ensure legend doesn't interfere with scrolling */
+                margin-top: 1rem;
+                padding: 1rem;
             }
         }
 
@@ -554,15 +696,6 @@
                                         <i class="bi bi-graph-up"></i>
                                     </div>
                                     <span class="nav-text">Reports & Analytics</span>
-                                    <div class="nav-indicator"></div>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#biometricDeviceModal">
-                                    <div class="nav-icon">
-                                        <i class="bi bi-fingerprint"></i>
-                                    </div>
-                                    <span class="nav-text">Biometric Device</span>
                                     <div class="nav-indicator"></div>
                                 </a>
                             </li>
@@ -743,31 +876,7 @@
                         <div class="row mb-4">
                             <div class="col-md-12">
                                 <div class="holiday-controls">
-                                    <div class="control-group">
-                                        <h6 class="control-title">
-                                            <i class="bi bi-calendar-week text-info"></i> Weekly Off Configuration
-                                        </h6>
-                                        <div class="weekly-off-controls">
-                                            <div class="form-check form-switch">
-                                                <input class="form-check-input" type="checkbox" id="sundayOffEnabled" checked>
-                                                <label class="form-check-label" for="sundayOffEnabled">
-                                                    Sunday as Weekly Off
-                                                </label>
-                                            </div>
-                                            <div class="additional-days mt-2">
-                                                <label class="form-label">Additional Weekly Off Days:</label>
-                                                <select class="form-select" id="additionalOffDays" multiple>
-                                                    <option value="monday">Monday</option>
-                                                    <option value="tuesday">Tuesday</option>
-                                                    <option value="wednesday">Wednesday</option>
-                                                    <option value="thursday">Thursday</option>
-                                                    <option value="friday">Friday</option>
-                                                    <option value="saturday">Saturday</option>
-                                                </select>
-                                                <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple days</small>
-                                            </div>
-                                        </div>
-                                    </div>
+
                                 </div>
                             </div>
                         </div>
@@ -796,6 +905,7 @@
                                             <span class="legend-color common-leave"></span>
                                             <span class="legend-text">Common Leave Days</span>
                                         </div>
+
                                     </div>
                                 </div>
                             </div>
@@ -1335,7 +1445,7 @@
         let holidayCalendar;
         let currentHolidays = [];
         let editingHolidayId = null;
-        let weeklyOffDays = ['sunday']; // Default weekly off
+        let weeklyOffDays = []; // Weekly off disabled
 
         // Initialize Holiday Management System
         function initializeHolidayManagement() {
@@ -1354,8 +1464,7 @@
                 // Load departments for dropdown
                 loadDepartments();
                 
-                // Load weekly off configuration
-                loadWeeklyOffConfiguration();
+                // Weekly off configuration disabled per requirements
                 
                 console.log('✅ Holiday Management System initialized successfully');
             } catch (error) {
@@ -1381,10 +1490,16 @@
                     right: 'dayGridMonth,listMonth'
                 },
                 height: 500,
+                // Enable responsive behavior
+                responsive: true,
+                // Ensure calendar maintains functionality with horizontal scrolling
+                aspectRatio: 1.35,
+                // Handle window resize for better scrolling experience
+                windowResizeDelay: 100,
                 events: function(fetchInfo, successCallback, failureCallback) {
                     try {
                         // Convert holidays to calendar events
-                        const events = currentHolidays.map(holiday => ({
+                        const holidayEvents = currentHolidays.map(holiday => ({
                             id: holiday.id,
                             title: holiday.holiday_name,
                             start: holiday.start_date,
@@ -1393,14 +1508,21 @@
                             extendedProps: {
                                 holiday_type: holiday.holiday_type,
                                 description: holiday.description,
-                                departments: holiday.departments || []
+                                departments: holiday.departments || [],
+                                event_type: 'holiday'
                             }
                         }));
-                        
-                        console.log(`📅 Rendering ${events.length} holiday events`);
-                        successCallback(events);
+
+                        // Weekly off events disabled per requirements
+                        const weeklyOffEvents = [];
+
+                        // Combine holiday and weekly off events (weekly off disabled)
+                        const allEvents = [...holidayEvents];
+
+                        console.log(`📅 Rendering ${holidayEvents.length} holiday events (weekly off disabled)`);
+                        successCallback(allEvents);
                     } catch (error) {
-                        console.error('❌ Error processing holiday events:', error);
+                        console.error('❌ Error processing calendar events:', error);
                         failureCallback(error);
                     }
                 },
@@ -1408,12 +1530,52 @@
                     showHolidayDetails(info.event);
                 },
                 eventDidMount: function(info) {
-                    // Add tooltips to calendar events
-                    info.el.title = `${info.event.title}\nType: ${info.event.extendedProps.holiday_type.replace('_', ' ')}\nClick for details`;
+                    // Enhanced tooltips with color coding information
+                    const eventType = info.event.extendedProps.event_type;
+                    let tooltip = `${info.event.title}\n`;
+
+                    if (eventType === 'holiday') {
+                        const holidayType = info.event.extendedProps.holiday_type;
+                        let typeDescription = '';
+
+                        switch(holidayType) {
+                            case 'institution_wide':
+                                typeDescription = 'Institution-wide Holiday (Green) - Applies to all staff';
+                                break;
+                            case 'department_specific':
+                                typeDescription = 'Department-specific Holiday (Orange) - Applies to specific departments';
+                                break;
+                            case 'common_leave':
+                                typeDescription = 'Common Leave Day (Blue/Purple) - General leave day';
+                                break;
+                            default:
+                                typeDescription = `${holidayType.replace('_', ' ')} Holiday`;
+                        }
+
+                        tooltip += `Type: ${typeDescription}\n`;
+
+                        if (info.event.extendedProps.departments && info.event.extendedProps.departments.length > 0) {
+                            tooltip += `Departments: ${info.event.extendedProps.departments.join(', ')}\n`;
+                        }
+
+                        if (info.event.extendedProps.description) {
+                            tooltip += `Description: ${info.event.extendedProps.description}\n`;
+                        }
+
+                        tooltip += 'Click for details';
+                    }
+
+                    info.el.title = tooltip;
                 }
             });
 
             holidayCalendar.render();
+        }
+
+        // Generate Weekly Off Events for Calendar
+        function generateWeeklyOffEvents(startDate, endDate) {
+            // Weekly off events disabled per requirements
+            return [];
         }
 
         // Setup Holiday Management Event Listeners
@@ -1438,18 +1600,11 @@
                 saveHoliday();
             });
 
+
+
             // Delete Holiday confirmation
             document.getElementById('confirmDeleteHolidayBtn')?.addEventListener('click', function() {
                 confirmDeleteHoliday();
-            });
-
-            // Weekly off configuration
-            document.getElementById('sundayOffEnabled')?.addEventListener('change', function() {
-                updateWeeklyOffConfiguration();
-            });
-
-            document.getElementById('additionalOffDays')?.addEventListener('change', function() {
-                updateWeeklyOffConfiguration();
             });
         }
 
@@ -1904,32 +2059,115 @@
         }
 
         // Load Weekly Off Configuration
-        function loadWeeklyOffConfiguration() {
-            // This would typically load from API, for now set defaults
-            const sundayOffEnabled = document.getElementById('sundayOffEnabled');
-            const additionalOffDays = document.getElementById('additionalOffDays');
-            
-            if (sundayOffEnabled) {
-                sundayOffEnabled.checked = weeklyOffDays.includes('sunday');
+        async function loadWeeklyOffConfiguration() {
+            try {
+                console.log('📅 Loading weekly off configuration...');
+
+                const response = await fetch('/api/weekly_off_config', {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        const weeklyOffDays = result.weekly_off_days || [];
+                        console.log('✅ Weekly off configuration loaded:', weeklyOffDays);
+
+                        // Update UI elements
+                        const sundayOffEnabled = document.getElementById('sundayOffEnabled');
+
+                        if (sundayOffEnabled) {
+                            sundayOffEnabled.checked = weeklyOffDays.includes('sunday');
+                        }
+
+                        // Update global variable
+                        window.weeklyOffDays = weeklyOffDays;
+
+                        // Refresh holiday calendar to show weekly off days
+                        if (typeof loadHolidays === 'function') {
+                            loadHolidays();
+                        }
+                    } else {
+                        console.warn('⚠️ Failed to load weekly off configuration:', result.message);
+                        // Set defaults
+                        setDefaultWeeklyOffConfiguration();
+                    }
+                } else {
+                    console.error('❌ Failed to load weekly off configuration:', response.status);
+                    setDefaultWeeklyOffConfiguration();
+                }
+            } catch (error) {
+                console.error('❌ Error loading weekly off configuration:', error);
+                setDefaultWeeklyOffConfiguration();
             }
         }
 
-        // Update Weekly Off Configuration
-        function updateWeeklyOffConfiguration() {
-            const sundayOffEnabled = document.getElementById('sundayOffEnabled')?.checked;
-            const additionalOffDays = Array.from(document.getElementById('additionalOffDays')?.selectedOptions || [])
-                .map(option => option.value);
-
-            weeklyOffDays = [];
+        // Set default weekly off configuration
+        function setDefaultWeeklyOffConfiguration() {
+            const sundayOffEnabled = document.getElementById('sundayOffEnabled');
             if (sundayOffEnabled) {
-                weeklyOffDays.push('sunday');
+                sundayOffEnabled.checked = false;  // Weekly off disabled
             }
-            weeklyOffDays.push(...additionalOffDays);
+            window.weeklyOffDays = [];
+        }
 
-            console.log('📅 Updated weekly off days:', weeklyOffDays);
-            
-            // Here you would typically save to API
-            showHolidaySuccess('Weekly off configuration updated successfully');
+        // Update Weekly Off Configuration
+        async function updateWeeklyOffConfiguration() {
+            try {
+                const sundayOffEnabled = document.getElementById('sundayOffEnabled')?.checked;
+
+                const weeklyOffDays = [];
+                if (sundayOffEnabled) {
+                    weeklyOffDays.push('sunday');
+                }
+
+                console.log('📅 Updating weekly off days:', weeklyOffDays);
+
+                // Get CSRF token
+                const csrfToken = getCSRFToken();
+                if (!csrfToken) {
+                    showHolidayError('CSRF token not found. Please refresh the page and try again.');
+                    return;
+                }
+
+                // Create FormData
+                const formData = new FormData();
+                formData.append('csrf_token', csrfToken);
+                formData.append('sunday_off_enabled', sundayOffEnabled ? 'true' : 'false');
+
+                // Save to API
+                const response = await fetch('/api/weekly_off_config', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        console.log('✅ Weekly off configuration saved successfully');
+                        showHolidaySuccess(result.message || 'Weekly off configuration updated successfully');
+
+                        // Update global variable
+                        window.weeklyOffDays = weeklyOffDays;
+
+                        // Refresh holiday calendar to show updated weekly off days
+                        if (typeof loadHolidays === 'function') {
+                            loadHolidays();
+                        }
+                    } else {
+                        console.error('❌ Failed to save weekly off configuration:', result.message);
+                        showHolidayError(result.message || 'Failed to save weekly off configuration');
+                    }
+                } else {
+                    console.error('❌ Failed to save weekly off configuration:', response.status);
+                    showHolidayError('Failed to save weekly off configuration. Please try again.');
+                }
+            } catch (error) {
+                console.error('❌ Error updating weekly off configuration:', error);
+                showHolidayError('Failed to update weekly off configuration. Please try again.');
+            }
         }
 
         // Show Holiday Success Message

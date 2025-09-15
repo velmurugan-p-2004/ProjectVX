@@ -1391,11 +1391,97 @@ def generate_staff_directory_report(school_id, format_type):
         ORDER BY s.department, s.full_name
     ''', (school_id,)).fetchall()
     
-    # Create workbook
+    # Common headers and rows for all formats
+    headers = [
+        'S.No', 'Staff ID', 'Full Name', 'Department', 'Position',
+        'Gender', 'Phone', 'Email', 'Date of Joining', 'Date of Birth', 'Shift Type'
+    ]
+    rows = []
+    for idx, staff in enumerate(staff_data, start=1):
+        rows.append([
+            idx,
+            staff['staff_id'] or 'N/A',
+            staff['full_name'],
+            staff['department'] or 'N/A',
+            staff['position'] or 'N/A',
+            staff['gender'] or 'N/A',
+            staff['phone'] or 'N/A',
+            staff['email'] or 'N/A',
+            staff['date_of_joining'] or 'N/A',
+            staff['date_of_birth'] or 'N/A',
+            staff['shift_type'] or 'General'
+        ])
+
+    # CSV export
+    if format_type == 'csv':
+        import io, csv
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['Staff Directory Report', datetime.datetime.now().strftime('%Y-%m-%d')])
+        writer.writerow([])
+        writer.writerow(headers)
+        writer.writerows(rows)
+        response = make_response(output.getvalue())
+        filename = f'staff_directory_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+        response.headers['Content-Type'] = 'text/csv'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return response
+
+    # PDF export
+    if format_type == 'pdf':
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.lib import colors
+            import io
+
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=18)
+            styles = getSampleStyleSheet()
+            elements = []
+
+            title = Paragraph(f"Staff Directory Report - {datetime.datetime.now().strftime('%Y-%m-%d')}", styles['Title'])
+            elements.append(title)
+            elements.append(Spacer(1, 12))
+
+            table_data = [headers] + rows
+            table = Table(table_data, repeatRows=1)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#366092')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+            ]))
+            elements.append(table)
+
+            doc.build(elements)
+            pdf_value = buffer.getvalue()
+            buffer.close()
+
+            response = make_response(pdf_value)
+            filename = f'staff_directory_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+            response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+            response.headers['Content-Type'] = 'application/pdf'
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return response
+        except ImportError:
+            return jsonify({
+                'success': False,
+                'error': 'PDF generation requires reportlab. Install with: pip install reportlab'
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'PDF generation failed: {str(e)}'})
+
+    # Default: Excel export
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Staff Directory"
-    
+
     # Define styles
     header_font = Font(bold=True, size=12, color="FFFFFF")
     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
@@ -1404,20 +1490,15 @@ def generate_staff_directory_report(school_id, format_type):
         left=Side(style='thin'), right=Side(style='thin'),
         top=Side(style='thin'), bottom=Side(style='thin')
     )
-    
+
     # Add title
     ws.merge_cells('A1:K1')
     title_cell = ws['A1']
     title_cell.value = f"Staff Directory Report - Generated on {datetime.datetime.now().strftime('%Y-%m-%d')}"
     title_cell.font = title_font
     title_cell.alignment = Alignment(horizontal='center')
-    
-    # Headers
-    headers = [
-        'S.No', 'Staff ID', 'Full Name', 'Department', 'Position',
-        'Gender', 'Phone', 'Email', 'Date of Joining', 'Date of Birth', 'Shift Type'
-    ]
-    
+
+    # Headers row
     header_row = 3
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=header_row, column=col)
@@ -1426,41 +1507,33 @@ def generate_staff_directory_report(school_id, format_type):
         cell.fill = header_fill
         cell.border = border
         cell.alignment = Alignment(horizontal='center')
-    
-    # Add data
-    for row_idx, staff in enumerate(staff_data, header_row + 1):
-        ws.cell(row=row_idx, column=1, value=row_idx - header_row)
-        ws.cell(row=row_idx, column=2, value=staff['staff_id'] or 'N/A')
-        ws.cell(row=row_idx, column=3, value=staff['full_name'])
-        ws.cell(row=row_idx, column=4, value=staff['department'] or 'N/A')
-        ws.cell(row=row_idx, column=5, value=staff['position'] or 'N/A')
-        ws.cell(row=row_idx, column=6, value=staff['gender'] or 'N/A')
-        ws.cell(row=row_idx, column=7, value=staff['phone'] or 'N/A')
-        ws.cell(row=row_idx, column=8, value=staff['email'] or 'N/A')
-        ws.cell(row=row_idx, column=9, value=staff['date_of_joining'] or 'N/A')
-        ws.cell(row=row_idx, column=10, value=staff['date_of_birth'] or 'N/A')
-        ws.cell(row=row_idx, column=11, value=staff['shift_type'] or 'General')
-        
-        # Apply border to all cells
-        for col in range(1, 12):
-            ws.cell(row=row_idx, column=col).border = border
-    
+
+    # Data rows
+    row_idx = header_row + 1
+    for r in rows:
+        for col, value in enumerate(r, 1):
+            cell = ws.cell(row=row_idx, column=col, value=value)
+            cell.border = border
+        row_idx += 1
+
     # Auto-adjust column widths
-    for col in range(1, 12):
+    from openpyxl.utils import get_column_letter
+    for col in range(1, len(headers) + 1):
         ws.column_dimensions[get_column_letter(col)].width = 15
-    
+
     # Save to BytesIO
+    from io import BytesIO
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    
+
     # Create response
     response = make_response(output.getvalue())
     filename = f'staff_directory_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
     response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    
+
     return response
 
 # Placeholder functions for other report types - can be expanded later
@@ -6996,6 +7069,81 @@ def get_departments_api():
             'success': False,
             'error': str(e),
             'message': 'Failed to retrieve departments'
+        }), 500
+
+
+# Weekly Off Configuration API Routes
+
+@app.route('/api/weekly_off_config', methods=['GET'])
+def get_weekly_off_config_api():
+    """Get weekly off configuration for the current school"""
+    try:
+        # Check authorization
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+
+        from database import get_weekly_off_config
+
+        result = get_weekly_off_config()
+
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to get weekly off configuration'
+        }), 500
+
+
+@app.route('/api/weekly_off_config', methods=['POST'])
+def save_weekly_off_config_api():
+    """Save weekly off configuration for the current school"""
+    try:
+        # Check authorization
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+
+        # CSRF Protection
+        try:
+            csrf.protect()
+        except ValidationError as e:
+            return jsonify({
+                'success': False,
+                'message': 'CSRF token validation failed',
+                'error': str(e)
+            }), 400
+
+        from database import save_weekly_off_config
+
+        # Get weekly off days from form data
+        weekly_off_days = []
+
+        # Check for Sunday off
+        if request.form.get('sunday_off_enabled') == 'true':
+            weekly_off_days.append('sunday')
+
+        result = save_weekly_off_config(weekly_off_days)
+
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to save weekly off configuration'
         }), 500
 
 

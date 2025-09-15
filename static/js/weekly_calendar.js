@@ -44,6 +44,37 @@ class WeeklyAttendanceCalendar {
     formatDate(date) {
         return date.toISOString().split('T')[0];
     }
+
+    isWeeklyOffDay(dateStr) {
+        try {
+            const date = new Date(dateStr + 'T00:00:00');
+            const dayOfWeek = date.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+
+            // Get weekly off configuration from global variable or default
+            const weeklyOffDays = window.weeklyOffDays || ['sunday'];
+
+            // Day name mapping
+            const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const dayName = dayNames[dayOfWeek];
+
+            return weeklyOffDays.includes(dayName);
+        } catch (error) {
+            console.error('Error checking weekly off day:', error);
+            return false;
+        }
+    }
+
+    getWeeklyOffDayName(dateStr) {
+        try {
+            const date = new Date(dateStr + 'T00:00:00');
+            const dayOfWeek = date.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            return dayNames[dayOfWeek];
+        } catch (error) {
+            console.error('Error getting day name:', error);
+            return 'Weekly Off';
+        }
+    }
     
     render() {
         const weekStart = new Date(this.currentWeekStart);
@@ -198,17 +229,25 @@ class WeeklyAttendanceCalendar {
         this.weeklyData.forEach(dayData => {
             const holidays = holidaysByDate.get(dayData.date) || [];
             dayData.holidays = holidays;
-            
+
+            // Check if this day is a weekly off day
+            const isWeeklyOff = this.isWeeklyOffDay(dayData.date);
+            dayData.is_weekly_off = isWeeklyOff;
+
             // If there are holidays on this day, mark it as a holiday
             if (holidays.length > 0) {
                 dayData.is_holiday = true;
                 dayData.holiday_types = holidays.map(h => h.type);
-                
+
                 // Override present status if it's a holiday and staff wasn't present
                 if (dayData.present_status === 'Absent' && holidays.some(h => h.type !== 'department_specific' || dayData.present_status === 'Absent')) {
                     dayData.present_status = 'Holiday';
                     dayData.holiday_info = holidays.map(h => h.name).join(', ');
                 }
+            } else if (isWeeklyOff && dayData.present_status === 'Absent') {
+                // Mark as weekly off if no holiday but it's a weekly off day
+                dayData.present_status = 'Weekly Off';
+                dayData.weekly_off_info = this.getWeeklyOffDayName(dayData.date);
             }
         });
     }
@@ -256,10 +295,10 @@ class WeeklyAttendanceCalendar {
             html += this.renderHolidayInfo(dayData.holidays);
         }
 
-        // Present/Absent/On Duty/Holiday status
+        // Present/Absent/On Duty/Holiday/Weekly Off status
         let statusClass = 'text-danger'; // Default for absent
         let statusText = dayData.present_status;
-        
+
         if (dayData.present_status === 'Present') {
             statusClass = 'text-success';
         } else if (dayData.present_status === 'On Duty') {
@@ -267,14 +306,24 @@ class WeeklyAttendanceCalendar {
         } else if (dayData.present_status === 'Holiday') {
             statusClass = 'text-warning';
             statusText = 'Holiday';
+        } else if (dayData.present_status === 'Weekly Off') {
+            statusClass = 'text-secondary';
+            statusText = 'Weekly Off';
         }
-        
+
         html += `<div class="status-badge"><strong class="${statusClass}">${statusText}</strong></div>`;
 
         // Holiday-specific information
         if (dayData.present_status === 'Holiday' && dayData.holiday_info) {
             html += `<div class="holiday-info">`;
             html += `<div class="holiday-details"><small class="text-warning"><i class="bi bi-calendar-event"></i> ${dayData.holiday_info}</small></div>`;
+            html += `</div>`;
+        }
+
+        // Weekly off-specific information
+        if (dayData.present_status === 'Weekly Off' && dayData.weekly_off_info) {
+            html += `<div class="weekly-off-info">`;
+            html += `<div class="weekly-off-details"><small class="text-secondary"><i class="bi bi-calendar-x"></i> ${dayData.weekly_off_info}</small></div>`;
             html += `</div>`;
         }
 
@@ -375,15 +424,15 @@ class WeeklyAttendanceCalendar {
             
             switch (holiday.type) {
                 case 'institution_wide':
-                    badgeClass = 'badge bg-success';
+                    badgeClass = 'badge bg-success holiday-badge-institution';
                     iconClass = 'bi-building';
                     break;
                 case 'department_specific':
-                    badgeClass = 'badge bg-warning';
+                    badgeClass = 'badge bg-warning holiday-badge-department';
                     iconClass = 'bi-people';
                     break;
                 case 'common_leave':
-                    badgeClass = 'badge bg-info';
+                    badgeClass = 'badge bg-primary holiday-badge-common';
                     iconClass = 'bi-calendar-heart';
                     break;
             }
@@ -606,6 +655,60 @@ const weeklyCalendarStyles = `
         font-size: 12px;
     }
 }
+
+/* Enhanced Holiday Badge Styling with Color Coding */
+.holiday-badges .badge {
+    font-size: 10px;
+    margin-right: 4px;
+    margin-bottom: 2px;
+    display: inline-block;
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Institution-wide holiday badges - Green gradient */
+.holiday-badge-institution {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
+    border: 1px solid #28a745;
+    color: white !important;
+}
+
+/* Department-specific holiday badges - Orange gradient */
+.holiday-badge-department {
+    background: linear-gradient(135deg, #fd7e14 0%, #ffc107 100%) !important;
+    border: 1px solid #fd7e14;
+    color: #212529 !important;
+}
+
+/* Common leave holiday badges - Blue/Purple gradient */
+.holiday-badge-common {
+    background: linear-gradient(135deg, #6f42c1 0%, #17a2b8 100%) !important;
+    border: 1px solid #6f42c1;
+    color: white !important;
+}
+
+.holiday-info {
+    margin-bottom: 8px;
+}
+
+.holiday-details {
+    font-size: 11px;
+    margin-bottom: 2px;
+}
+
+/* Weekly off styling */
+.weekly-off-info {
+    margin-bottom: 8px;
+}
+
+.weekly-off-details {
+    font-size: 11px;
+    margin-bottom: 2px;
+    font-style: italic;
+}
+
 </style>
 `;
 

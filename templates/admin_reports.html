@@ -165,6 +165,15 @@
                                 </a>
                             </li>
                             <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('work_time_assignment') }}">
+                                    <div class="nav-icon">
+                                        <i class="bi bi-clock-history"></i>
+                                    </div>
+                                    <span class="nav-text">Work Time Assignment</span>
+                                    <div class="nav-indicator"></div>
+                                </a>
+                            </li>
+                            <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('salary_management') }}">
                                     <div class="nav-icon">
                                         <i class="bi bi-currency-dollar"></i>
@@ -183,28 +192,6 @@
                                 </a>
                             </li>
                         </ul>
-                    </div>
-                    
-                    <!-- Quick Actions Section -->
-                    <div class="nav-section">
-                        <div class="nav-section-title">
-                            <i class="bi bi-lightning"></i>
-                            <span>Quick Actions</span>
-                        </div>
-                        <div class="quick-actions">
-                            <button type="button" class="quick-action-btn" title="Export Data">
-                                <i class="bi bi-download"></i>
-                                <span>Export</span>
-                            </button>
-                            <button type="button" class="quick-action-btn" title="Settings">
-                                <i class="bi bi-gear"></i>
-                                <span>Settings</span>
-                            </button>
-                            <button type="button" class="quick-action-btn" title="Help">
-                                <i class="bi bi-question-circle"></i>
-                                <span>Help</span>
-                            </button>
-                        </div>
                     </div>
                 </div>
                 
@@ -392,7 +379,7 @@
                                     <h6>Staff Directory</h6>
                                     <p>Complete staff information and contact details</p>
                                     <button type="button" class="btn btn-info btn-sm" onclick="generateReport('staff_directory')">
-                                        <i class="bi bi-download"></i> Generate
+                                        <i class="bi bi-download"></i> Generate Staff Directory Report
                                     </button>
                                 </div>
                             </div>
@@ -570,20 +557,27 @@
             }
         });
         
-        // Report generation functions would go here
-        function generateAttendanceReport() {
-            console.log('Generating attendance report...');
-            // Implementation here
-        }
-        
-        function generateSalaryReport() {
-            console.log('Generating salary report...');
-            // Implementation here
-        }
-        
-        function generateStaffReport() {
-            console.log('Generating staff report...');
-            // Implementation here
+        // Generic report generator used by all cards
+        function generateReport(reportType) {
+            try {
+                const format = (document.getElementById('reportFormat')?.value || 'excel').toLowerCase();
+                const year = document.getElementById('reportYear')?.value;
+                const month = document.getElementById('reportMonth')?.value;
+                const department = document.getElementById('reportDepartment')?.value;
+
+                const params = new URLSearchParams();
+                params.append('report_type', reportType);
+                params.append('format', format);
+                if (year) params.append('year', year);
+                if (month) params.append('month', month);
+                if (department) params.append('department', department);
+
+                // Trigger file download via navigation
+                window.location.href = `/generate_admin_report?${params.toString()}`;
+            } catch (e) {
+                console.error('Failed to generate report:', e);
+                alert('Failed to generate report. Please try again.');
+            }
         }
         
         function viewReportHistory() {

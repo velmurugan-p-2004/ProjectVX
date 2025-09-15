@@ -275,6 +275,20 @@ def init_db(app):
         )
         ''')
 
+        # Create weekly off configuration table
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS weekly_off_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            day_of_week INTEGER NOT NULL CHECK(day_of_week BETWEEN 0 AND 6),  -- 0=Sunday, 1=Monday, ..., 6=Saturday
+            is_enabled BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (school_id) REFERENCES schools(id),
+            UNIQUE(school_id, day_of_week)
+        )
+        ''')
+
         # Create comprehensive notifications table
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS notifications (
@@ -1006,3 +1020,151 @@ def get_departments_list(school_id=None):
     except Exception as e:
         print(f"Error getting departments list: {e}")
         return []
+
+
+def save_weekly_off_config(weekly_off_days, school_id=None):
+    """
+    Save weekly off configuration for a school.
+
+    Args:
+        weekly_off_days (list): List of day names (e.g., ['sunday', 'saturday'])
+        school_id (int, optional): School ID, defaults to current session school_id
+
+    Returns:
+        dict: Result with success status and message
+    """
+    from flask import session, has_request_context
+
+    try:
+        if not school_id:
+            if has_request_context():
+                school_id = session.get('school_id')
+            else:
+                school_id = 1  # Default for testing
+
+        if not school_id:
+            return {'success': False, 'error': 'Invalid session'}
+
+        db = get_db()
+
+        # Day name to number mapping
+        day_mapping = {
+            'sunday': 0, 'monday': 1, 'tuesday': 2, 'wednesday': 3,
+            'thursday': 4, 'friday': 5, 'saturday': 6
+        }
+
+        # Clear existing configuration for this school
+        db.execute('DELETE FROM weekly_off_config WHERE school_id = ?', (school_id,))
+
+        # Insert new configuration
+        for day_name in weekly_off_days:
+            day_name_lower = day_name.lower()
+            if day_name_lower in day_mapping:
+                day_number = day_mapping[day_name_lower]
+                db.execute('''
+                    INSERT INTO weekly_off_config (school_id, day_of_week, is_enabled)
+                    VALUES (?, ?, 1)
+                ''', (school_id, day_number))
+
+        db.commit()
+
+        return {
+            'success': True,
+            'message': 'Weekly off configuration saved successfully'
+        }
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def get_weekly_off_config(school_id=None):
+    """
+    Get weekly off configuration for a school.
+
+    Args:
+        school_id (int, optional): School ID, defaults to current session school_id
+
+    Returns:
+        dict: Result with success status and weekly off days
+    """
+    from flask import session, has_request_context
+
+    try:
+        if not school_id:
+            if has_request_context():
+                school_id = session.get('school_id')
+            else:
+                school_id = 1  # Default for testing
+
+        if not school_id:
+            return {'success': False, 'error': 'Invalid session'}
+
+        db = get_db()
+
+        # Get weekly off configuration
+        config = db.execute('''
+            SELECT day_of_week FROM weekly_off_config
+            WHERE school_id = ? AND is_enabled = 1
+            ORDER BY day_of_week
+        ''', (school_id,)).fetchall()
+
+        # Number to day name mapping
+        day_names = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+        weekly_off_days = [day_names[row['day_of_week']] for row in config]
+
+        return {
+            'success': True,
+            'weekly_off_days': weekly_off_days
+        }
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+def is_weekly_off_day(date, school_id=None):
+    """
+    Check if a given date is a weekly off day.
+
+    Args:
+        date (datetime.date or str): Date to check
+        school_id (int, optional): School ID, defaults to current session school_id
+
+    Returns:
+        bool: True if the date is a weekly off day
+    """
+    from flask import session, has_request_context
+    import datetime
+
+    try:
+        if not school_id:
+            if has_request_context():
+                school_id = session.get('school_id')
+            else:
+                school_id = 1  # Default for testing
+
+        if not school_id:
+            return False
+
+        # Convert string date to datetime.date if needed
+        if isinstance(date, str):
+            date = datetime.datetime.strptime(date, '%Y-%m-%d').date()
+
+        # Get day of week - Python's weekday() returns 0=Monday, 6=Sunday
+        # We need to convert to JavaScript format: 0=Sunday, 1=Monday, ..., 6=Saturday
+        python_weekday = date.weekday()  # 0=Monday, 1=Tuesday, ..., 6=Sunday
+        our_weekday = (python_weekday + 1) % 7  # Convert: 0=Sunday, 1=Monday, ..., 6=Saturday
+
+        db = get_db()
+
+        # Check if this day is configured as weekly off
+        result = db.execute('''
+            SELECT COUNT(*) as count FROM weekly_off_config
+            WHERE school_id = ? AND day_of_week = ? AND is_enabled = 1
+        ''', (school_id, our_weekday)).fetchone()
+
+        return result['count'] > 0
+
+    except Exception as e:
+        print(f"Error checking weekly off day: {e}")
+        return False
