@@ -15,7 +15,7 @@
             padding: 0;
             margin: 0;
         }
-        
+
         .row {
             margin: 0;
             height: fit-content !important;
@@ -23,7 +23,7 @@
             display: flex;
             flex-wrap: nowrap;
         }
-        
+
         /* Sidebar positioning */
         .enhanced-sidebar {
             position: fixed !important;
@@ -36,7 +36,7 @@
             z-index: 1000;
             display: block !important; /* Override inline style */
         }
-        
+
         /* Main content positioning */
         .salary-main-content {
             margin-left: 250px !important; /* Match sidebar width exactly */
@@ -45,13 +45,13 @@
             padding: 2rem 1rem;
             overflow-x: hidden;
         }
-        
+
         /* Remove Bootstrap default spacing that causes issues */
         .col-md-2, .col-md-10 {
             padding-left: 0;
             padding-right: 0;
         }
-        
+
         /* Mobile responsive fixes */
         @media (max-width: 767.98px) {
             .enhanced-sidebar {
@@ -65,24 +65,24 @@
                 z-index: 1050;
                 display: none !important; /* Hidden by default on mobile */
             }
-            
+
             .enhanced-sidebar.show {
                 left: 0;
                 display: block !important;
             }
-            
+
             .salary-main-content {
                 margin-left: 0 !important;
                 width: 100% !important;
                 padding: 1rem 0.5rem;
                 padding-top: 4rem; /* Account for mobile toggle button */
             }
-            
+
             .sidebar-toggle {
                 display: block !important;
             }
         }
-        
+
         /* Ensure sidebar toggle is properly styled */
         .sidebar-toggle {
             position: fixed;
@@ -97,7 +97,7 @@
             font-size: 1.25rem;
             display: none;
         }
-        
+
         @media (min-width: 768px) {
             .sidebar-toggle {
                 display: none !important;
@@ -110,7 +110,7 @@
     <button type="button" class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar menu" aria-expanded="false" aria-controls="enhanced-sidebar">
         <i class="bi bi-list"></i>
     </button>
-    
+
     <div class="container-fluid">
         <div class="row">
             <!-- Enhanced Sidebar -->
@@ -126,7 +126,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="sidebar-content">
                     <!-- User Profile Section -->
                     <div class="user-profile">
@@ -138,7 +138,7 @@
                             <div class="user-role">Administrator</div>
                         </div>
                     </div>
-                    
+
                     <!-- Navigation Menu -->
                     <div class="nav-section">
                         <div class="nav-section-title">
@@ -194,7 +194,7 @@
                         </ul>
                     </div>
                 </div>
-                
+
                 <!-- Sidebar Footer -->
                 <div class="sidebar-footer">
                     <div class="footer-stats">
@@ -283,6 +283,13 @@
                                         <option value="12">December</option>
                                     </select>
                                 </div>
+                                <div class="filter-group">
+                                    <label for="reportDate" class="form-label">
+                                        <i class="bi bi-calendar-day"></i> Date
+                                    </label>
+                                    <input type="date" class="form-control" id="reportDate" />
+                                </div>
+
                                 <div class="filter-group">
                                     <label for="reportDepartment" class="form-label">
                                         <i class="bi bi-building"></i> Department
@@ -510,13 +517,13 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/salary_management.js') }}"></script>
-    
+
     <script>
         // Mobile sidebar toggle functionality
         document.addEventListener('DOMContentLoaded', function() {
             const sidebarToggle = document.getElementById('sidebarToggle');
             const sidebar = document.getElementById('enhanced-sidebar');
-            
+
             // Show sidebar on desktop by default
             function updateSidebarVisibility() {
                 if (window.innerWidth > 768) {
@@ -526,22 +533,22 @@
                     sidebar.style.display = 'block'; // Make sure it's not hidden by inline style
                 }
             }
-            
+
             // Initial setup
             updateSidebarVisibility();
-            
+
             if (sidebarToggle && sidebar) {
                 sidebarToggle.addEventListener('click', function(e) {
                     e.preventDefault();
                     console.log('Admin Reports - Toggle button clicked');
-                    
+
                     sidebar.classList.toggle('show');
-                    
+
                     // Update aria-expanded for accessibility
                     const expanded = sidebar.classList.contains('show');
                     sidebarToggle.setAttribute('aria-expanded', expanded);
                 });
-                
+
                 // Close sidebar when clicking outside on mobile
                 document.addEventListener('click', function(event) {
                     if (window.innerWidth <= 768) { // Only on mobile
@@ -551,12 +558,12 @@
                         }
                     }
                 });
-                
+
                 // Handle window resize
                 window.addEventListener('resize', updateSidebarVisibility);
             }
         });
-        
+
         // Generic report generator used by all cards
         function generateReport(reportType) {
             try {
@@ -564,6 +571,7 @@
                 const year = document.getElementById('reportYear')?.value;
                 const month = document.getElementById('reportMonth')?.value;
                 const department = document.getElementById('reportDepartment')?.value;
+                const date = document.getElementById('reportDate')?.value;
 
                 const params = new URLSearchParams();
                 params.append('report_type', reportType);
@@ -571,6 +579,7 @@
                 if (year) params.append('year', year);
                 if (month) params.append('month', month);
                 if (department) params.append('department', department);
+                if (date) params.append('date', date);
 
                 // Trigger file download via navigation
                 window.location.href = `/generate_admin_report?${params.toString()}`;
@@ -579,7 +588,7 @@
                 alert('Failed to generate report. Please try again.');
             }
         }
-        
+
         function viewReportHistory() {
             console.log('Viewing report history...');
             // Implementation here

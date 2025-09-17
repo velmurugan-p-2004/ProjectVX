@@ -24,15 +24,41 @@ class ShiftManager:
         """Load shift definitions from database"""
         db = get_db()
         
-        # First try to load from shift_definitions table
+        # Always prioritize institution timings for 'general' shift
+        shift_dict = {}
+
+        # First, ensure 'general' shift uses current institution timings
+        try:
+            from database import get_institution_timings
+            timings = get_institution_timings()
+
+            shift_dict['general'] = {
+                'start_time': timings['checkin_time'],
+                'end_time': timings['checkout_time'],
+                'grace_period_minutes': 0,  # Strict timing
+                'description': f"Institution Shift ({'Custom' if timings['is_custom'] else 'Default'})"
+            }
+
+            print(f"✅ General shift synchronized with institution timings: {timings['checkin_time']} - {timings['checkout_time']}")
+
+        except Exception as e:
+            print(f"Could not load institution timings: {e}")
+            # Fallback for general shift
+            shift_dict['general'] = {
+                'start_time': datetime.time(9, 0),
+                'end_time': datetime.time(17, 0),
+                'grace_period_minutes': 0,
+                'description': 'Default Hardcoded Shift (Strict timing)'
+            }
+
+        # Then try to load additional shifts from shift_definitions table
         try:
             shifts = db.execute('''
                 SELECT shift_type, start_time, end_time, grace_period_minutes, description
                 FROM shift_definitions
-                WHERE is_active = 1
+                WHERE is_active = 1 AND shift_type != 'general'
             ''').fetchall()
-            
-            shift_dict = {}
+
             for shift in shifts:
                 shift_dict[shift['shift_type']] = {
                     'start_time': datetime.datetime.strptime(shift['start_time'], '%H:%M:%S').time(),
@@ -40,50 +66,41 @@ class ShiftManager:
                     'grace_period_minutes': shift['grace_period_minutes'],
                     'description': shift['description']
                 }
-            
-            # If we have shifts, return them
-            if shift_dict:
-                return shift_dict
-                
+
+            if len(shifts) > 0:
+                print(f"✅ Loaded {len(shifts)} additional shifts from database")
+
         except Exception as e:
-            print(f"Could not load shift definitions: {e}")
-        
-        # Fallback: Load from institution settings to create default general shift
-        try:
-            from database import get_institution_timings
-            timings = get_institution_timings()
-            
-            shift_dict = {
-                'general': {
-                    'start_time': timings['checkin_time'],
-                    'end_time': timings['checkout_time'],
-                    'grace_period_minutes': 10,
-                    'description': 'Default Institution Shift'
-                }
-            }
-            
-            print(f"✅ Created default general shift from institution timings: {timings['checkin_time']} - {timings['checkout_time']}")
-            return shift_dict
-            
-        except Exception as e:
-            print(f"Could not load institution timings: {e}")
-            
-            # Ultimate fallback: hardcoded default
-            return {
-                'general': {
-                    'start_time': datetime.time(9, 0),
-                    'end_time': datetime.time(17, 0),
-                    'grace_period_minutes': 10,
-                    'description': 'Default Hardcoded Shift'
-                }
-            }
-        
+            print(f"Could not load additional shift definitions: {e}")
+
         return shift_dict
     
     def reload_shift_definitions(self):
         """Reload shift definitions - useful when institution timings change"""
+        print("🔄 Reloading shift definitions from institution timings...")
         self.shift_definitions = self._load_shift_definitions()
-        print("✅ Shift definitions reloaded")
+        print("✅ Shift definitions reloaded with latest institution timings")
+
+    def sync_with_institution_timings(self):
+        """Synchronize general shift with current institution timings"""
+        try:
+            from database import get_institution_timings
+            timings = get_institution_timings()
+
+            # Update the general shift in memory
+            self.shift_definitions['general'] = {
+                'start_time': timings['checkin_time'],
+                'end_time': timings['checkout_time'],
+                'grace_period_minutes': 0,  # Strict timing
+                'description': f"Institution Shift ({'Custom' if timings['is_custom'] else 'Default'})"
+            }
+
+            print(f"✅ General shift synchronized with institution timings: {timings['checkin_time']} - {timings['checkout_time']}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Failed to sync with institution timings: {e}")
+            return False
     
     def get_shift_info(self, shift_type: str) -> Optional[Dict]:
         """Get shift information for a given shift type"""
@@ -114,13 +131,8 @@ class ShiftManager:
         
         start_time = shift_info['start_time']
         end_time = shift_info['end_time']
-        grace_period = shift_info['grace_period_minutes']
-        
-        # Calculate grace period cutoff (9:20 AM + 10 minutes = 9:30 AM)
-        grace_cutoff = datetime.datetime.combine(datetime.date.today(), start_time)
-        grace_cutoff += datetime.timedelta(minutes=grace_period)
-        grace_cutoff_time = grace_cutoff.time()
-        
+        # Note: grace_period is ignored for strict timing rules
+
         result = {
             'status': 'present',
             'late_duration_minutes': 0,
@@ -130,16 +142,20 @@ class ShiftManager:
             'shift_end_time': end_time
         }
         
-        # Check for late arrival
-        if check_in_time > grace_cutoff_time:
+        # STRICT TIMING: Check for late arrival (any time after start_time is late)
+        if check_in_time > start_time:
             result['status'] = 'late'
-            # Calculate late duration in minutes
+            # Calculate late duration from shift start time (not grace cutoff)
             check_in_dt = datetime.datetime.combine(datetime.date.today(), check_in_time)
-            grace_cutoff_dt = datetime.datetime.combine(datetime.date.today(), grace_cutoff_time)
-            late_duration = check_in_dt - grace_cutoff_dt
+            start_dt = datetime.datetime.combine(datetime.date.today(), start_time)
+            late_duration = check_in_dt - start_dt
             result['late_duration_minutes'] = int(late_duration.total_seconds() / 60)
             result['requires_regularization'] = True
-        
+
+            print(f"🔍 SHIFT DEBUG: {check_in_time} > {start_time} = LATE ({result['late_duration_minutes']} min)")
+        else:
+            print(f"🔍 SHIFT DEBUG: {check_in_time} <= {start_time} = PRESENT")
+
         # Check for early departure (if check_out_time is provided)
         if check_out_time and check_out_time < end_time:
             if result['status'] == 'late':
@@ -147,7 +163,7 @@ class ShiftManager:
                 pass
             else:
                 result['status'] = 'left_soon'
-            
+
             # Calculate early departure duration in minutes
             check_out_dt = datetime.datetime.combine(datetime.date.today(), check_out_time)
             end_time_dt = datetime.datetime.combine(datetime.date.today(), end_time)

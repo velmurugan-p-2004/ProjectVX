@@ -498,7 +498,7 @@ def get_institution_timings():
         }
 
 
-def calculate_attendance_status(check_time, verification_type='check-in', grace_minutes=10, date_obj=None, department=None):
+def calculate_attendance_status(check_time, verification_type='check-in', grace_minutes=None, date_obj=None, department=None):
     """
     Calculate attendance status based on institution timings, considering holidays.
 
@@ -524,12 +524,8 @@ def calculate_attendance_status(check_time, verification_type='check-in', grace_
     timings = get_institution_timings()
 
     if verification_type == 'check-in':
-        # Calculate grace period cutoff
-        checkin_dt = datetime.datetime.combine(datetime.date.today(), timings['checkin_time'])
-        grace_cutoff = checkin_dt + datetime.timedelta(minutes=grace_minutes)
-        grace_cutoff_time = grace_cutoff.time()
-
-        return 'late' if check_time > grace_cutoff_time else 'present'
+        # Strict timing rule: any time after designated check-in is 'late'
+        return 'late' if check_time > timings['checkin_time'] else 'present'
 
     elif verification_type == 'check-out':
         # For check-out, consider early departure

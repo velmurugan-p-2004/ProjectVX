@@ -219,16 +219,16 @@ def close_db(error):
 @app.route('/')
 def index():
     db = get_db()
-    
+
     # First check if the column exists
     columns = db.execute("PRAGMA table_info(schools)").fetchall()
     has_is_hidden = any(col['name'] == 'is_hidden' for col in columns)
-    
+
     if has_is_hidden:
         schools = db.execute('SELECT id, name FROM schools WHERE is_hidden = 0 OR is_hidden IS NULL ORDER BY name').fetchall()
     else:
         schools = db.execute('SELECT id, name FROM schools ORDER BY name').fetchall()
-    
+
     return render_template('index.html', schools=schools)
 
 # Routes
@@ -236,22 +236,22 @@ def index():
 def handle_company_login():
     if request.method == 'GET':
         return render_template('company_login.html')
-    
+
     # Handle POST request
     username = request.form.get('username')
     password = request.form.get('password')
-    
+
     db = get_db()
     company_admin = db.execute('''
         SELECT * FROM company_admins WHERE username = ?
     ''', (username,)).fetchone()
-    
+
     if not company_admin:
         return jsonify({'error': 'Company admin not found'}), 401
-    
+
     if not check_password_hash(company_admin['password'], password):
         return jsonify({'error': 'Invalid password'}), 401
-    
+
     session['user_id'] = company_admin['id']
     session['user_type'] = 'company_admin'
     session['full_name'] = company_admin['full_name']
@@ -263,20 +263,20 @@ def handle_school_login():
     school_id = request.form.get('school_id')
     username = request.form.get('username')
     password = request.form.get('password')
-    
+
     print(f"Login attempt - School ID: {school_id}, Username: {username}")  # Debug log
-    
+
     if not school_id:
         return jsonify({'error': 'Please select a school'}), 400
 
     db = get_db()
-    
+
     # Check school admin
     admin = db.execute('''
-        SELECT * FROM admins 
+        SELECT * FROM admins
         WHERE school_id = ? AND username = ?
     ''', (school_id, username)).fetchone()
-    
+
     if admin and check_password_hash(admin['password'], password):
         print("Admin login successful")  # Debug log
         session['user_id'] = admin['id']
@@ -284,7 +284,7 @@ def handle_school_login():
         session['user_type'] = 'admin'
         session['full_name'] = admin['full_name']
         return jsonify({'redirect': url_for('admin_dashboard')})
-    
+
     # Check staff - using username as staff_id
     staff = db.execute('''
         SELECT * FROM staff
@@ -308,7 +308,7 @@ def handle_school_login():
             return jsonify({'error': 'Password not set for this staff member. Please contact admin.'}), 401
         else:
             print("Password verification failed")  # Debug log
-    
+
     print("Login failed - invalid credentials")  # Debug log
     return jsonify({'error': 'Invalid credentials'}), 401
 
@@ -318,29 +318,29 @@ def handle_school_login():
 def school_details(school_id):
     if 'user_id' not in session or session['user_type'] != 'company_admin':
         return redirect(url_for('index'))
-    
+
     db = get_db()
-    
+
     # Get school info
     school = db.execute('SELECT * FROM schools WHERE id = ?', (school_id,)).fetchone()
     if not school:
         return redirect(url_for('company_dashboard'))
-    
+
     # Get admins
     admins = db.execute('''
-        SELECT id, username, full_name, email 
-        FROM admins 
+        SELECT id, username, full_name, email
+        FROM admins
         WHERE school_id = ?
     ''', (school_id,)).fetchall()
-    
+
     # Get staff
     staff = db.execute('''
-        SELECT id, staff_id, full_name, department, position, email, phone 
-        FROM staff 
+        SELECT id, staff_id, full_name, department, position, email, phone
+        FROM staff
         WHERE school_id = ?
         ORDER BY full_name
     ''', (school_id,)).fetchall()
-    
+
     # Get attendance summary
     today = datetime.date.today()
     attendance_summary = db.execute('''
@@ -358,7 +358,7 @@ def school_details(school_id):
             WHERE s.school_id = ?
         ) a
     ''', (today, school_id)).fetchone()
-    
+
     # Get pending leaves
     pending_leaves = db.execute('''
         SELECT l.id, s.full_name, l.leave_type, l.start_date, l.end_date, l.reason
@@ -367,7 +367,7 @@ def school_details(school_id):
         WHERE l.school_id = ? AND l.status = 'pending'
         ORDER BY l.applied_at
     ''', (school_id,)).fetchall()
-    
+
     return render_template('school_details.html',
                          school=school,
                          admins=admins,
@@ -380,30 +380,30 @@ def school_details(school_id):
 def get_attendance_summary():
     if 'user_id' not in session:
         return jsonify({'success': False, 'error': 'Unauthorized'})
-    
+
     db = get_db()
-    
+
     if session['user_type'] == 'staff':
         staff_id = session['user_id']
         today = datetime.date.today()
-        
+
         # Get current month attendance
         first_day = today.replace(day=1)
         last_day = (today.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)
-        
+
         attendance = db.execute('''
-            SELECT status, COUNT(*) as count 
-            FROM attendance 
+            SELECT status, COUNT(*) as count
+            FROM attendance
             WHERE staff_id = ? AND date BETWEEN ? AND ?
             GROUP BY status
         ''', (staff_id, first_day, last_day)).fetchall()
-        
+
         # Initialize counts
         present = 0
         absent = 0
         late = 0
         leave = 0
-        
+
         for record in attendance:
             if record['status'] == 'present':
                 present = record['count']
@@ -413,7 +413,7 @@ def get_attendance_summary():
                 late = record['count']
             elif record['status'] == 'leave':
                 leave = record['count']
-        
+
         return jsonify({
             'success': True,
             'present': present,
@@ -421,29 +421,29 @@ def get_attendance_summary():
             'late': late,
             'leave': leave
         })
-    
+
     return jsonify({'success': False, 'error': 'Unauthorized'})
 
 @app.route('/get_staff_details')
 def get_staff_details():
     if 'user_id' not in session or session['user_type'] != 'admin':
         return jsonify({'success': False, 'error': 'Unauthorized'})
-    
+
     staff_id = request.args.get('id')
     db = get_db()
-    
+
     staff = db.execute('SELECT * FROM staff WHERE id = ?', (staff_id,)).fetchone()
     if not staff:
         return jsonify({'success': False, 'error': 'Staff not found'})
-    
+
     # Get attendance records
     attendance = db.execute('''
-        SELECT date, time_in, time_out, status 
-        FROM attendance 
+        SELECT date, time_in, time_out, status
+        FROM attendance
         WHERE staff_id = ?
         ORDER BY date DESC
     ''', (staff_id,)).fetchall()
-    
+
     return jsonify({
         'success': True,
         'staff': dict(staff),
@@ -478,15 +478,15 @@ def export_staff_data():
 def add_admin():
     if 'user_id' not in session or session['user_type'] != 'company_admin':
         return jsonify({'success': False, 'error': 'Unauthorized'})
-    
+
     school_id = request.form.get('school_id')
     username = request.form.get('username')
     password = generate_password_hash(request.form.get('password'))
     full_name = request.form.get('full_name')
     email = request.form.get('email')
-    
+
     db = get_db()
-    
+
     try:
         db.execute('''
             INSERT INTO admins (school_id, username, password, full_name, email)
@@ -501,14 +501,14 @@ def add_admin():
 def delete_admin():
     if 'user_id' not in session or session['user_type'] != 'company_admin':
         return jsonify({'success': False, 'error': 'Unauthorized'})
-    
+
     admin_id = request.form.get('admin_id')
-    
+
     db = get_db()
-    
+
     db.execute('DELETE FROM admins WHERE id = ?', (admin_id,))
     db.commit()
-    
+
     return jsonify({'success': True})
 
 
@@ -1207,7 +1207,7 @@ def generate_admin_report():
         school_id = session['school_id']
         report_type = request.args.get('report_type')
         format_type = request.args.get('format', 'excel').lower()
-        
+
         if not report_type:
             return jsonify({'success': False, 'error': 'Report type is required'})
 
@@ -1215,10 +1215,10 @@ def generate_admin_report():
         year = request.args.get('year', datetime.datetime.now().year, type=int)
         month = request.args.get('month', type=int)
         department = request.args.get('department', '')
-        
+
         # Create Excel generator for all reports
         excel_generator = ExcelReportGenerator()
-        
+
         # Route to appropriate report generation based on report_type
         if report_type == 'monthly_salary':
             return generate_monthly_salary_report(school_id, year, month, department, format_type)
@@ -1229,12 +1229,12 @@ def generate_admin_report():
         elif report_type == 'staff_directory':
             return generate_staff_directory_report(school_id, format_type)
         elif report_type == 'department_report':
-            return generate_department_analysis_report(school_id, year, format_type)
+            return generate_department_analysis_report(school_id, year, month, format_type)
         elif report_type == 'performance_report':
-            return generate_performance_report(school_id, year, format_type)
+            return generate_performance_report(school_id, year, month, department, format_type)
         elif report_type == 'daily_attendance':
             date = request.args.get('date', datetime.datetime.now().strftime('%Y-%m-%d'))
-            return excel_generator.create_staff_attendance_report(school_id, date, date)
+            return generate_daily_attendance_report(school_id, date, department, format_type)
         elif report_type == 'monthly_attendance':
             if month:
                 return excel_generator.create_monthly_report(school_id, year, month)
@@ -1245,7 +1245,7 @@ def generate_admin_report():
             return generate_overtime_report(school_id, year, month, format_type)
         else:
             return jsonify({'success': False, 'error': f'Unknown report type: {report_type}'})
-            
+
     except Exception as e:
         print(f"Report generation error: {str(e)}")
         return jsonify({'success': False, 'error': f'Report generation failed: {str(e)}'})
@@ -1256,21 +1256,21 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
     from io import BytesIO
-    
+
     db = get_db()
-    
+
     # Build query based on filters
     where_conditions = ['s.school_id = ?']
     params = [school_id]
-    
+
     if department:
         where_conditions.append('s.department = ?')
         params.append(department)
-    
+
     # Get staff with salary information
     staff_query = f'''
         SELECT s.id, s.staff_id, s.full_name, s.department, s.position,
-               s.basic_salary, 
+               s.basic_salary,
                (COALESCE(s.hra, 0) + COALESCE(s.transport_allowance, 0) + COALESCE(s.other_allowances, 0)) as allowances,
                (COALESCE(s.pf_deduction, 0) + COALESCE(s.esi_deduction, 0) + COALESCE(s.professional_tax, 0) + COALESCE(s.other_deductions, 0)) as deductions,
                COALESCE(s.basic_salary, 0) + (COALESCE(s.hra, 0) + COALESCE(s.transport_allowance, 0) + COALESCE(s.other_allowances, 0)) - (COALESCE(s.pf_deduction, 0) + COALESCE(s.esi_deduction, 0) + COALESCE(s.professional_tax, 0) + COALESCE(s.other_deductions, 0)) as net_salary,
@@ -1279,14 +1279,14 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
         WHERE {' AND '.join(where_conditions)}
         ORDER BY s.department, s.full_name
     '''
-    
+
     staff_data = db.execute(staff_query, params).fetchall()
-    
+
     # Create workbook
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Monthly Salary Report"
-    
+
     # Define styles
     header_font = Font(bold=True, size=12, color="FFFFFF")
     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
@@ -1295,7 +1295,7 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
         left=Side(style='thin'), right=Side(style='thin'),
         top=Side(style='thin'), bottom=Side(style='thin')
     )
-    
+
     # Add title
     month_name = calendar.month_name[month] if month else 'All Months'
     ws.merge_cells('A1:H1')
@@ -1303,16 +1303,16 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
     title_cell.value = f"Monthly Salary Report - {month_name} {year}"
     title_cell.font = title_font
     title_cell.alignment = Alignment(horizontal='center')
-    
+
     # Add summary
     ws['A3'] = f"Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     if department:
         ws['A4'] = f"Department: {department}"
-    
+
     # Headers
     headers = ['S.No', 'Staff ID', 'Name', 'Department', 'Position', 'Basic Salary', 'Allowances', 'Deductions', 'Net Salary']
     header_row = 6
-    
+
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=header_row, column=col)
         cell.value = header
@@ -1320,10 +1320,10 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
         cell.fill = header_fill
         cell.border = border
         cell.alignment = Alignment(horizontal='center')
-    
+
     # Add data
     total_basic = total_allowances = total_deductions = total_net = 0
-    
+
     for row_idx, staff in enumerate(staff_data, header_row + 1):
         ws.cell(row=row_idx, column=1, value=row_idx - header_row)
         ws.cell(row=row_idx, column=2, value=staff['staff_id'] or 'N/A')
@@ -1334,17 +1334,17 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
         ws.cell(row=row_idx, column=7, value=staff['allowances'] or 0)
         ws.cell(row=row_idx, column=8, value=staff['deductions'] or 0)
         ws.cell(row=row_idx, column=9, value=staff['net_salary'] or 0)
-        
+
         # Add to totals
         total_basic += staff['basic_salary'] or 0
         total_allowances += staff['allowances'] or 0
         total_deductions += staff['deductions'] or 0
         total_net += staff['net_salary'] or 0
-        
+
         # Apply border to all cells
         for col in range(1, 10):
             ws.cell(row=row_idx, column=col).border = border
-    
+
     # Add totals row
     total_row = len(staff_data) + header_row + 1
     ws.cell(row=total_row, column=5, value="TOTAL").font = Font(bold=True)
@@ -1352,23 +1352,23 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
     ws.cell(row=total_row, column=7, value=total_allowances).font = Font(bold=True)
     ws.cell(row=total_row, column=8, value=total_deductions).font = Font(bold=True)
     ws.cell(row=total_row, column=9, value=total_net).font = Font(bold=True)
-    
+
     # Auto-adjust column widths
     for col in range(1, 10):
         ws.column_dimensions[get_column_letter(col)].width = 15
-    
+
     # Save to BytesIO
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    
+
     # Create response
     response = make_response(output.getvalue())
     filename = f'monthly_salary_report_{year}_{month or "all"}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
     response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    
+
     return response
 
 def generate_staff_directory_report(school_id, format_type):
@@ -1377,9 +1377,9 @@ def generate_staff_directory_report(school_id, format_type):
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
     from io import BytesIO
-    
+
     db = get_db()
-    
+
     # Get comprehensive staff information
     staff_data = db.execute('''
         SELECT s.staff_id, s.full_name, s.first_name, s.last_name,
@@ -1390,7 +1390,7 @@ def generate_staff_directory_report(school_id, format_type):
         WHERE s.school_id = ?
         ORDER BY s.department, s.full_name
     ''', (school_id,)).fetchall()
-    
+
     # Common headers and rows for all formats
     headers = [
         'S.No', 'Staff ID', 'Full Name', 'Department', 'Position',
@@ -1546,14 +1546,879 @@ def generate_department_salary_report(school_id, year, department, format_type):
     """Generate department salary report - placeholder"""
     return generate_monthly_salary_report(school_id, year, None, department, format_type)
 
-def generate_department_analysis_report(school_id, year, format_type):
-    """Generate department analysis report - placeholder"""
-    # Use existing staff directory as base
-    return generate_staff_directory_report(school_id, format_type)
+def generate_department_analysis_report(school_id, year=None, month=None, format_type='excel'):
+    """Generate comprehensive Department Report with multi-format export.
+    Includes: total staff per department, gender + position breakdown,
+    average tenure, salary min/avg/max, and attendance stats for selected month.
+    """
+    import datetime, calendar, io
 
-def generate_performance_report(school_id, year, format_type):
-    """Generate performance report - placeholder"""
-    return generate_staff_directory_report(school_id, format_type)
+    db = get_db()
+
+    # Resolve period (attendance window + tenure as of end of month)
+    today = datetime.date.today()
+    if not isinstance(year, int) or year <= 0:
+        year = today.year
+    if not isinstance(month, int) or not (1 <= month <= 12):
+        month = today.month
+    start_date = datetime.date(year, month, 1)
+    end_date = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    start_str, end_str = start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
+
+    # Departments
+    departments = [r['dept'] for r in db.execute(
+        """
+        SELECT DISTINCT department AS dept
+        FROM staff
+        WHERE school_id = ? AND COALESCE(department, '') <> ''
+        ORDER BY department
+        """, (school_id,)
+    ).fetchall()]
+
+    # Totals
+    total_map = {r['department']: r['total'] for r in db.execute(
+        """
+        SELECT department, COUNT(*) AS total
+        FROM staff
+        WHERE school_id = ? AND COALESCE(department, '') <> ''
+        GROUP BY department
+        """, (school_id,)
+    ).fetchall()}
+
+    # Gender breakdown
+    gender_map = {}
+    for g in db.execute(
+        """
+        SELECT department, COALESCE(gender, 'Other') AS gender, COUNT(*) AS cnt
+        FROM staff
+        WHERE school_id = ? AND COALESCE(department, '') <> ''
+        GROUP BY department, COALESCE(gender, 'Other')
+        """, (school_id,)
+    ).fetchall():
+        dept = g['department']
+        gender_map.setdefault(dept, {'Male': 0, 'Female': 0, 'Other': 0})
+        key = g['gender'] if g['gender'] in ('Male', 'Female', 'Other') else 'Other'
+        gender_map[dept][key] += g['cnt']
+
+    # Position breakdown rows (for sheet)
+    position_rows = [
+        {'department': p['department'], 'position': p['position'] or 'Unspecified', 'count': p['cnt']}
+        for p in db.execute(
+            """
+            SELECT department, COALESCE(position, 'Unspecified') AS position, COUNT(*) AS cnt
+            FROM staff
+            WHERE school_id = ? AND COALESCE(department, '') <> ''
+            GROUP BY department, COALESCE(position, 'Unspecified')
+            ORDER BY department, position
+            """, (school_id,)
+        ).fetchall()
+    ]
+
+    # Salary stats (convert sqlite3.Row -> plain dict)
+    salary_rows = db.execute(
+        """
+        SELECT department,
+               MIN(COALESCE(basic_salary, 0)) AS min_salary,
+               AVG(COALESCE(basic_salary, 0)) AS avg_salary,
+               MAX(COALESCE(basic_salary, 0)) AS max_salary
+        FROM staff
+        WHERE school_id = ? AND COALESCE(department, '') <> ''
+        GROUP BY department
+        """, (school_id,)
+    ).fetchall()
+    salary_map = {}
+    for s in salary_rows:
+        dept = s['department']
+        salary_map[dept] = {
+            'min_salary': float(s['min_salary'] or 0),
+            'avg_salary': float(s['avg_salary'] or 0),
+            'max_salary': float(s['max_salary'] or 0),
+        }
+
+    # Tenure as of end_date
+    from collections import defaultdict
+    tenure_sum_days, tenure_count = defaultdict(int), defaultdict(int)
+    for r in db.execute(
+        """
+        SELECT department, date_of_joining
+        FROM staff
+        WHERE school_id = ? AND COALESCE(department, '') <> ''
+        """, (school_id,)
+    ).fetchall():
+        doj = r['date_of_joining']
+        if doj:
+            try:
+                doj_dt = datetime.datetime.strptime(doj, '%Y-%m-%d').date()
+                days = (end_date - doj_dt).days
+                if days >= 0:
+                    tenure_sum_days[r['department']] += days
+                    tenure_count[r['department']] += 1
+            except Exception:
+                pass
+    avg_tenure_years = {d: (tenure_sum_days[d]/tenure_count[d]/365.0) if tenure_count[d] else 0.0 for d in departments}
+
+    # Attendance for selected month
+    # Build attendance_map as plain dicts to avoid sqlite3.Row .get errors
+    attendance_rows = db.execute(
+        """
+        SELECT s.department AS department,
+               SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) AS present_count,
+               SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absent_count,
+               SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) AS late_count,
+               SUM(CASE WHEN a.status = 'leave' THEN 1 ELSE 0 END) AS leave_count
+        FROM staff s
+        LEFT JOIN attendance a ON a.staff_id = s.id AND a.date BETWEEN ? AND ?
+        WHERE s.school_id = ? AND COALESCE(s.department, '') <> ''
+        GROUP BY s.department
+        ORDER BY s.department
+        """, (start_str, end_str, school_id)
+    ).fetchall()
+    attendance_map = {}
+    for a in attendance_rows:
+        attendance_map[a['department']] = {
+            'present_count': int(a['present_count'] or 0),
+            'absent_count': int(a['absent_count'] or 0),
+            'late_count': int(a['late_count'] or 0),
+            'leave_count': int(a['leave_count'] or 0),
+        }
+
+    # Summary rows
+    summary = []
+    for dept in departments:
+        g = gender_map.get(dept, {'Male': 0, 'Female': 0, 'Other': 0})
+        sstat = salary_map.get(dept, {'min_salary': 0, 'avg_salary': 0, 'max_salary': 0})
+        att = attendance_map.get(dept, {'present_count': 0, 'absent_count': 0, 'late_count': 0, 'leave_count': 0})
+        present = int(att.get('present_count', 0) or 0)
+        absent = int(att.get('absent_count', 0) or 0)
+        late = int(att.get('late_count', 0) or 0)
+        leave = int(att.get('leave_count', 0) or 0)
+        denom = present + absent + late + leave
+        present_rate = (present/denom*100.0) if denom else 0.0
+        summary.append({
+            'department': dept,
+            'total_staff': int(total_map.get(dept, 0)),
+            'male': int(g.get('Male', 0) or 0),
+            'female': int(g.get('Female', 0) or 0),
+            'other': int(g.get('Other', 0) or 0),
+            'avg_tenure_years': round(avg_tenure_years.get(dept, 0.0), 2),
+            'min_salary': float(sstat.get('min_salary', 0) or 0),
+            'avg_salary': float(sstat.get('avg_salary', 0) or 0),
+            'max_salary': float(sstat.get('max_salary', 0) or 0),
+            'present': present, 'absent': absent, 'late': late, 'leave': leave,
+            'present_rate': round(present_rate, 2)
+        })
+
+    # CSV
+    if format_type == 'csv':
+        import csv
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([f"Department Report - {calendar.month_name[month]} {year}"])
+        writer.writerow([])
+        headers = ['Department','Total Staff','Male','Female','Other','Avg Tenure (yrs)',
+                   'Min Salary','Avg Salary','Max Salary','Present','Absent','Late','Leave','Present Rate (%)']
+        writer.writerow(headers)
+        for row in summary:
+            writer.writerow([
+                row['department'], row['total_staff'], row['male'], row['female'], row['other'], row['avg_tenure_years'],
+                f"{row['min_salary']:.2f}", f"{row['avg_salary']:.2f}", f"{row['max_salary']:.2f}",
+                row['present'], row['absent'], row['late'], row['leave'], row['present_rate']
+            ])
+        resp = make_response(output.getvalue())
+        fname = f"department_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+        resp.headers['Content-Type'] = 'text/csv'
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return resp
+
+    # PDF
+    if format_type == 'pdf':
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.lib import colors
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=18)
+            styles = getSampleStyleSheet()
+            elements = []
+            elements.append(Paragraph(f"Department Report - {calendar.month_name[month]} {year}", styles['Title']))
+            elements.append(Spacer(1, 12))
+            headers = ['Department','Total','Male','Female','Other','AvgTenure','MinSal','AvgSal','MaxSal','Present','Absent','Late','Leave','%Present']
+            data = [headers]
+            for r in summary:
+                data.append([
+                    r['department'], r['total_staff'], r['male'], r['female'], r['other'],
+                    f"{r['avg_tenure_years']:.2f}", f"{r['min_salary']:.0f}", f"{r['avg_salary']:.0f}", f"{r['max_salary']:.0f}",
+                    r['present'], r['absent'], r['late'], r['leave'], f"{r['present_rate']:.1f}%"
+                ])
+            table = Table(data, repeatRows=1)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#366092')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+            ]))
+            elements.append(table)
+            doc.build(elements)
+            pdf = buffer.getvalue(); buffer.close()
+            resp = make_response(pdf)
+            fname = f"department_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+            resp.headers['Content-Type'] = 'application/pdf'
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return resp
+        except ImportError:
+            return jsonify({'success': False, 'error': 'PDF generation requires reportlab. Install with: pip install reportlab'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'PDF generation failed: {str(e)}'})
+
+    # Default: Excel with Summary, Positions, Staff Details
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+
+    wb = openpyxl.Workbook()
+    ws = wb.active; ws.title = 'Summary'
+
+    header_font = Font(bold=True, size=11, color='FFFFFF')
+    header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+    border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+    headers = ['Department','Total Staff','Male','Female','Other','Avg Tenure (yrs)',
+               'Min Salary','Avg Salary','Max Salary','Present','Absent','Late','Leave','Present Rate (%)']
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+
+    r = 2
+    for row in summary:
+        vals = [row['department'], row['total_staff'], row['male'], row['female'], row['other'], row['avg_tenure_years'],
+                row['min_salary'], row['avg_salary'], row['max_salary'], row['present'], row['absent'], row['late'], row['leave'], row['present_rate']]
+        for cidx, val in enumerate(vals, 1):
+            cell = ws.cell(row=r, column=cidx, value=val); cell.border = border
+        r += 1
+    for col in range(1, len(headers)+1):
+        ws.column_dimensions[get_column_letter(col)].width = 18
+
+    # Positions sheet
+    ws2 = wb.create_sheet(title='Positions')
+    pos_headers = ['Department','Position','Count']
+    for col, h in enumerate(pos_headers, 1):
+        c = ws2.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+    r = 2
+    for pr in position_rows:
+        ws2.cell(row=r, column=1, value=pr['department'])
+        ws2.cell(row=r, column=2, value=pr['position'])
+        ws2.cell(row=r, column=3, value=pr['count'])
+        for c in range(1, 4):
+            ws2.cell(row=r, column=c).border = border
+        r += 1
+    for col in range(1, 4):
+        ws2.column_dimensions[get_column_letter(col)].width = 24
+
+    # Staff Details sheet
+    staff_details = db.execute(
+        """
+        SELECT department, staff_id, full_name, COALESCE(position,'Unspecified') AS position,
+               COALESCE(gender,'Other') AS gender, date_of_joining, COALESCE(basic_salary,0) AS basic_salary
+        FROM staff
+        WHERE school_id = ? AND COALESCE(department, '') <> ''
+        ORDER BY department, full_name
+        """, (school_id,)
+    ).fetchall()
+    ws3 = wb.create_sheet(title='Staff Details')
+    sd_headers = ['Department','Staff ID','Full Name','Position','Gender','Date of Joining','Basic Salary']
+    for col, h in enumerate(sd_headers, 1):
+        c = ws3.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+    r = 2
+    for s in staff_details:
+        vals = [s['department'], s['staff_id'], s['full_name'], s['position'], s['gender'], s['date_of_joining'], float(s['basic_salary'] or 0)]
+        for cidx, val in enumerate(vals, 1):
+            cell = ws3.cell(row=r, column=cidx, value=val); cell.border = border
+        r += 1
+    widths = [18, 14, 26, 18, 12, 16, 14]
+    for col, w in enumerate(widths, 1):
+        ws3.column_dimensions[get_column_letter(col)].width = w
+
+    output = BytesIO(); wb.save(output); output.seek(0)
+    resp = make_response(output.getvalue())
+    fname = f"department_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+    resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
+
+def generate_performance_report(school_id, year=None, month=None, department=None, format_type='excel'):
+    """Generate comprehensive Performance Report with multi-format export.
+    Includes: per-staff performance metrics (attendance-based KPIs, punctuality, work hours,
+    overtime, training), department summaries, and trends for selected period.
+    """
+    import datetime, calendar, io
+
+    db = get_db()
+
+    # Resolve period (use selected year/month, default to current month)
+    today = datetime.date.today()
+    if not isinstance(year, int) or year <= 0:
+        year = today.year
+    if not isinstance(month, int) or not (1 <= month <= 12):
+        month = today.month
+    start_date = datetime.date(year, month, 1)
+    end_date = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    start_str, end_str = start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
+
+    # Detect optional columns in attendance table for robust queries
+    try:
+        cols = {row['name'] for row in db.execute("PRAGMA table_info(attendance)").fetchall()}
+    except Exception:
+        cols = set()
+    has_work_hours = 'work_hours' in cols
+    has_overtime_hours = 'overtime_hours' in cols
+    avg_work_hours_expr = "AVG(CASE WHEN a.work_hours IS NOT NULL THEN a.work_hours END)" if has_work_hours else "0"
+    overtime_expr = "SUM(COALESCE(a.overtime_hours, 0))" if has_overtime_hours else "0"
+
+    # Build optional department filter
+    dept_clause = ''
+    params_att = [start_str, end_str, school_id]
+    params_train = [start_str, end_str, school_id]
+    if department and str(department).strip():
+        dept_clause = ' AND COALESCE(s.department, "") = ? '
+        params_att.append(department)
+        params_train.append(department)
+
+    # Per-staff attendance-based metrics
+    att_rows = db.execute(
+        f"""
+        SELECT
+            s.id AS staff_pk,
+            s.staff_id, s.full_name, s.department, COALESCE(s.position,'') AS position,
+            SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) AS present_days,
+            SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) AS late_days,
+            SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
+            SUM(CASE WHEN a.status = 'leave' THEN 1 ELSE 0 END) AS leave_days,
+            SUM(CASE WHEN a.status = 'on_duty' THEN 1 ELSE 0 END) AS on_duty_days,
+            COUNT(a.id) AS total_days,
+            {avg_work_hours_expr} AS avg_work_hours,
+            {overtime_expr} AS total_overtime
+        FROM staff s
+        LEFT JOIN attendance a ON a.staff_id = s.id AND a.date BETWEEN ? AND ?
+        WHERE s.school_id = ? {dept_clause}
+        GROUP BY s.id
+        ORDER BY s.department, s.full_name
+        """,
+        tuple(params_att)
+    ).fetchall()
+
+    # Training completion counts per staff (based on on_duty_applications with duty_type='Training')
+    train_rows = db.execute(
+        f"""
+        SELECT s.id AS staff_pk, COUNT(*) AS training_sessions
+        FROM on_duty_applications od
+        JOIN staff s ON s.id = od.staff_id
+        WHERE od.duty_type = 'Training' AND od.start_date BETWEEN ? AND ? AND s.school_id = ? {dept_clause}
+        GROUP BY s.id
+        """,
+        tuple(params_train)
+    ).fetchall()
+    train_map = {tr['staff_pk']: int(tr['training_sessions'] or 0) for tr in train_rows}
+
+    # Build per-staff performance rows
+    staff_rows = []
+    dept_summary = {}
+    for r in att_rows:
+        present = int(r['present_days'] or 0)
+        late = int(r['late_days'] or 0)
+        absent = int(r['absent_days'] or 0)
+        leave = int(r['leave_days'] or 0)
+        on_duty = int(r['on_duty_days'] or 0)
+        total = int(r['total_days'] or 0)
+        avg_hours = float(r['avg_work_hours'] or 0)
+        overtime = float(r['total_overtime'] or 0)
+        att_considered = present + late + on_duty  # treat these as attended
+        attendance_rate = (att_considered / total * 100.0) if total else 0.0
+        punctuality_rate = ((att_considered - late) / att_considered * 100.0) if att_considered else 0.0
+        late_rate = (late / att_considered * 100.0) if att_considered else 0.0
+        hours_norm = min(max(avg_hours, 0.0) / 8.0, 1.0) * 100.0  # vs 8h/day
+        perf_score = round(0.7 * attendance_rate + 0.2 * (100.0 - late_rate) + 0.1 * hours_norm, 2)
+        trainings = train_map.get(r['staff_pk'], 0)
+
+        staff_rows.append({
+            'staff_id': r['staff_id'],
+            'full_name': r['full_name'],
+            'department': r['department'] or 'Unassigned',
+            'position': r['position'] or 'Unspecified',
+            'present': present,
+            'late': late,
+            'absent': absent,
+            'leave': leave,
+            'on_duty': on_duty,
+            'total_days': total,
+            'attendance_rate': round(attendance_rate, 2),
+            'punctuality_rate': round(punctuality_rate, 2),
+            'avg_work_hours': round(avg_hours, 2),
+            'total_overtime': round(overtime, 2),
+            'training_sessions': trainings,
+            'performance_score': perf_score,
+            'manager_comments': 'N/A'
+        })
+
+        # Aggregate department summary
+        dept = r['department'] or 'Unassigned'
+        ds = dept_summary.setdefault(dept, {
+            'staff_count': 0,
+            'sum_attendance_rate': 0.0,
+            'sum_punctuality_rate': 0.0,
+            'sum_avg_hours': 0.0,
+            'sum_overtime': 0.0,
+            'sum_perf_score': 0.0,
+            'total_training_sessions': 0
+        })
+        ds['staff_count'] += 1
+        ds['sum_attendance_rate'] += attendance_rate
+        ds['sum_punctuality_rate'] += punctuality_rate
+        ds['sum_avg_hours'] += avg_hours
+        ds['sum_overtime'] += overtime
+        ds['sum_perf_score'] += perf_score
+        ds['total_training_sessions'] += trainings
+
+    # Prepare department rows with averages
+    dept_rows = []
+    for dept, ds in sorted(dept_summary.items()):
+        c = max(ds['staff_count'], 1)
+        dept_rows.append({
+            'department': dept,
+            'staff_count': ds['staff_count'],
+            'avg_attendance_rate': round(ds['sum_attendance_rate'] / c, 2),
+            'avg_punctuality_rate': round(ds['sum_punctuality_rate'] / c, 2),
+            'avg_work_hours': round(ds['sum_avg_hours'] / c, 2),
+            'total_overtime': round(ds['sum_overtime'], 2),
+            'total_training_sessions': int(ds['total_training_sessions']),
+            'avg_performance_score': round(ds['sum_perf_score'] / c, 2)
+        })
+
+    period_label = f"{calendar.month_name[month]} {year}"
+
+    # CSV export
+    if format_type == 'csv':
+        import csv
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([f"Performance Report - {period_label}"])
+        writer.writerow([])
+        # Department Summary first
+        writer.writerow(['Department','Staff Count','Avg Attendance %','Avg Punctuality %','Avg Work Hrs','Total OT','Training Sessions','Avg Score'])
+        for d in dept_rows:
+            writer.writerow([
+                d['department'], d['staff_count'], d['avg_attendance_rate'], d['avg_punctuality_rate'],
+                d['avg_work_hours'], d['total_overtime'], d['total_training_sessions'], d['avg_performance_score']
+            ])
+        writer.writerow([])
+        # Staff Performance
+        writer.writerow(['Staff ID','Full Name','Department','Position','Present','Late','Absent','Leave','On Duty','Total Days','Attendance %','Punctuality %','Avg Work Hrs','Total OT','Training','Score','Manager Comments'])
+        for s in staff_rows:
+            writer.writerow([
+                s['staff_id'], s['full_name'], s['department'], s['position'], s['present'], s['late'], s['absent'], s['leave'], s['on_duty'], s['total_days'],
+                s['attendance_rate'], s['punctuality_rate'], s['avg_work_hours'], s['total_overtime'], s['training_sessions'], s['performance_score'], s['manager_comments']
+            ])
+        resp = make_response(output.getvalue())
+        fname = f"performance_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+        resp.headers['Content-Type'] = 'text/csv'
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return resp
+
+    # PDF export
+    if format_type == 'pdf':
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.lib import colors
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=18)
+            styles = getSampleStyleSheet()
+            elements = []
+            elements.append(Paragraph(f"Performance Report - {period_label}", styles['Title']))
+            elements.append(Spacer(1, 12))
+            # Department table
+            dep_headers = ['Department','Staff','Avg Att%','Avg Punct%','Avg Hrs','Total OT','Training','Avg Score']
+            dep_data = [dep_headers]
+            for d in dept_rows:
+                dep_data.append([
+                    d['department'], d['staff_count'], d['avg_attendance_rate'], d['avg_punctuality_rate'], d['avg_work_hours'], d['total_overtime'], d['total_training_sessions'], d['avg_performance_score']
+                ])
+            dep_table = Table(dep_data, repeatRows=1)
+            dep_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#366092')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+            ]))
+            elements.append(dep_table)
+            elements.append(Spacer(1, 12))
+            # Staff table (limit rows if very large?)
+            st_headers = ['Staff ID','Name','Dept','Pos','Pres','Late','Abs','Lev','OD','Tot','Att%','Punct%','Hrs','OT','Train','Score']
+            st_data = [st_headers]
+            for s in staff_rows:
+                st_data.append([
+                    s['staff_id'], s['full_name'], s['department'], s['position'], s['present'], s['late'], s['absent'], s['leave'], s['on_duty'], s['total_days'],
+                    s['attendance_rate'], s['punctuality_rate'], s['avg_work_hours'], s['total_overtime'], s['training_sessions'], s['performance_score']
+                ])
+            st_table = Table(st_data, repeatRows=1)
+            st_table.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+                ('FONTSIZE', (0, 0), (-1, -1), 7),
+            ]))
+            elements.append(st_table)
+            doc.build(elements)
+            pdf = buffer.getvalue(); buffer.close()
+            resp = make_response(pdf)
+            fname = f"performance_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+            resp.headers['Content-Type'] = 'application/pdf'
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return resp
+        except ImportError:
+            return jsonify({'success': False, 'error': 'PDF generation requires reportlab. Install with: pip install reportlab'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'PDF generation failed: {str(e)}'})
+
+    # Default: Excel export with Summary and Staff Performance sheets
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+
+    wb = openpyxl.Workbook()
+    ws = wb.active; ws.title = 'Summary'
+
+    header_font = Font(bold=True, size=11, color='FFFFFF')
+    header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+    border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+    ws.cell(row=1, column=1, value=f'Performance Report - {period_label}').font = Font(bold=True, size=12)
+    ws.append([])
+
+    sum_headers = ['Department','Staff Count','Avg Attendance (%)','Avg Punctuality (%)','Avg Work Hours','Total Overtime','Training Sessions','Avg Score']
+    for col, h in enumerate(sum_headers, 1):
+        c = ws.cell(row=3, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+    r = 4
+    for d in dept_rows:
+        vals = [d['department'], d['staff_count'], d['avg_attendance_rate'], d['avg_punctuality_rate'], d['avg_work_hours'], d['total_overtime'], d['total_training_sessions'], d['avg_performance_score']]
+        for cidx, val in enumerate(vals, 1):
+            cell = ws.cell(row=r, column=cidx, value=val); cell.border = border
+        r += 1
+    for col in range(1, len(sum_headers)+1):
+        ws.column_dimensions[get_column_letter(col)].width = 22
+
+    # Staff Performance sheet
+    ws2 = wb.create_sheet(title='Staff Performance')
+    st_headers = ['Staff ID','Full Name','Department','Position','Present','Late','Absent','Leave','On Duty','Total Days','Attendance (%)','Punctuality (%)','Avg Work Hours','Total Overtime','Training Sessions','Performance Score','Manager Comments']
+    for col, h in enumerate(st_headers, 1):
+        c = ws2.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+    r = 2
+    for s in staff_rows:
+        vals = [s['staff_id'], s['full_name'], s['department'], s['position'], s['present'], s['late'], s['absent'], s['leave'], s['on_duty'], s['total_days'], s['attendance_rate'], s['punctuality_rate'], s['avg_work_hours'], s['total_overtime'], s['training_sessions'], s['performance_score'], s['manager_comments']]
+        for cidx, val in enumerate(vals, 1):
+            cell = ws2.cell(row=r, column=cidx, value=val); cell.border = border
+        r += 1
+    widths = [14, 26, 18, 18, 10, 10, 10, 10, 10, 12, 16, 16, 16, 16, 18, 16, 28]
+    for col, w in enumerate(widths, 1):
+        ws2.column_dimensions[get_column_letter(col)].width = w
+
+    # Optional Training sheet
+    ws3 = wb.create_sheet(title='Training')
+    tr_headers = ['Staff ID','Full Name','Department','Training Sessions']
+    for col, h in enumerate(tr_headers, 1):
+        c = ws3.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+    r = 2
+    for s in staff_rows:
+        vals = [s['staff_id'], s['full_name'], s['department'], s['training_sessions']]
+        for cidx, val in enumerate(vals, 1):
+            cell = ws3.cell(row=r, column=cidx, value=val); cell.border = border
+        r += 1
+
+
+def generate_daily_attendance_report(school_id, date_str=None, department=None, format_type='excel'):
+    """Generate comprehensive Daily Attendance Report (multi-format).
+    Includes per-staff records for selected date, department summary, and overall stats.
+    """
+    import datetime, io
+
+    db = get_db()
+
+    # Resolve date
+    try:
+        if not date_str:
+            date_obj = datetime.date.today()
+        else:
+            date_obj = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+    except Exception:
+        date_obj = datetime.date.today()
+    date_str = date_obj.strftime('%Y-%m-%d')
+
+    # Check attendance table columns to avoid SQL errors on older schemas
+    try:
+        cols = {row['name'] for row in db.execute("PRAGMA table_info(attendance)").fetchall()}
+    except Exception:
+        cols = set()
+    has_work_hours = 'work_hours' in cols
+    has_overtime = 'overtime_hours' in cols
+    has_late_min = 'late_duration_minutes' in cols
+    has_early_min = 'early_departure_minutes' in cols
+
+    # Optional department filter
+    dept_clause = ''
+    params = [date_str, school_id]
+    if department and str(department).strip():
+        dept_clause = ' AND COALESCE(s.department, "") = ? '
+        params.append(department)
+
+    # Pull per-staff daily records
+    select_fields = [
+        "s.staff_id", "s.full_name", "s.department", "COALESCE(s.position,'') AS position",
+        "a.time_in", "a.time_out", "a.status",
+    ]
+    if has_work_hours:
+        select_fields.append("a.work_hours")
+    else:
+        select_fields.append("0 AS work_hours")
+    if has_overtime:
+        select_fields.append("a.overtime_hours")
+    else:
+        select_fields.append("0 AS overtime_hours")
+    if has_late_min:
+        select_fields.append("a.late_duration_minutes")
+    else:
+        select_fields.append("0 AS late_duration_minutes")
+    if has_early_min:
+        select_fields.append("a.early_departure_minutes")
+    else:
+        select_fields.append("0 AS early_departure_minutes")
+
+    query = f"""
+        SELECT {', '.join(select_fields)}
+        FROM staff s
+        LEFT JOIN attendance a ON a.staff_id = s.id AND a.date = ?
+        WHERE s.school_id = ? {dept_clause}
+        ORDER BY s.department, s.full_name
+    """
+    rows = db.execute(query, tuple(params)).fetchall()
+
+    # Normalize rows and build summaries
+    def fmt_time(t):
+        return t if (t and isinstance(t, str)) else (t.strftime('%H:%M') if t else '')
+
+    staff_records = []
+    dept_summary = {}
+    overall = {k: 0 for k in ['present','absent','late','leave','on_duty','holiday']}
+    total_staff = 0
+
+    for r in rows:
+        total_staff += 1
+        status = (r['status'] or '').lower() if r['status'] else 'absent'
+        if status not in overall:
+            # Map unknown to absent by default
+            status = 'absent'
+        overall[status] += 1
+
+        dept = r['department'] or 'Unassigned'
+        ds = dept_summary.setdefault(dept, {k: 0 for k in ['present','absent','late','leave','on_duty','holiday']})
+        ds[status] += 1
+
+        staff_records.append({
+            'staff_id': r['staff_id'],
+            'full_name': r['full_name'],
+            'department': dept,
+            'position': r['position'],
+            'time_in': r['time_in'] or '',
+            'time_out': r['time_out'] or '',
+            'status': status.capitalize(),
+            'late_minutes': int(r['late_duration_minutes'] or 0),
+            'early_departure_minutes': int(r['early_departure_minutes'] or 0),
+            'work_hours': float(r['work_hours'] or 0),
+            'overtime_hours': float(r['overtime_hours'] or 0),
+        })
+
+    # Compute department rows with totals and present rate
+    dept_rows = []
+    for dept, ds in sorted(dept_summary.items()):
+        total = sum(ds.values())
+        present = ds['present'] + ds['on_duty'] + ds['late']  # treat on_duty/late as attended
+        present_rate = (present / total * 100.0) if total else 0.0
+        dept_rows.append({
+            'department': dept,
+            'total': total,
+            **ds,
+            'present_rate': round(present_rate, 2)
+        })
+
+    date_label = date_obj.strftime('%Y-%m-%d')
+
+    # CSV export
+    if format_type == 'csv':
+        import csv
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([f"Daily Attendance Report - {date_label}"])
+        writer.writerow([])
+        # Overall summary
+        writer.writerow(['Total Staff','Present','Late','Leave','On Duty','Holiday','Absent'])
+        writer.writerow([total_staff, overall['present'], overall['late'], overall['leave'], overall['on_duty'], overall['holiday'], overall['absent']])
+        writer.writerow([])
+        # Department summary
+        writer.writerow(['Department','Total','Present','Late','Leave','On Duty','Holiday','Absent','Present Rate (%)'])
+        for d in dept_rows:
+            writer.writerow([d['department'], d['total'], d['present'], d['late'], d['leave'], d['on_duty'], d['holiday'], d['absent'], d['present_rate']])
+        writer.writerow([])
+        # Staff records
+        writer.writerow(['Staff ID','Full Name','Department','Position','Time In','Time Out','Status','Late (min)','Early Dep (min)','Work Hrs','OT Hrs'])
+        for s in staff_records:
+            writer.writerow([s['staff_id'], s['full_name'], s['department'], s['position'], s['time_in'], s['time_out'], s['status'], s['late_minutes'], s['early_departure_minutes'], s['work_hours'], s['overtime_hours']])
+        resp = make_response(output.getvalue())
+        fname = f"daily_attendance_report_{date_obj.strftime('%Y_%m_%d')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+        resp.headers['Content-Type'] = 'text/csv'
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return resp
+
+    # PDF export
+    if format_type == 'pdf':
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.lib import colors
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=18)
+            styles = getSampleStyleSheet()
+            elements = []
+            elements.append(Paragraph(f"Daily Attendance Report - {date_label}", styles['Title']))
+            elements.append(Spacer(1, 12))
+            # Overall summary table
+            ov_headers = ['Total','Present','Late','Leave','On Duty','Holiday','Absent']
+            ov_data = [ov_headers, [total_staff, overall['present'], overall['late'], overall['leave'], overall['on_duty'], overall['holiday'], overall['absent']]]
+            ov_table = Table(ov_data, repeatRows=1)
+            ov_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#366092')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+            ]))
+            elements.append(ov_table)
+            elements.append(Spacer(1, 12))
+            # Department summary table
+            dep_headers = ['Department','Total','Present','Late','Leave','On Duty','Holiday','Absent','%Present']
+            dep_data = [dep_headers]
+            for d in dept_rows:
+                dep_data.append([d['department'], d['total'], d['present'], d['late'], d['leave'], d['on_duty'], d['holiday'], d['absent'], d['present_rate']])
+            dep_table = Table(dep_data, repeatRows=1)
+            dep_table.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+            ]))
+            elements.append(dep_table)
+            elements.append(Spacer(1, 12))
+            # Staff table (compact)
+            st_headers = ['Staff ID','Name','Dept','Pos','In','Out','Status','Late','Early','Hrs','OT']
+            st_data = [st_headers]
+            for s in staff_records:
+                st_data.append([s['staff_id'], s['full_name'], s['department'], s['position'], s['time_in'], s['time_out'], s['status'], s['late_minutes'], s['early_departure_minutes'], s['work_hours'], s['overtime_hours']])
+            st_table = Table(st_data, repeatRows=1)
+            st_table.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+                ('FONTSIZE', (0, 0), (-1, -1), 7),
+            ]))
+            elements.append(st_table)
+            doc.build(elements)
+            pdf = buffer.getvalue(); buffer.close()
+            resp = make_response(pdf)
+            fname = f"daily_attendance_report_{date_obj.strftime('%Y_%m_%d')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+            resp.headers['Content-Type'] = 'application/pdf'
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return resp
+        except ImportError:
+            return jsonify({'success': False, 'error': 'PDF generation requires reportlab. Install with: pip install reportlab'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'PDF generation failed: {str(e)}'})
+
+    # Default: Excel export
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+
+    wb = openpyxl.Workbook()
+    ws = wb.active; ws.title = 'Summary'
+
+    header_font = Font(bold=True, size=11, color='FFFFFF')
+    header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+    border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+    ws.cell(row=1, column=1, value=f'Daily Attendance Report - {date_label}').font = Font(bold=True, size=12)
+    ws.append([])
+
+    # Overall summary
+    sum_headers = ['Total Staff','Present','Late','Leave','On Duty','Holiday','Absent']
+    for col, h in enumerate(sum_headers, 1):
+        c = ws.cell(row=3, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+    vals = [total_staff, overall['present'], overall['late'], overall['leave'], overall['on_duty'], overall['holiday'], overall['absent']]
+    for cidx, val in enumerate(vals, 1):
+        cell = ws.cell(row=4, column=cidx, value=val); cell.border = border
+    for col in range(1, len(sum_headers)+1):
+        ws.column_dimensions[get_column_letter(col)].width = 18
+
+    # Department Summary sheet
+    ws2 = wb.create_sheet(title='Department Summary')
+    dep_headers = ['Department','Total','Present','Late','Leave','On Duty','Holiday','Absent','Present Rate (%)']
+    for col, h in enumerate(dep_headers, 1):
+        c = ws2.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+    r = 2
+    for d in dept_rows:
+        vals = [d['department'], d['total'], d['present'], d['late'], d['leave'], d['on_duty'], d['holiday'], d['absent'], d['present_rate']]
+        for cidx, val in enumerate(vals, 1):
+            cell = ws2.cell(row=r, column=cidx, value=val); cell.border = border
+        r += 1
+    for col in range(1, len(dep_headers)+1):
+        ws2.column_dimensions[get_column_letter(col)].width = 20
+
+    # Daily Records sheet
+    ws3 = wb.create_sheet(title='Daily Records')
+    rec_headers = ['Staff ID','Full Name','Department','Position','Time In','Time Out','Status','Late (min)','Early Dep (min)','Work Hrs','OT Hrs']
+    for col, h in enumerate(rec_headers, 1):
+        c = ws3.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+    r = 2
+    for s in staff_records:
+        vals = [s['staff_id'], s['full_name'], s['department'], s['position'], s['time_in'], s['time_out'], s['status'], s['late_minutes'], s['early_departure_minutes'], s['work_hours'], s['overtime_hours']]
+        for cidx, val in enumerate(vals, 1):
+            cell = ws3.cell(row=r, column=cidx, value=val); cell.border = border
+        r += 1
+    widths = [14, 26, 18, 18, 12, 12, 12, 12, 14, 12, 12]
+    for col, w in enumerate(widths, 1):
+        ws3.column_dimensions[get_column_letter(col)].width = w
+
+    output = BytesIO(); wb.save(output); output.seek(0)
+    resp = make_response(output.getvalue())
+    fname = f"daily_attendance_report_{date_obj.strftime('%Y_%m_%d')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+    resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
+
+
+    resp = make_response(output.getvalue())
+    fname = f"performance_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+    resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
 
 def generate_overtime_report(school_id, year, month, format_type):
     """Generate overtime report - placeholder"""
@@ -1952,11 +2817,11 @@ def api_department_shifts():
             # Get all department shift mappings
             mappings = db.execute('''
                 SELECT department, default_shift_type, created_at, updated_at
-                FROM department_shift_mappings 
+                FROM department_shift_mappings
                 WHERE school_id = ?
                 ORDER BY department
             ''', [school_id]).fetchall()
-            
+
             mappings_list = []
             for mapping in mappings:
                 mappings_list.append({
@@ -1965,7 +2830,7 @@ def api_department_shifts():
                     'created_at': mapping['created_at'],
                     'updated_at': mapping['updated_at']
                 })
-            
+
             return jsonify({
                 'success': True,
                 'mappings': mappings_list
@@ -1981,7 +2846,7 @@ def api_department_shifts():
             data = request.get_json()
             department = data.get('department', '').strip()
             shift_type = data.get('shift_type', '').strip()
-            
+
             if not department or not shift_type:
                 return jsonify({
                     'success': False,
@@ -1990,10 +2855,10 @@ def api_department_shifts():
 
             # Check if mapping already exists
             existing = db.execute('''
-                SELECT id FROM department_shift_mappings 
+                SELECT id FROM department_shift_mappings
                 WHERE school_id = ? AND department = ?
             ''', [school_id, department]).fetchone()
-            
+
             if existing:
                 return jsonify({
                     'success': False,
@@ -2003,18 +2868,18 @@ def api_department_shifts():
             # Create new mapping
             current_time = datetime.datetime.now().isoformat()
             db.execute('''
-                INSERT INTO department_shift_mappings 
+                INSERT INTO department_shift_mappings
                 (school_id, department, default_shift_type, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?)
             ''', [school_id, department, shift_type, current_time, current_time])
-            
+
             db.commit()
-            
+
             return jsonify({
                 'success': True,
                 'message': f'Department shift mapping for "{department}" created successfully'
             })
-            
+
         except Exception as e:
             db.rollback()
             return jsonify({
@@ -2026,7 +2891,7 @@ def api_department_shifts():
         try:
             data = request.get_json()
             department = data.get('department', '').strip()
-            
+
             if not department:
                 return jsonify({
                     'success': False,
@@ -2035,23 +2900,23 @@ def api_department_shifts():
 
             # Delete the mapping
             result = db.execute('''
-                DELETE FROM department_shift_mappings 
+                DELETE FROM department_shift_mappings
                 WHERE school_id = ? AND department = ?
             ''', [school_id, department])
-            
+
             if result.rowcount == 0:
                 return jsonify({
                     'success': False,
                     'message': f'Department mapping for "{department}" not found'
                 }), 404
-            
+
             db.commit()
-            
+
             return jsonify({
                 'success': True,
                 'message': f'Department shift mapping for "{department}" deleted successfully'
             })
-            
+
         except Exception as e:
             db.rollback()
             return jsonify({
@@ -2069,27 +2934,27 @@ def test_department_shifts():
 def debug_tables():
     try:
         db = get_db()
-        
+
         # Get all tables
         tables = db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         table_list = [row['name'] for row in tables]
-        
+
         result = f"Available tables: {table_list}\n\n"
-        
+
         # Check if department_shift_mappings table exists
         if 'department_shift_mappings' in table_list:
             result += "department_shift_mappings table EXISTS\n"
-            
+
             # Get table structure
             schema = db.execute("PRAGMA table_info(department_shift_mappings)").fetchall()
             result += "Table structure:\n"
             for col in schema:
                 result += f"  {col['name']} ({col['type']})\n"
-            
+
             # Get record count
             count = db.execute("SELECT COUNT(*) as count FROM department_shift_mappings").fetchone()
             result += f"\nRecord count: {count['count']}\n"
-            
+
             # Get sample records
             if count['count'] > 0:
                 records = db.execute("SELECT * FROM department_shift_mappings LIMIT 5").fetchall()
@@ -2098,9 +2963,9 @@ def debug_tables():
                     result += f"  {dict(record)}\n"
         else:
             result += "department_shift_mappings table does NOT exist\n"
-        
+
         return result, 200, {'Content-Type': 'text/plain'}
-        
+
     except Exception as e:
         return f"Error checking database: {str(e)}", 500, {'Content-Type': 'text/plain'}
 
@@ -2137,15 +3002,15 @@ def staff_management():
 def work_time_assignment():
     if 'user_id' not in session or session['user_type'] != 'admin':
         return redirect(url_for('index'))
-    
+
     db = get_db()
     school_id = session['school_id']
-    
+
     # Get total staff count for sidebar
     total_staff_count = db.execute('''
         SELECT COUNT(*) as count FROM staff WHERE school_id = ?
     ''', (school_id,)).fetchone()['count']
-    
+
     return render_template('work_time_assignment.html', total_staff_count=total_staff_count)
 
 @app.route('/admin/dashboard')
@@ -2163,7 +3028,7 @@ def admin_dashboard():
         WHERE school_id = ?
         ORDER BY full_name
     ''', (school_id,)).fetchall()
-    
+
     # Get pending leave applications
     pending_leaves = db.execute('''
         SELECT l.id, s.full_name, l.leave_type, l.start_date, l.end_date, l.reason
@@ -2190,7 +3055,7 @@ def admin_dashboard():
         WHERE p.school_id = ? AND p.status = 'pending'
         ORDER BY p.applied_at
     ''', (school_id,)).fetchall()
-    
+
     # Get today's attendance summary
     today = datetime.date.today()
     attendance_summary = db.execute('''
@@ -2222,7 +3087,7 @@ def admin_dashboard():
 
     # Check if user wants modern UI (can be a session variable or parameter)
     use_modern_ui = request.args.get('modern', 'false').lower() == 'true' or session.get('use_modern_ui', False)
-    
+
     if use_modern_ui:
         return render_template('admin_dashboard_modern.html',
                              staff=staff,
@@ -2257,10 +3122,10 @@ def export_dashboard_data():
         school_id = session['school_id']
         export_format = request.args.get('format', 'excel').lower()
         export_type = request.args.get('type', 'all').lower()  # all, staff, attendance, applications
-        
+
         # Use the ExcelReportGenerator for comprehensive reports
         excel_generator = ExcelReportGenerator()
-        
+
         if export_type == 'staff':
             # Export only staff data using the existing method
             today = datetime.datetime.now().strftime('%Y-%m-%d')
@@ -2277,7 +3142,7 @@ def export_dashboard_data():
         else:
             # Export comprehensive dashboard data
             return export_comprehensive_dashboard_data(school_id, export_format)
-            
+
     except Exception as e:
         print(f"Dashboard export error: {str(e)}")
         return jsonify({'success': False, 'error': f'Export failed: {str(e)}'})
@@ -2288,15 +3153,15 @@ def export_applications_data(school_id, export_format='excel'):
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
     from io import BytesIO
-    
+
     db = get_db()
-    
+
     # Create workbook
     wb = openpyxl.Workbook()
-    
+
     # Remove default sheet
     wb.remove(wb.active)
-    
+
     # Define styles
     header_font = Font(bold=True, size=12, color="FFFFFF")
     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
@@ -2304,11 +3169,11 @@ def export_applications_data(school_id, export_format='excel'):
         left=Side(style='thin'), right=Side(style='thin'),
         top=Side(style='thin'), bottom=Side(style='thin')
     )
-    
+
     # 1. Leave Applications Sheet
     ws_leave = wb.create_sheet("Leave Applications")
     leave_headers = ['S.No', 'Staff Name', 'Leave Type', 'Start Date', 'End Date', 'Days', 'Reason', 'Status', 'Applied Date']
-    
+
     # Add headers
     for col, header in enumerate(leave_headers, 1):
         cell = ws_leave.cell(row=1, column=col)
@@ -2317,7 +3182,7 @@ def export_applications_data(school_id, export_format='excel'):
         cell.fill = header_fill
         cell.border = border
         cell.alignment = Alignment(horizontal='center')
-    
+
     # Get leave applications data
     leave_apps = db.execute('''
         SELECT l.*, s.full_name
@@ -2326,7 +3191,7 @@ def export_applications_data(school_id, export_format='excel'):
         WHERE l.school_id = ?
         ORDER BY l.applied_at DESC
     ''', (school_id,)).fetchall()
-    
+
     for row_idx, app in enumerate(leave_apps, 2):
         ws_leave.cell(row=row_idx, column=1, value=row_idx-1)
         ws_leave.cell(row=row_idx, column=2, value=app['full_name'])
@@ -2337,11 +3202,11 @@ def export_applications_data(school_id, export_format='excel'):
         ws_leave.cell(row=row_idx, column=7, value=app['reason'] or 'N/A')
         ws_leave.cell(row=row_idx, column=8, value=app['status'])
         ws_leave.cell(row=row_idx, column=9, value=app['applied_at'])
-    
+
     # 2. On-Duty Applications Sheet
     ws_duty = wb.create_sheet("On-Duty Applications")
     duty_headers = ['S.No', 'Staff Name', 'Duty Type', 'Start Date', 'End Date', 'Start Time', 'End Time', 'Location', 'Purpose', 'Status']
-    
+
     for col, header in enumerate(duty_headers, 1):
         cell = ws_duty.cell(row=1, column=col)
         cell.value = header
@@ -2349,7 +3214,7 @@ def export_applications_data(school_id, export_format='excel'):
         cell.fill = header_fill
         cell.border = border
         cell.alignment = Alignment(horizontal='center')
-    
+
     duty_apps = db.execute('''
         SELECT od.*, s.full_name
         FROM on_duty_applications od
@@ -2357,7 +3222,7 @@ def export_applications_data(school_id, export_format='excel'):
         WHERE od.school_id = ?
         ORDER BY od.applied_at DESC
     ''', (school_id,)).fetchall()
-    
+
     for row_idx, app in enumerate(duty_apps, 2):
         ws_duty.cell(row=row_idx, column=1, value=row_idx-1)
         ws_duty.cell(row=row_idx, column=2, value=app['full_name'])
@@ -2369,11 +3234,11 @@ def export_applications_data(school_id, export_format='excel'):
         ws_duty.cell(row=row_idx, column=8, value=app['location'])
         ws_duty.cell(row=row_idx, column=9, value=app['purpose'])
         ws_duty.cell(row=row_idx, column=10, value=app['status'])
-    
+
     # 3. Permission Applications Sheet
     ws_perm = wb.create_sheet("Permission Applications")
     perm_headers = ['S.No', 'Staff Name', 'Permission Type', 'Date', 'Start Time', 'End Time', 'Duration (Hours)', 'Reason', 'Status']
-    
+
     for col, header in enumerate(perm_headers, 1):
         cell = ws_perm.cell(row=1, column=col)
         cell.value = header
@@ -2381,7 +3246,7 @@ def export_applications_data(school_id, export_format='excel'):
         cell.fill = header_fill
         cell.border = border
         cell.alignment = Alignment(horizontal='center')
-    
+
     perm_apps = db.execute('''
         SELECT p.*, s.full_name
         FROM permission_applications p
@@ -2389,7 +3254,7 @@ def export_applications_data(school_id, export_format='excel'):
         WHERE p.school_id = ?
         ORDER BY p.applied_at DESC
     ''', (school_id,)).fetchall()
-    
+
     for row_idx, app in enumerate(perm_apps, 2):
         ws_perm.cell(row=row_idx, column=1, value=row_idx-1)
         ws_perm.cell(row=row_idx, column=2, value=app['full_name'])
@@ -2400,24 +3265,24 @@ def export_applications_data(school_id, export_format='excel'):
         ws_perm.cell(row=row_idx, column=7, value=app['duration_hours'])
         ws_perm.cell(row=row_idx, column=8, value=app['reason'])
         ws_perm.cell(row=row_idx, column=9, value=app['status'])
-    
+
     # Auto-adjust column widths for all sheets
     for ws in [ws_leave, ws_duty, ws_perm]:
         for col in range(1, ws.max_column + 1):
             ws.column_dimensions[get_column_letter(col)].width = 15
-    
+
     # Save to BytesIO
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    
+
     # Create response
     response = make_response(output.getvalue())
     filename = f'applications_report_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
     response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    
+
     return response
 
 def export_comprehensive_dashboard_data(school_id, export_format='excel'):
@@ -2426,14 +3291,14 @@ def export_comprehensive_dashboard_data(school_id, export_format='excel'):
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
     from io import BytesIO
-    
+
     db = get_db()
     today = datetime.date.today()
-    
+
     # Create workbook
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
-    
+
     # Define styles
     header_font = Font(bold=True, size=12, color="FFFFFF")
     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
@@ -2442,17 +3307,17 @@ def export_comprehensive_dashboard_data(school_id, export_format='excel'):
         left=Side(style='thin'), right=Side(style='thin'),
         top=Side(style='thin'), bottom=Side(style='thin')
     )
-    
+
     # 1. Dashboard Summary Sheet
     ws_summary = wb.create_sheet("Dashboard Summary")
-    
+
     # Title
     ws_summary.merge_cells('A1:F1')
     title_cell = ws_summary['A1']
     title_cell.value = f"Admin Dashboard Summary - {today.strftime('%Y-%m-%d')}"
     title_cell.font = title_font
     title_cell.alignment = Alignment(horizontal='center')
-    
+
     # Attendance Summary
     attendance_summary = db.execute('''
         SELECT
@@ -2469,11 +3334,11 @@ def export_comprehensive_dashboard_data(school_id, export_format='excel'):
             WHERE s.school_id = ?
         ) a
     ''', (today, school_id)).fetchone()
-    
+
     # Add attendance summary
     ws_summary['A3'] = "Today's Attendance Summary"
     ws_summary['A3'].font = Font(bold=True, size=14)
-    
+
     summary_data = [
         ['Metric', 'Count'],
         ['Total Staff', attendance_summary['total_staff']],
@@ -2483,7 +3348,7 @@ def export_comprehensive_dashboard_data(school_id, export_format='excel'):
         ['On Leave', attendance_summary['on_leave']],
         ['On Duty', attendance_summary['on_duty']]
     ]
-    
+
     for row_idx, row_data in enumerate(summary_data, 4):
         for col_idx, value in enumerate(row_data, 1):
             cell = ws_summary.cell(row=row_idx, column=col_idx)
@@ -2492,19 +3357,19 @@ def export_comprehensive_dashboard_data(school_id, export_format='excel'):
                 cell.font = header_font
                 cell.fill = header_fill
             cell.border = border
-    
+
     # 2. Today's Attendance Sheet
     ws_attendance = wb.create_sheet("Today's Attendance")
-    
+
     attendance_headers = ['S.No', 'Staff ID', 'Staff Name', 'Department', 'Status', 'Time In', 'Time Out']
-    
+
     for col, header in enumerate(attendance_headers, 1):
         cell = ws_attendance.cell(row=1, column=col)
         cell.value = header
         cell.font = header_font
         cell.fill = header_fill
         cell.border = border
-    
+
     today_attendance = db.execute('''
         SELECT s.staff_id, s.full_name, s.department,
                COALESCE(a.status, 'absent') as status,
@@ -2514,7 +3379,7 @@ def export_comprehensive_dashboard_data(school_id, export_format='excel'):
         WHERE s.school_id = ?
         ORDER BY s.full_name
     ''', (today, school_id)).fetchall()
-    
+
     for row_idx, record in enumerate(today_attendance, 2):
         ws_attendance.cell(row=row_idx, column=1, value=row_idx-1)
         ws_attendance.cell(row=row_idx, column=2, value=record['staff_id'] or 'N/A')
@@ -2523,24 +3388,24 @@ def export_comprehensive_dashboard_data(school_id, export_format='excel'):
         ws_attendance.cell(row=row_idx, column=5, value=record['status'])
         ws_attendance.cell(row=row_idx, column=6, value=record['time_in'] or 'N/A')
         ws_attendance.cell(row=row_idx, column=7, value=record['time_out'] or 'N/A')
-    
+
     # Auto-adjust column widths
     for ws in [ws_summary, ws_attendance]:
         for col in range(1, ws.max_column + 1):
             ws.column_dimensions[get_column_letter(col)].width = 15
-    
+
     # Save to BytesIO
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    
+
     # Create response
     response = make_response(output.getvalue())
     filename = f'dashboard_comprehensive_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
     response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    
+
     return response
 
 
@@ -2549,10 +3414,10 @@ def toggle_modern_ui():
     """Toggle between modern and legacy UI"""
     if 'user_id' not in session:
         return redirect(url_for('index'))
-    
+
     # Toggle the modern UI setting
     session['use_modern_ui'] = not session.get('use_modern_ui', False)
-    
+
     # Redirect back to the referring page or dashboard
     return redirect(request.referrer or url_for('admin_dashboard'))
 
@@ -2561,9 +3426,9 @@ def toggle_modern_ui():
 def company_dashboard():
     if 'user_id' not in session or session['user_type'] != 'company_admin':
         return redirect(url_for('index'))
-    
+
     db = get_db()
-    
+
     # Get all schools
     schools = db.execute('''
         SELECT s.id, s.name, s.address, s.contact_email, s.contact_phone,
@@ -2575,7 +3440,7 @@ def company_dashboard():
         GROUP BY s.id
         ORDER BY s.name
     ''').fetchall()
-    
+
     return render_template('company_dashboard.html', schools=schools)
 
 @app.route('/mark_attendance', methods=['POST'])
@@ -2607,7 +3472,7 @@ def validate_verification_rules(verification_type, existing_attendance, current_
         # Check if user has already checked out today
         if existing_attendance and existing_attendance['time_out']:
             return 'You have already checked out today. Multiple check-outs are not allowed.'
-        
+
         # Check if user has checked in first
         if not existing_attendance or not existing_attendance['time_in']:
             return 'You must check in first before checking out.'
@@ -3590,11 +4455,11 @@ def check_staff_id_availability():
 def delete_school():
     if 'user_id' not in session or session['user_type'] != 'company_admin':
         return jsonify({'success': False, 'error': 'Unauthorized'})
-    
+
     school_id = request.form.get('school_id')
-    
+
     db = get_db()
-    
+
     try:
         # Delete all related records first
         db.execute('DELETE FROM admins WHERE school_id = ?', (school_id,))
@@ -3785,12 +4650,12 @@ def export_staff_excel():
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
         from io import BytesIO
-        
+
         # Create workbook and worksheet
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Staff Details"
-        
+
         # Define styles
         header_font = Font(bold=True, size=12, color="FFFFFF")
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
@@ -3800,21 +4665,21 @@ def export_staff_excel():
             top=Side(style='thin'),
             bottom=Side(style='thin')
         )
-        
+
         # Add title
         ws.merge_cells('A1:N1')
         title_cell = ws['A1']
         title_cell.value = f"Staff Details Report - Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         title_cell.font = Font(bold=True, size=16, color="2F5597")
         title_cell.alignment = Alignment(horizontal='center')
-        
+
         # Add headers
         headers = [
             'S.No', 'Staff ID', 'First Name', 'Last Name', 'Full Name',
             'Date of Birth', 'Date of Joining', 'Department', 'Destination/Position',
             'Gender', 'Phone Number', 'Email ID', 'Shift Type', 'Created Date'
         ]
-        
+
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=3, column=col)
             cell.value = header
@@ -3822,7 +4687,7 @@ def export_staff_excel():
             cell.fill = header_fill
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.border = border
-        
+
         # Add data
         for row_idx, staff_member in enumerate(staff, 4):
             row_data = [
@@ -3841,26 +4706,26 @@ def export_staff_excel():
                 staff_member['shift_type'] or 'General',
                 staff_member['created_at'] or 'N/A'
             ]
-            
+
             for col_idx, value in enumerate(row_data, 1):
                 cell = ws.cell(row=row_idx, column=col_idx)
                 cell.value = value
                 cell.border = border
                 cell.alignment = Alignment(vertical='center')
-        
+
         # Auto-adjust column widths
         for col in range(1, len(headers) + 1):
             column_letter = get_column_letter(col)
             ws.column_dimensions[column_letter].width = 15
-        
+
         # Freeze header row
         ws.freeze_panes = 'A4'
-        
+
         # Save to BytesIO
         output = BytesIO()
         wb.save(output)
         output.seek(0)
-        
+
         # Create response with proper Excel headers
         response = make_response(output.getvalue())
         filename = f'staff_details_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
@@ -3869,14 +4734,14 @@ def export_staff_excel():
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
-        
+
         return response
-        
+
     except Exception as e:
         # Log the error and return JSON error response
         print(f"Excel export error: {str(e)}")
         return jsonify({'success': False, 'error': f'Excel export failed: {str(e)}'})
-    
+
     return jsonify({'success': False, 'error': 'Unknown error occurred'})
 
 @app.route('/admin/add_department_shift', methods=['POST'])
@@ -3924,7 +4789,7 @@ def update_department_shift():
             SELECT id FROM department_shift_mappings
             WHERE school_id = ? AND department = ?
         ''', (school_id, department)).fetchone()
-        
+
         if existing:
             # Update existing mapping
             db.execute('''
@@ -3938,18 +4803,18 @@ def update_department_shift():
                 INSERT INTO department_shift_mappings (school_id, department, default_shift_type, created_at, updated_at)
                 VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ''', (school_id, department, shift_type))
-        
+
         # Update all staff members in this department to the new shift type
         staff_updated = db.execute('''
             UPDATE staff
             SET shift_type = ?
             WHERE school_id = ? AND department = ?
         ''', (shift_type, school_id, department))
-        
+
         affected_rows = staff_updated.rowcount
-        
+
         db.commit()
-        
+
         message = f'Department {department} assigned to {shift_type} shift successfully. {affected_rows} staff members updated.'
         return jsonify({'success': True, 'message': message, 'affected_staff': affected_rows})
     except Exception as e:
@@ -4323,11 +5188,11 @@ def add_school():
 
         db.commit()
         return jsonify({'success': True})
-    
+
     except sqlite3.IntegrityError:
         db.rollback()
         return jsonify({'success': False, 'error': 'School or admin username already exists'})
-    
+
     except Exception as e:
         db.rollback()
         return jsonify({'success': False, 'error': str(e)})
@@ -4382,17 +5247,17 @@ def staff_profile(id):
 def search_staff():
     if 'user_id' not in session or session['user_type'] != 'admin':
         return jsonify({'success': False, 'error': 'Unauthorized'})
-    
+
     search_term = request.args.get('q', '')
     db = get_db()
-    
+
     staff = db.execute('''
-        SELECT id, staff_id, full_name, department, position 
-        FROM staff 
+        SELECT id, staff_id, full_name, department, position
+        FROM staff
         WHERE school_id = ? AND full_name LIKE ?
         ORDER BY full_name
     ''', (session['school_id'], f"%{search_term}%")).fetchall()
-    
+
     # Get pending leave applications
     pending_leaves = db.execute('''
         SELECT l.id, s.full_name, l.leave_type, l.start_date, l.end_date, l.reason
@@ -4430,26 +5295,26 @@ def search_staff():
 def toggle_school_visibility():
     if 'user_id' not in session or session['user_type'] != 'company_admin':
         return jsonify({'success': False, 'error': 'Unauthorized'})
-    
+
     school_id = request.form.get('school_id')
     db = get_db()
-    
+
     # Ensure column exists
     columns = db.execute("PRAGMA table_info(schools)").fetchall()
     has_is_hidden = any(col['name'] == 'is_hidden' for col in columns)
-    
+
     if not has_is_hidden:
         db.execute('ALTER TABLE schools ADD COLUMN is_hidden BOOLEAN DEFAULT 0')
         db.commit()
-    
+
     # Toggle visibility
     db.execute('''
-        UPDATE schools 
+        UPDATE schools
         SET is_hidden = CASE WHEN is_hidden = 1 THEN 0 ELSE 1 END
         WHERE id = ?
     ''', (school_id,))
     db.commit()
-    
+
     return jsonify({'success': True})
 
 
@@ -6619,13 +7484,13 @@ def get_institution_timings():
     """Get current institution check-in and check-out timings"""
     try:
         db = get_db()
-        
+
         # Check if settings table exists and create if not
         cursor = db.execute("""
-            SELECT name FROM sqlite_master 
+            SELECT name FROM sqlite_master
             WHERE type='table' AND name='institution_settings'
         """)
-        
+
         if not cursor.fetchone():
             # Create the settings table
             db.execute("""
@@ -6636,29 +7501,29 @@ def get_institution_timings():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # Insert default timings
             db.execute("""
-                INSERT INTO institution_settings (setting_name, setting_value) 
+                INSERT INTO institution_settings (setting_name, setting_value)
                 VALUES ('checkin_time', '09:00'), ('checkout_time', '17:00')
             """)
             db.commit()
-        
+
         # Fetch current timings
         cursor = db.execute("""
-            SELECT setting_name, setting_value 
-            FROM institution_settings 
+            SELECT setting_name, setting_value
+            FROM institution_settings
             WHERE setting_name IN ('checkin_time', 'checkout_time')
         """)
-        
+
         settings = dict(cursor.fetchall())
-        
+
         return jsonify({
             'success': True,
             'checkin_time': settings.get('checkin_time', '09:00'),
             'checkout_time': settings.get('checkout_time', '17:00')
         })
-        
+
     except Exception as e:
         print(f"Error getting institution timings: {e}")
         return jsonify({
@@ -6676,63 +7541,63 @@ def update_institution_timings():
                 'success': False,
                 'message': 'Unauthorized access'
             }), 403
-        
+
         checkin_time = request.form.get('checkin_time')
         checkout_time = request.form.get('checkout_time')
-        
+
         # Validate inputs
         if not checkin_time or not checkout_time:
             return jsonify({
                 'success': False,
                 'message': 'Both check-in and check-out times are required'
             }), 400
-        
+
         # Validate time format (HH:MM)
         import re
         time_pattern = re.compile(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
-        
+
         if not time_pattern.match(checkin_time) or not time_pattern.match(checkout_time):
             return jsonify({
                 'success': False,
                 'message': 'Invalid time format. Please use HH:MM format'
             }), 400
-        
+
         # Validate that checkout is after checkin
         from datetime import datetime
         checkin_dt = datetime.strptime(checkin_time, '%H:%M')
         checkout_dt = datetime.strptime(checkout_time, '%H:%M')
-        
+
         if checkout_dt <= checkin_dt:
             return jsonify({
                 'success': False,
                 'message': 'Check-out time must be later than check-in time'
             }), 400
-        
+
         db = get_db()
-        
+
         # Update or insert the timings
         for setting_name, setting_value in [('checkin_time', checkin_time), ('checkout_time', checkout_time)]:
             db.execute("""
                 INSERT OR REPLACE INTO institution_settings (setting_name, setting_value, updated_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
             """, (setting_name, setting_value))
-        
+
         # Sync with shift definitions - update 'general' shift to match institution timings
         try:
             # Check if shift_definitions table exists
             cursor = db.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='table' AND name='shift_definitions'
             """)
-            
+
             if cursor.fetchone():
-                # Update or insert general shift to match institution timings
+                # Update or insert general shift to match institution timings with strict rules
                 db.execute("""
-                    INSERT OR REPLACE INTO shift_definitions 
+                    INSERT OR REPLACE INTO shift_definitions
                     (shift_type, start_time, end_time, grace_period_minutes, description, is_active)
-                    VALUES ('general', ?, ?, 10, 'Institution Default Shift', 1)
+                    VALUES ('general', ?, ?, 0, 'Institution Default Shift (Strict Timing)', 1)
                 """, (checkin_time + ':00', checkout_time + ':00'))
-                
+
                 print(f"✅ Synced general shift: {checkin_time} - {checkout_time}")
             else:
                 # Create shift_definitions table and insert general shift
@@ -6749,21 +7614,21 @@ def update_institution_timings():
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                
+
                 db.execute("""
-                    INSERT INTO shift_definitions 
+                    INSERT INTO shift_definitions
                     (shift_type, start_time, end_time, grace_period_minutes, description, is_active)
-                    VALUES ('general', ?, ?, 10, 'Institution Default Shift', 1)
+                    VALUES ('general', ?, ?, 0, 'Institution Default Shift (Strict Timing)', 1)
                 """, (checkin_time + ':00', checkout_time + ':00'))
-                
+
                 print(f"✅ Created shift_definitions table and synced general shift: {checkin_time} - {checkout_time}")
-                
+
         except Exception as sync_error:
             print(f"⚠️ Warning: Could not sync shift definitions: {sync_error}")
             # Continue execution even if shift sync fails
-        
+
         db.commit()
-        
+
         # Notify all systems to refresh their configurations
         try:
             # Reload shift manager if it exists
@@ -6773,19 +7638,19 @@ def update_institution_timings():
             else:
                 # Create new shift manager to ensure latest timings are loaded
                 app.shift_manager = ShiftManager()
-                
+
             print(f"✅ Institution timings updated and synced across all systems")
-            
+
         except Exception as reload_error:
             print(f"⚠️ Warning: Could not reload shift manager: {reload_error}")
-        
+
         return jsonify({
             'success': True,
             'message': 'Institution timings updated successfully',
             'checkin_time': checkin_time,
             'checkout_time': checkout_time
         })
-        
+
     except Exception as e:
         print(f"Error updating institution timings: {e}")
         return jsonify({
@@ -6819,18 +7684,18 @@ def test_timing_sync():
         from database import get_institution_timings, calculate_attendance_status
         from shift_management import ShiftManager
         import datetime
-        
+
         # Get institution timings
         institution_timings = get_institution_timings()
-        
+
         # Get shift manager timings
         shift_manager = ShiftManager()
         general_shift = shift_manager.get_shift_info('general')
-        
+
         # Test attendance calculation
         test_time = datetime.time(9, 30)  # 9:30 AM
         status = calculate_attendance_status(test_time, 'check-in')
-        
+
         return jsonify({
             'success': True,
             'sync_check': {
@@ -7197,7 +8062,7 @@ def get_staff_holidays_api():
 
         # Base query for holidays
         base_query = '''
-            SELECT h.id, h.holiday_name, h.start_date, h.end_date, h.holiday_type, 
+            SELECT h.id, h.holiday_name, h.start_date, h.end_date, h.holiday_type,
                    h.description, h.is_recurring, h.recurring_type, h.created_at, h.departments
             FROM holidays h
         '''
@@ -7205,8 +8070,8 @@ def get_staff_holidays_api():
         # Add date range filter if provided
         if start_date and end_date:
             query_conditions.append('''
-                ((h.start_date BETWEEN ? AND ?) OR 
-                 (h.end_date BETWEEN ? AND ?) OR 
+                ((h.start_date BETWEEN ? AND ?) OR
+                 (h.end_date BETWEEN ? AND ?) OR
                  (h.start_date <= ? AND h.end_date >= ?))
             ''')
             query_params.extend([start_date, end_date, start_date, end_date, start_date, end_date])
@@ -7238,7 +8103,7 @@ def get_staff_holidays_api():
                     'created_at': holiday['created_at']
                 }
                 holidays.append(holiday_dict)
-            
+
             # For department-specific holidays, check if staff's department is included
             elif holiday['holiday_type'] == 'department_specific' and staff_department:
                 try:
@@ -7291,7 +8156,7 @@ def holiday_management():
     """Holiday Management page for administrators"""
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return redirect(url_for('index'))
-    
+
     return render_template('holiday_management.html')
 
 

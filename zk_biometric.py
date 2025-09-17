@@ -371,46 +371,80 @@ class ZKBiometricDevice:
             SELECT * FROM attendance WHERE staff_id = ? AND date = ?
         ''', (staff_db_id, today)).fetchone()
 
-        # Import database utilities for dynamic timings
-        from database import calculate_attendance_status
+        # Use ShiftManager for strict timing and late duration computation
+        from shift_management import ShiftManager
 
         if verification_type == 'check-in':
-            # Get staff department for holiday checking
+            # Get staff department and shift for accurate status calculation
             staff_info = db.execute('''
-                SELECT department FROM staff WHERE id = ?
+                SELECT department, COALESCE(shift_type, 'general') AS shift_type
+                FROM staff WHERE id = ?
             ''', (staff_db_id,)).fetchone()
 
             department = staff_info['department'] if staff_info else None
+            shift_type = staff_info['shift_type'] if staff_info else 'general'
 
-            # Check-in verification using dynamic institution timings and holiday checking
-            status = calculate_attendance_status(timestamp.time(), 'check-in',
-                                               date_obj=datetime.strptime(today, '%Y-%m-%d').date(),
-                                               department=department)
+            # Calculate status and late minutes strictly vs shift start
+            shift_manager = ShiftManager()
+            attendance_result = shift_manager.calculate_attendance_status(
+                shift_type, timestamp.time()
+            )
+            status = attendance_result['status']
+            late_minutes = attendance_result.get('late_duration_minutes', 0)
+            shift_start = attendance_result.get('shift_start_time')
+            shift_end = attendance_result.get('shift_end_time')
+
+            print(f"🔍 BIOMETRIC DEBUG: Check-in at {timestamp.time()} for shift {shift_type}")
+            print(f"🔍 BIOMETRIC DEBUG: Status = {status}, Late minutes = {late_minutes}")
+
             if existing_attendance:
-                # Update existing record
+                # Update existing record with strict status and late minutes
                 db.execute('''
-                    UPDATE attendance SET time_in = ?, status = ?
+                    UPDATE attendance SET time_in = ?, status = ?, late_duration_minutes = ?,
+                        shift_start_time = ?, shift_end_time = ?
                     WHERE staff_id = ? AND date = ?
-                ''', (current_time, status, staff_db_id, today))
+                ''', (
+                    current_time, status, late_minutes,
+                    shift_start.strftime('%H:%M:%S') if shift_start else None,
+                    shift_end.strftime('%H:%M:%S') if shift_end else None,
+                    staff_db_id, today
+                ))
             else:
-                # Create new record
+                # Create new record including late minutes and shift bounds
                 db.execute('''
-                    INSERT INTO attendance (staff_id, school_id, date, time_in, status)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (staff_db_id, school_id, today, current_time, status))
+                    INSERT INTO attendance (staff_id, school_id, date, time_in, status,
+                                            late_duration_minutes, shift_start_time, shift_end_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    staff_db_id, school_id, today, current_time, status,
+                    late_minutes,
+                    shift_start.strftime('%H:%M:%S') if shift_start else None,
+                    shift_end.strftime('%H:%M:%S') if shift_end else None
+                ))
 
         elif verification_type == 'check-out':
             # Check-out verification with early departure detection
             if existing_attendance:
-                # Calculate check-out status (early departure detection)
-                checkout_status = calculate_attendance_status(timestamp.time(), 'check-out')
-                
-                # Update status if early departure detected, otherwise keep current status
-                if checkout_status == 'early_departure':
+                # Use ShiftManager for check-out status calculation
+                shift_manager = ShiftManager()
+                staff_info = db.execute('''
+                    SELECT COALESCE(shift_type, 'general') AS shift_type
+                    FROM staff WHERE id = ?
+                ''', (staff_db_id,)).fetchone()
+
+                shift_type = staff_info['shift_type'] if staff_info else 'general'
+                checkout_result = shift_manager.calculate_attendance_status(
+                    shift_type, None, timestamp.time()  # check_out_time
+                )
+
+                early_departure_minutes = checkout_result.get('early_departure_minutes', 0)
+
+                if early_departure_minutes > 0:
+                    # Early departure detected
                     db.execute('''
-                        UPDATE attendance SET time_out = ?, status = ?
+                        UPDATE attendance SET time_out = ?, early_departure_minutes = ?
                         WHERE staff_id = ? AND date = ?
-                    ''', (current_time, 'early_departure', staff_db_id, today))
+                    ''', (current_time, early_departure_minutes, staff_db_id, today))
                 else:
                     # Normal check-out, just update time_out
                     db.execute('''
