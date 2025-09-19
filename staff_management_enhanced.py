@@ -179,13 +179,19 @@ class StaffManager:
         
         # Build final query
         query = f'''
-            SELECT * FROM staff 
+            SELECT * FROM staff
             WHERE {' AND '.join(where_conditions)}
             ORDER BY full_name
         '''
-        
-        if filters.get('limit'):
-            query += f" LIMIT {int(filters['limit'])}"
+
+        # Only apply limit if explicitly provided
+        if filters.get('limit') and filters['limit'].strip():
+            try:
+                limit_value = int(filters['limit'])
+                if limit_value > 0:
+                    query += f" LIMIT {limit_value}"
+            except (ValueError, TypeError):
+                pass  # Ignore invalid limit values
         
         staff_members = db.execute(query, params).fetchall()
         return [dict(staff) for staff in staff_members]

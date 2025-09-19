@@ -828,7 +828,7 @@ def advanced_search_staff():
         'gender': request.args.get('gender'),
         'date_from': request.args.get('date_from'),
         'date_to': request.args.get('date_to'),
-        'limit': request.args.get('limit', 100)
+        'limit': request.args.get('limit')  # Remove default limit to match server-side query
     }
 
     # Remove None values

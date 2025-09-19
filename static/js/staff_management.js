@@ -73,12 +73,11 @@ function updateStatsDisplay() {
 
     if (tableBody) {
         const totalStaff = tableBody.querySelectorAll('tr').length;
-        if (totalStaffElement) {
-            totalStaffElement.textContent = totalStaff;
-        }
+        // Only update sidebar count, preserve main display count from server
         if (totalStaffCountElement) {
             totalStaffCountElement.textContent = totalStaff;
         }
+        // Don't override the server-side totalStaffDisplay count unless we're showing filtered results
     }
 }
 
@@ -118,7 +117,14 @@ function initializeSearchAndFilter() {
         });
 
         console.log('Applying filters:', filters);
-        loadFilteredStaffData(filters);
+
+        // Only load filtered data if there are actual filters applied
+        if (Object.keys(filters).length > 0) {
+            loadFilteredStaffData(filters);
+        } else {
+            // If no filters, reload the page to show original server-side data
+            location.reload();
+        }
     }
 
     // Clear filters function
@@ -129,7 +135,8 @@ function initializeSearchAndFilter() {
         genderFilter.value = '';
 
         console.log('Clearing all filters');
-        loadFilteredStaffData({});
+        // Reload page to show original server-side data
+        location.reload();
     }
 
     // Event listeners
@@ -140,8 +147,9 @@ function initializeSearchAndFilter() {
     applyFiltersBtn.addEventListener('click', applyFilters);
     clearFiltersBtn.addEventListener('click', clearFilters);
 
-    // Load initial data
-    loadFilteredStaffData({});
+    // Don't load initial data automatically - preserve server-side data
+    // Only load filtered data when filters are actually applied
+    // loadFilteredStaffData({});
 }
 
 // Show loading state for table
@@ -289,8 +297,15 @@ function renderFilteredStaffTable(staffList) {
 // Update stats display for filtered results
 function updateFilteredStatsDisplay(filteredCount) {
     const totalStaffCountElement = document.getElementById('totalStaffCount');
+    const totalStaffDisplayElement = document.getElementById('totalStaffDisplay');
+
     if (totalStaffCountElement) {
         totalStaffCountElement.textContent = filteredCount;
+    }
+
+    // Update main display count when showing filtered results
+    if (totalStaffDisplayElement) {
+        totalStaffDisplayElement.textContent = filteredCount;
     }
 
     // Update any other stats displays
