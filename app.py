@@ -2211,8 +2211,289 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
     return resp
 
 def generate_department_salary_report(school_id, year, department, format_type):
-    """Generate department salary report - placeholder"""
-    return generate_monthly_salary_report(school_id, year, None, department, format_type)
+    """Generate comprehensive department-wise salary report with detailed breakdown"""
+    import datetime
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+    
+    db = get_db()
+    
+    # Build query with optional department filtering
+    query = """
+        SELECT 
+            staff_id, full_name, department, position,
+            COALESCE(basic_salary, 0) as basic_salary,
+            COALESCE(hra, 0) as hra,
+            COALESCE(transport_allowance, 0) as transport_allowance,
+            COALESCE(other_allowances, 0) as other_allowances,
+            COALESCE(pf_deduction, 0) as pf_deduction,
+            COALESCE(esi_deduction, 0) as esi_deduction,
+            COALESCE(professional_tax, 0) as professional_tax,
+            COALESCE(other_deductions, 0) as other_deductions
+        FROM staff 
+        WHERE school_id = ? AND is_active = 1
+    """
+    
+    params = [school_id]
+    
+    # Add department filter if specified
+    if department and department.strip():
+        query += " AND department = ?"
+        params.append(department.strip())
+    
+    query += " ORDER BY department, full_name"
+    
+    staff_data = db.execute(query, params).fetchall()
+    
+    # Group staff by department
+    departments = {}
+    for staff in staff_data:
+        dept = staff['department'] or 'Unassigned'
+        if dept not in departments:
+            departments[dept] = []
+        
+        # Calculate totals
+        total_allowances = (
+            float(staff['hra']) + 
+            float(staff['transport_allowance']) + 
+            float(staff['other_allowances'])
+        )
+        total_deductions = (
+            float(staff['pf_deduction']) + 
+            float(staff['esi_deduction']) + 
+            float(staff['professional_tax']) + 
+            float(staff['other_deductions'])
+        )
+        base_salary = float(staff['basic_salary'])
+        gross_pay = base_salary + total_allowances - total_deductions
+        
+        staff_record = {
+            'staff_id': staff['staff_id'],
+            'name': staff['full_name'],
+            'position': staff['position'] or 'N/A',
+            'base_salary': base_salary,
+            'allowances': {
+                'hra': float(staff['hra']),
+                'transport': float(staff['transport_allowance']),
+                'other': float(staff['other_allowances']),
+                'total': total_allowances
+            },
+            'deductions': {
+                'pf': float(staff['pf_deduction']),
+                'esi': float(staff['esi_deduction']),
+                'professional_tax': float(staff['professional_tax']),
+                'other': float(staff['other_deductions']),
+                'total': total_deductions
+            },
+            'gross_pay': gross_pay
+        }
+        departments[dept].append(staff_record)
+    
+    if format_type == 'json':
+        return jsonify({
+            'report_type': 'Department Wise Salary Report',
+            'school_id': school_id,
+            'year': year,
+            'generated_at': datetime.datetime.now().isoformat(),
+            'departments': departments,
+            'summary': {
+                'total_departments': len(departments),
+                'total_staff': sum(len(dept_staff) for dept_staff in departments.values()),
+                'total_gross_pay': sum(
+                    sum(staff['gross_pay'] for staff in dept_staff) 
+                    for dept_staff in departments.values()
+                )
+            }
+        })
+    
+    elif format_type == 'excel':
+        return _generate_department_salary_excel(departments, school_id, year)
+    
+    else:
+        return jsonify({'error': 'Unsupported format type'}), 400
+
+def _generate_department_salary_excel(departments, school_id, year):
+    """Generate professionally formatted Excel file for department-wise salary report"""
+    import datetime
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+    from flask import make_response
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Department Wise Salary Report"
+    
+    # Define styles
+    title_font = Font(name='Arial', size=16, bold=True, color='FFFFFF')
+    title_fill = PatternFill(start_color='2F5597', end_color='2F5597', fill_type='solid')
+    
+    header_font = Font(name='Arial', size=14, bold=True, color='FFFFFF')
+    header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    
+    dept_header_font = Font(name='Arial', size=13, bold=True, color='FFFFFF')
+    dept_header_fill = PatternFill(start_color='70AD47', end_color='70AD47', fill_type='solid')
+    
+    data_font = Font(name='Arial', size=11)
+    odd_row_fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
+    
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    center_alignment = Alignment(horizontal='center', vertical='center')
+    left_alignment = Alignment(horizontal='left', vertical='center')
+    
+    current_row = 1
+    
+    # Title section
+    ws.merge_cells(f'A{current_row}:I{current_row}')
+    title_cell = ws[f'A{current_row}']
+    title_cell.value = f"DEPARTMENT WISE SALARY REPORT - {year}"
+    title_cell.font = title_font
+    title_cell.fill = title_fill
+    title_cell.alignment = center_alignment
+    title_cell.border = thin_border
+    current_row += 2
+    
+    # Report info
+    ws[f'A{current_row}'] = f"Generated on: {datetime.datetime.now().strftime('%B %d, %Y at %I:%M %p')}"
+    ws[f'A{current_row}'].font = Font(name='Arial', size=10, italic=True)
+    current_row += 1
+    
+    ws[f'A{current_row}'] = f"School ID: {school_id}"
+    ws[f'A{current_row}'].font = Font(name='Arial', size=10, italic=True)
+    current_row += 2
+    
+    # Calculate totals for summary
+    total_staff = sum(len(dept_staff) for dept_staff in departments.values())
+    total_gross_pay = sum(
+        sum(staff['gross_pay'] for staff in dept_staff) 
+        for dept_staff in departments.values()
+    )
+    
+    # Summary section
+    ws[f'A{current_row}'] = "SUMMARY"
+    ws[f'A{current_row}'].font = Font(name='Arial', size=12, bold=True)
+    current_row += 1
+    
+    ws[f'A{current_row}'] = f"Total Departments: {len(departments)}"
+    ws[f'C{current_row}'] = f"Total Staff: {total_staff}"
+    ws[f'E{current_row}'] = f"Total Gross Pay: ₹{total_gross_pay:,.2f}"
+    
+    for cell in [ws[f'A{current_row}'], ws[f'C{current_row}'], ws[f'E{current_row}']]:
+        cell.font = Font(name='Arial', size=10, bold=True)
+    current_row += 2
+    
+    # Main table headers
+    headers = [
+        'Staff ID', 'Staff Name', 'Position/Job Title', 'Base Salary', 
+        'HRA', 'Transport', 'Other Allow.', 'PF Deduction', 'ESI Deduction', 
+        'Prof. Tax', 'Other Ded.', 'Total Deductions', 'Gross Pay'
+    ]
+    
+    # Process each department
+    for dept_name in sorted(departments.keys()):
+        dept_staff = departments[dept_name]
+        
+        # Department header
+        ws.merge_cells(f'A{current_row}:M{current_row}')
+        dept_header_cell = ws[f'A{current_row}']
+        dept_header_cell.value = f"{dept_name.upper()} DEPARTMENT ({len(dept_staff)} Staff)"
+        dept_header_cell.font = dept_header_font
+        dept_header_cell.fill = dept_header_fill
+        dept_header_cell.alignment = center_alignment
+        dept_header_cell.border = thin_border
+        current_row += 1
+        
+        # Column headers for this department
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=current_row, column=col)
+            cell.value = header
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center_alignment
+            cell.border = thin_border
+        current_row += 1
+        
+        # Department staff data
+        dept_total_gross = 0
+        for i, staff in enumerate(dept_staff):
+            row_data = [
+                staff['staff_id'],
+                staff['name'],
+                staff['position'],
+                f"₹{staff['base_salary']:,.2f}",
+                f"₹{staff['allowances']['hra']:,.2f}",
+                f"₹{staff['allowances']['transport']:,.2f}",
+                f"₹{staff['allowances']['other']:,.2f}",
+                f"₹{staff['deductions']['pf']:,.2f}",
+                f"₹{staff['deductions']['esi']:,.2f}",
+                f"₹{staff['deductions']['professional_tax']:,.2f}",
+                f"₹{staff['deductions']['other']:,.2f}",
+                f"₹{staff['deductions']['total']:,.2f}",
+                f"₹{staff['gross_pay']:,.2f}"
+            ]
+            
+            dept_total_gross += staff['gross_pay']
+            
+            for col, value in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=col)
+                cell.value = value
+                cell.font = data_font
+                cell.border = thin_border
+                
+                # Alternate row coloring
+                if i % 2 == 1:
+                    cell.fill = odd_row_fill
+                    
+                # Alignment
+                if col <= 3:  # Text columns
+                    cell.alignment = left_alignment
+                else:  # Number columns
+                    cell.alignment = Alignment(horizontal='right', vertical='center')
+            current_row += 1
+        
+        # Department total row
+        ws.merge_cells(f'A{current_row}:L{current_row}')
+        total_cell = ws[f'A{current_row}']
+        total_cell.value = f"DEPARTMENT TOTAL"
+        total_cell.font = Font(name='Arial', size=11, bold=True)
+        total_cell.fill = PatternFill(start_color='E2EFDA', end_color='E2EFDA', fill_type='solid')
+        total_cell.alignment = center_alignment
+        total_cell.border = thin_border
+        
+        gross_total_cell = ws[f'M{current_row}']
+        gross_total_cell.value = f"₹{dept_total_gross:,.2f}"
+        gross_total_cell.font = Font(name='Arial', size=11, bold=True)
+        gross_total_cell.fill = PatternFill(start_color='E2EFDA', end_color='E2EFDA', fill_type='solid')
+        gross_total_cell.alignment = Alignment(horizontal='right', vertical='center')
+        gross_total_cell.border = thin_border
+        
+        current_row += 2  # Space between departments
+    
+    # Adjust column widths
+    column_widths = [12, 25, 20, 15, 12, 12, 12, 12, 12, 12, 12, 15, 15]
+    for col, width in enumerate(column_widths, 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+    
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    # Create response
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    response.headers['Content-Disposition'] = f'attachment; filename=department_salary_report_{year}.xlsx'
+    
+    return response
 
 def generate_department_analysis_report(school_id, year=None, month=None, format_type='excel'):
     """Generate comprehensive Department Report with multi-format export.
