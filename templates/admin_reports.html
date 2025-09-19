@@ -289,6 +289,20 @@
                                     </label>
                                     <input type="date" class="form-control" id="reportDate" />
                                 </div>
+                                
+                                <div class="filter-group">
+                                    <label for="reportFromDate" class="form-label">
+                                        <i class="bi bi-calendar-range"></i> From Date
+                                    </label>
+                                    <input type="date" class="form-control" id="reportFromDate" />
+                                </div>
+                                
+                                <div class="filter-group">
+                                    <label for="reportToDate" class="form-label">
+                                        <i class="bi bi-calendar-range-fill"></i> To Date
+                                    </label>
+                                    <input type="date" class="form-control" id="reportToDate" />
+                                </div>
 
                                 <div class="filter-group">
                                     <label for="reportDepartment" class="form-label">
@@ -572,6 +586,8 @@
                 const month = document.getElementById('reportMonth')?.value;
                 const department = document.getElementById('reportDepartment')?.value;
                 const date = document.getElementById('reportDate')?.value;
+                const fromDate = document.getElementById('reportFromDate')?.value;
+                const toDate = document.getElementById('reportToDate')?.value;
 
                 const params = new URLSearchParams();
                 params.append('report_type', reportType);
@@ -580,6 +596,8 @@
                 if (month) params.append('month', month);
                 if (department) params.append('department', department);
                 if (date) params.append('date', date);
+                if (fromDate) params.append('from_date', fromDate);
+                if (toDate) params.append('to_date', toDate);
 
                 // Trigger file download via navigation
                 window.location.href = `/generate_admin_report?${params.toString()}`;

@@ -1291,6 +1291,190 @@ def generate_admin_report():
         print(f"Report generation error: {str(e)}")
         return jsonify({'success': False, 'error': f'Report generation failed: {str(e)}'})
 
+@app.route('/test_performance_report_json')
+def test_performance_report_json():
+    """Test endpoint for performance report that returns JSON data for validation"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+    
+    try:
+        school_id = session['school_id']
+        department = request.args.get('department', '')
+        
+        # Temporarily modify the generate_performance_report function to return JSON
+        # by setting the format_type to 'json' which we'll handle in the function
+        
+        # Create a fake request context for the performance report function
+        original_args = request.args
+        
+        # Call the performance report generator directly, but we need to modify it to return JSON
+        from flask import g
+        import datetime
+        
+        db = get_db()
+        
+        # Get from_date and to_date parameters
+        from_date_str = request.args.get('from_date')
+        to_date_str = request.args.get('to_date')
+        
+        # Date range logic (same as in the function)
+        if from_date_str and to_date_str:
+            try:
+                start_date = datetime.datetime.strptime(from_date_str, '%Y-%m-%d').date()
+                end_date = datetime.datetime.strptime(to_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                today = datetime.date.today()
+                start_date = datetime.date(today.year, today.month, 1)
+                end_date = datetime.date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+        else:
+            today = datetime.date.today()
+            start_date = datetime.date(today.year, today.month, 1) 
+            end_date = datetime.date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+        
+        start_str, end_str = start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
+        
+        # Build department filter
+        dept_clause = ''
+        staff_params = [school_id]
+        if department and str(department).strip():
+            dept_clause = ' AND COALESCE(s.department, "") = ?'
+            staff_params.append(department)
+        
+        # Get staff data
+        staff_performance_query = f"""
+            SELECT 
+                s.id as staff_db_id,
+                s.staff_id,
+                s.full_name,
+                COALESCE(NULLIF(TRIM(s.department), ''), 'Unassigned') as department,
+                COALESCE(NULLIF(TRIM(s.position), ''), 'Not Specified') as position,
+                s.date_of_joining
+            FROM staff s
+            WHERE s.school_id = ? AND s.is_active = 1 {dept_clause}
+            ORDER BY s.department, s.full_name
+        """
+        
+        staff_rows = db.execute(staff_performance_query, tuple(staff_params)).fetchall()
+        
+        # Calculate working days (moved outside the loop)
+        total_days = (end_date - start_date).days + 1
+        working_days = 0
+        current_dt = start_date
+        weekend_days = 0
+        
+        # Get holidays
+        holidays_in_period = db.execute("""
+            SELECT start_date, end_date, holiday_name 
+            FROM holidays 
+            WHERE school_id = ? AND is_active = 1
+            AND NOT (end_date < ? OR start_date > ?)
+        """, (school_id, start_str, end_str)).fetchall()
+        
+        holiday_dates = set()
+        for holiday in holidays_in_period:
+            h_start = datetime.datetime.strptime(holiday['start_date'], '%Y-%m-%d').date()
+            h_end = datetime.datetime.strptime(holiday['end_date'], '%Y-%m-%d').date()
+            curr_date = h_start
+            while curr_date <= h_end:
+                holiday_dates.add(curr_date)
+                curr_date += datetime.timedelta(days=1)
+        
+        # Count working days
+        current_dt = start_date
+        while current_dt <= end_date:
+            if current_dt.weekday() < 5:  # Monday = 0, Sunday = 6
+                if current_dt not in holiday_dates:
+                    working_days += 1
+            else:
+                weekend_days += 1
+            current_dt += datetime.timedelta(days=1)
+        
+        # Get attendance data for each staff
+        final_performance_rows = []
+        
+        for staff in staff_rows:
+            staff_db_id = staff['staff_db_id']
+            
+            # Attendance data
+            attendance_data = db.execute("""
+                SELECT 
+                    COUNT(*) as total_records,
+                    SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) as days_present,
+                    SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as days_absent,
+                    SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as days_late
+                FROM attendance 
+                WHERE staff_id = ? AND date BETWEEN ? AND ?
+            """, (staff_db_id, start_str, end_str)).fetchone()
+            
+            # Leave data
+            leave_data = db.execute("""
+                SELECT 
+                    COALESCE(COUNT(CASE WHEN status = 'approved' THEN id END), 0) as approved_leave_count,
+                    COALESCE(SUM(CASE WHEN status = 'approved' 
+                                THEN julianday(end_date) - julianday(start_date) + 1 
+                                ELSE 0 END), 0) as days_on_leave
+                FROM leave_applications 
+                WHERE staff_id = ? AND NOT (end_date < ? OR start_date > ?)
+            """, (staff_db_id, start_str, end_str)).fetchone()
+            
+            # OD data  
+            od_data = db.execute("""
+                SELECT 
+                    COALESCE(COUNT(CASE WHEN status = 'approved' THEN id END), 0) as approved_od_count,
+                    COALESCE(SUM(CASE WHEN status = 'approved' 
+                                THEN julianday(end_date) - julianday(start_date) + 1 
+                                ELSE 0 END), 0) as days_on_od
+                FROM on_duty_applications 
+                WHERE staff_id = ? AND NOT (end_date < ? OR start_date > ?)
+            """, (staff_db_id, start_str, end_str)).fetchone()
+            
+            # Permission data
+            permission_data = db.execute("""
+                SELECT 
+                    COALESCE(COUNT(CASE WHEN status = 'approved' THEN id END), 0) as approved_permission_count,
+                    COALESCE(SUM(CASE WHEN status = 'approved' THEN duration_hours ELSE 0 END), 0) as total_permission_hours
+                FROM permission_applications 
+                WHERE staff_id = ? AND permission_date BETWEEN ? AND ?
+            """, (staff_db_id, start_str, end_str)).fetchone()
+            
+            permission_days = round(float(permission_data['total_permission_hours'] or 0) / 8, 1)
+            
+            final_performance_rows.append({
+                'staff_id': staff['staff_id'],
+                'staff_name': staff['full_name'],
+                'department': staff['department'],
+                'position': staff['position'],
+                'days_present': int(attendance_data['days_present'] or 0),
+                'days_absent': int(attendance_data['days_absent'] or 0),
+                'days_late': int(attendance_data['days_late'] or 0),
+                'days_on_od_applied': int(od_data['days_on_od'] or 0),
+                'days_on_leave_applied': int(leave_data['days_on_leave'] or 0),
+                'days_with_permission_applied': permission_days,
+                'total_working_days': working_days,
+                'total_attendance_records': int(attendance_data['total_records'] or 0)
+            })
+            
+            # Only process first 3 staff for quick testing to avoid timeout
+            if len(final_performance_rows) >= 3:
+                break
+        
+        return jsonify({
+            'success': True,
+            'data': final_performance_rows,
+            'summary': {
+                'total_staff': len(final_performance_rows),
+                'date_range': f'{start_str} to {end_str}',
+                'department_filter': department if department else 'All Departments',
+                'total_working_days': working_days,
+                'weekend_days': weekend_days,
+                'holiday_days': len(holiday_dates),
+                'total_days': total_days
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Test failed: {str(e)}'})
+
 def generate_monthly_salary_report(school_id, year, month, department, format_type):
     """Generate monthly salary report"""
     import openpyxl
@@ -1893,179 +2077,282 @@ def generate_department_analysis_report(school_id, year=None, month=None, format
     return resp
 
 def generate_performance_report(school_id, year=None, month=None, department=None, format_type='excel'):
-    """Generate comprehensive Performance Report with multi-format export.
-    Includes: per-staff performance metrics (attendance-based KPIs, punctuality, work hours,
-    overtime, training), department summaries, and trends for selected period.
+    """Generate enhanced Staff Performance Metrics and Evaluations Report.
+    
+    Includes the specific fields requested by user:
+    - Staff ID, Name, Department, Position
+    - Days Present (count)
+    - Days Absent (count) 
+    - Days on OD (Official Duty) applied
+    - Days on Leave applied
+    - Days with Permission applied
+    
+    Supports date range filtering and Excel export.
     """
     import datetime, calendar, io
+    from flask import request
 
     db = get_db()
 
-    # Resolve period (use selected year/month, default to current month)
-    today = datetime.date.today()
-    if not isinstance(year, int) or year <= 0:
-        year = today.year
-    if not isinstance(month, int) or not (1 <= month <= 12):
-        month = today.month
-    start_date = datetime.date(year, month, 1)
-    end_date = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    # Handle date range from request parameters
+    from_date_str = request.args.get('from_date')
+    to_date_str = request.args.get('to_date')
+    
+    # Determine date range for the report
+    if from_date_str and to_date_str:
+        try:
+            start_date = datetime.datetime.strptime(from_date_str, '%Y-%m-%d').date()
+            end_date = datetime.datetime.strptime(to_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            # Fallback to month/year if date parsing fails
+            today = datetime.date.today()
+            if not isinstance(year, int) or year <= 0:
+                year = today.year
+            if not isinstance(month, int) or not (1 <= month <= 12):
+                month = today.month
+            start_date = datetime.date(year, month, 1)
+            end_date = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    elif year and month:
+        start_date = datetime.date(year, month, 1)
+        end_date = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    else:
+        # Default to current month
+        today = datetime.date.today()
+        start_date = datetime.date(today.year, today.month, 1)
+        end_date = datetime.date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+    
     start_str, end_str = start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
+    period_label = f"{start_date.strftime('%B %d, %Y')} to {end_date.strftime('%B %d, %Y')}"
 
-    # Detect optional columns in attendance table for robust queries
-    try:
-        cols = {row['name'] for row in db.execute("PRAGMA table_info(attendance)").fetchall()}
-    except Exception:
-        cols = set()
-    has_work_hours = 'work_hours' in cols
-    has_overtime_hours = 'overtime_hours' in cols
-    avg_work_hours_expr = "AVG(CASE WHEN a.work_hours IS NOT NULL THEN a.work_hours END)" if has_work_hours else "0"
-    overtime_expr = "SUM(COALESCE(a.overtime_hours, 0))" if has_overtime_hours else "0"
-
-    # Build optional department filter
+    # Build department filter clause
     dept_clause = ''
-    params_att = [start_str, end_str, school_id]
-    params_train = [start_str, end_str, school_id]
+    params_base = [start_str, end_str, school_id]
     if department and str(department).strip():
         dept_clause = ' AND COALESCE(s.department, "") = ? '
-        params_att.append(department)
-        params_train.append(department)
+        params_base.append(department)
 
-    # Per-staff attendance-based metrics
-    att_rows = db.execute(
-        f"""
-        SELECT
-            s.id AS staff_pk,
-            s.staff_id, s.full_name, s.department, COALESCE(s.position,'') AS position,
-            SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) AS present_days,
-            SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) AS late_days,
-            SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
-            SUM(CASE WHEN a.status = 'leave' THEN 1 ELSE 0 END) AS leave_days,
-            SUM(CASE WHEN a.status = 'on_duty' THEN 1 ELSE 0 END) AS on_duty_days,
-            COUNT(a.id) AS total_days,
-            {avg_work_hours_expr} AS avg_work_hours,
-            {overtime_expr} AS total_overtime
+    # Main query to get staff performance data with all required fields
+    staff_performance_query = f"""
+        SELECT 
+            s.id as staff_db_id,
+            s.staff_id,
+            s.full_name,
+            COALESCE(NULLIF(TRIM(s.department), ''), 'Unassigned') as department,
+            COALESCE(NULLIF(TRIM(s.position), ''), 'Not Specified') as position,
+            s.date_of_joining
+            
         FROM staff s
-        LEFT JOIN attendance a ON a.staff_id = s.id AND a.date BETWEEN ? AND ?
-        WHERE s.school_id = ? {dept_clause}
-        GROUP BY s.id
+        WHERE s.school_id = ? AND s.is_active = 1 {dept_clause[24:] if dept_clause else ''}
         ORDER BY s.department, s.full_name
-        """,
-        tuple(params_att)
-    ).fetchall()
+    """
 
-    # Training completion counts per staff (based on on_duty_applications with duty_type='Training')
-    train_rows = db.execute(
-        f"""
-        SELECT s.id AS staff_pk, COUNT(*) AS training_sessions
-        FROM on_duty_applications od
-        JOIN staff s ON s.id = od.staff_id
-        WHERE od.duty_type = 'Training' AND od.start_date BETWEEN ? AND ? AND s.school_id = ? {dept_clause}
-        GROUP BY s.id
-        """,
-        tuple(params_train)
-    ).fetchall()
-    train_map = {tr['staff_pk']: int(tr['training_sessions'] or 0) for tr in train_rows}
+    # Adjust parameters for staff query (remove date parameters)
+    staff_params = [school_id]
+    if department and str(department).strip():
+        staff_params.append(department)
+    
+    staff_rows = db.execute(staff_performance_query, tuple(staff_params)).fetchall()
 
-    # Build per-staff performance rows
-    staff_rows = []
-    dept_summary = {}
-    for r in att_rows:
-        present = int(r['present_days'] or 0)
-        late = int(r['late_days'] or 0)
-        absent = int(r['absent_days'] or 0)
-        leave = int(r['leave_days'] or 0)
-        on_duty = int(r['on_duty_days'] or 0)
-        total = int(r['total_days'] or 0)
-        avg_hours = float(r['avg_work_hours'] or 0)
-        overtime = float(r['total_overtime'] or 0)
-        att_considered = present + late + on_duty  # treat these as attended
-        attendance_rate = (att_considered / total * 100.0) if total else 0.0
-        punctuality_rate = ((att_considered - late) / att_considered * 100.0) if att_considered else 0.0
-        late_rate = (late / att_considered * 100.0) if att_considered else 0.0
-        hours_norm = min(max(avg_hours, 0.0) / 8.0, 1.0) * 100.0  # vs 8h/day
-        perf_score = round(0.7 * attendance_rate + 0.2 * (100.0 - late_rate) + 0.1 * hours_norm, 2)
-        trainings = train_map.get(r['staff_pk'], 0)
-
-        staff_rows.append({
-            'staff_id': r['staff_id'],
-            'full_name': r['full_name'],
-            'department': r['department'] or 'Unassigned',
-            'position': r['position'] or 'Unspecified',
-            'present': present,
-            'late': late,
-            'absent': absent,
-            'leave': leave,
-            'on_duty': on_duty,
-            'total_days': total,
-            'attendance_rate': round(attendance_rate, 2),
-            'punctuality_rate': round(punctuality_rate, 2),
-            'avg_work_hours': round(avg_hours, 2),
-            'total_overtime': round(overtime, 2),
-            'training_sessions': trainings,
-            'performance_score': perf_score,
-            'manager_comments': 'N/A'
+    # Now get attendance data for each staff member separately for accuracy
+    performance_rows = []
+    
+    for staff in staff_rows:
+        staff_id = staff['staff_id']
+        staff_db_id = staff['staff_db_id']
+        
+        # Get attendance data for this specific staff member
+        attendance_data = db.execute("""
+            SELECT 
+                COUNT(*) as total_records,
+                SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) as days_present,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as days_absent,
+                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as days_late,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as days_present_only,
+                SUM(CASE WHEN status = 'early_departure' THEN 1 ELSE 0 END) as days_early_departure
+            FROM attendance 
+            WHERE staff_id = ? AND date BETWEEN ? AND ?
+        """, (staff_db_id, start_str, end_str)).fetchone()
+        
+        days_present = int(attendance_data['days_present'] or 0)
+        days_absent = int(attendance_data['days_absent'] or 0)
+        days_late = int(attendance_data['days_late'] or 0)
+        days_present_only = int(attendance_data['days_present_only'] or 0)
+        total_attendance_records = int(attendance_data['total_records'] or 0)
+        
+        performance_rows.append({
+            'staff_id': staff['staff_id'],
+            'staff_db_id': staff_db_id,
+            'staff_name': staff['full_name'],
+            'department': staff['department'],
+            'position': staff['position'],
+            'days_present': days_present,
+            'days_absent': days_absent,
+            'days_late': days_late,
+            'days_present_only': days_present_only,
+            'total_attendance_records': total_attendance_records
         })
 
-        # Aggregate department summary
-        dept = r['department'] or 'Unassigned'
-        ds = dept_summary.setdefault(dept, {
-            'staff_count': 0,
-            'sum_attendance_rate': 0.0,
-            'sum_punctuality_rate': 0.0,
-            'sum_avg_hours': 0.0,
-            'sum_overtime': 0.0,
-            'sum_perf_score': 0.0,
-            'total_training_sessions': 0
-        })
-        ds['staff_count'] += 1
-        ds['sum_attendance_rate'] += attendance_rate
-        ds['sum_punctuality_rate'] += punctuality_rate
-        ds['sum_avg_hours'] += avg_hours
-        ds['sum_overtime'] += overtime
-        ds['sum_perf_score'] += perf_score
-        ds['total_training_sessions'] += trainings
+    # Get Leave Applications data for all staff
+    leave_query = f"""
+        SELECT 
+            s.staff_id,
+            COALESCE(COUNT(CASE WHEN l.status = 'approved' THEN l.id END), 0) as approved_leave_count,
+            COALESCE(SUM(CASE WHEN l.status = 'approved' 
+                        THEN julianday(l.end_date) - julianday(l.start_date) + 1 
+                        ELSE 0 END), 0) as days_on_leave
+        FROM staff s
+        LEFT JOIN leave_applications l ON s.id = l.staff_id 
+            AND NOT (l.end_date < ? OR l.start_date > ?)
+        WHERE s.school_id = ? AND s.is_active = 1 {dept_clause[24:] if dept_clause else ''}
+        GROUP BY s.id, s.staff_id
+    """
+    
+    leave_params = [start_str, end_str, school_id]
+    if department and str(department).strip():
+        leave_params.append(department)
+    
+    leave_data = db.execute(leave_query, tuple(leave_params)).fetchall()
+    leave_map = {row['staff_id']: {
+        'applications': int(row['approved_leave_count']), 
+        'days': float(row['days_on_leave'])
+    } for row in leave_data}
 
-    # Prepare department rows with averages
-    dept_rows = []
-    for dept, ds in sorted(dept_summary.items()):
-        c = max(ds['staff_count'], 1)
-        dept_rows.append({
-            'department': dept,
-            'staff_count': ds['staff_count'],
-            'avg_attendance_rate': round(ds['sum_attendance_rate'] / c, 2),
-            'avg_punctuality_rate': round(ds['sum_punctuality_rate'] / c, 2),
-            'avg_work_hours': round(ds['sum_avg_hours'] / c, 2),
-            'total_overtime': round(ds['sum_overtime'], 2),
-            'total_training_sessions': int(ds['total_training_sessions']),
-            'avg_performance_score': round(ds['sum_perf_score'] / c, 2)
-        })
+    # Get Official Duty (OD) Applications data
+    od_query = f"""
+        SELECT 
+            s.staff_id,
+            COALESCE(COUNT(CASE WHEN od.status = 'approved' THEN od.id END), 0) as approved_od_count,
+            COALESCE(SUM(CASE WHEN od.status = 'approved' 
+                        THEN julianday(od.end_date) - julianday(od.start_date) + 1 
+                        ELSE 0 END), 0) as days_on_od
+        FROM staff s
+        LEFT JOIN on_duty_applications od ON s.id = od.staff_id 
+            AND NOT (od.end_date < ? OR od.start_date > ?)
+        WHERE s.school_id = ? AND s.is_active = 1 {dept_clause[24:] if dept_clause else ''}
+        GROUP BY s.id, s.staff_id
+    """
+    
+    od_params = [start_str, end_str, school_id]
+    if department and str(department).strip():
+        od_params.append(department)
+    
+    od_data = db.execute(od_query, tuple(od_params)).fetchall()
+    od_map = {row['staff_id']: {
+        'applications': int(row['approved_od_count']), 
+        'days': float(row['days_on_od'])
+    } for row in od_data}
 
-    period_label = f"{calendar.month_name[month]} {year}"
+    # Get Permission Applications data
+    permission_query = f"""
+        SELECT 
+            s.staff_id,
+            COALESCE(COUNT(CASE WHEN p.status = 'approved' THEN p.id END), 0) as approved_permission_count,
+            COALESCE(SUM(CASE WHEN p.status = 'approved' THEN p.duration_hours ELSE 0 END), 0) as total_permission_hours
+        FROM staff s
+        LEFT JOIN permission_applications p ON s.id = p.staff_id 
+            AND p.permission_date BETWEEN ? AND ?
+        WHERE s.school_id = ? AND s.is_active = 1 {dept_clause[24:] if dept_clause else ''}
+        GROUP BY s.id, s.staff_id
+    """
+    
+    permission_params = [start_str, end_str, school_id]
+    if department and str(department).strip():
+        permission_params.append(department)
+    
+    permission_data = db.execute(permission_query, tuple(permission_params)).fetchall()
+    permission_map = {row['staff_id']: {
+        'applications': int(row['approved_permission_count']), 
+        'hours': float(row['total_permission_hours'])
+    } for row in permission_data}
+
+    # Calculate working days in the period (excluding weekends and holidays)
+    total_days = (end_date - start_date).days + 1
+    working_days = 0
+    current_dt = start_date
+    weekend_days = 0
+    
+    # Get holidays in the period
+    holidays_in_period = db.execute("""
+        SELECT start_date, end_date, holiday_name 
+        FROM holidays 
+        WHERE school_id = ? AND is_active = 1
+        AND NOT (end_date < ? OR start_date > ?)
+    """, (school_id, start_str, end_str)).fetchall()
+    
+    # Create set of holiday dates
+    holiday_dates = set()
+    for holiday in holidays_in_period:
+        h_start = datetime.datetime.strptime(holiday['start_date'], '%Y-%m-%d').date()
+        h_end = datetime.datetime.strptime(holiday['end_date'], '%Y-%m-%d').date()
+        curr_date = h_start
+        while curr_date <= h_end:
+            holiday_dates.add(curr_date)
+            curr_date += datetime.timedelta(days=1)
+    
+    # Count working days (Mon-Fri, excluding holidays)
+    while current_dt <= end_date:
+        if current_dt.weekday() < 5:  # Monday = 0, Sunday = 6
+            if current_dt not in holiday_dates:
+                working_days += 1
+        else:
+            weekend_days += 1
+        current_dt += datetime.timedelta(days=1)
+    
+    holiday_days = len(holiday_dates)
+
+    # Combine all data into final performance report rows
+    final_performance_rows = []
+    for perf in performance_rows:
+        staff_id = perf['staff_id']
+        
+        # Get leave data for this staff
+        leave_info = leave_map.get(staff_id, {'applications': 0, 'days': 0})
+        
+        # Get OD data for this staff
+        od_info = od_map.get(staff_id, {'applications': 0, 'days': 0})
+        
+        # Get permission data for this staff
+        permission_info = permission_map.get(staff_id, {'applications': 0, 'hours': 0})
+        permission_days = round(float(permission_info['hours']) / 8, 1) if permission_info['hours'] else 0
+        
+        final_performance_rows.append({
+            'staff_id': perf['staff_id'],
+            'staff_name': perf['staff_name'],
+            'department': perf['department'],
+            'position': perf['position'],
+            'days_present': perf['days_present'],
+            'days_absent': perf['days_absent'],
+            'days_on_od_applied': int(od_info['days']),
+            'days_on_leave_applied': int(leave_info['days']),
+            'days_with_permission_applied': permission_days,
+            'total_working_days': working_days,
+            'total_attendance_records': perf['total_attendance_records'],
+            'days_late': perf['days_late'],
+            'days_present_only': perf['days_present_only']
+        })
 
     # CSV export
     if format_type == 'csv':
         import csv
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow([f"Performance Report - {period_label}"])
+        writer.writerow([f"Staff Performance Metrics Report"])
+        writer.writerow([f"Period: {period_label}"])
+        if department:
+            writer.writerow([f"Department: {department}"])
         writer.writerow([])
-        # Department Summary first
-        writer.writerow(['Department','Staff Count','Avg Attendance %','Avg Punctuality %','Avg Work Hrs','Total OT','Training Sessions','Avg Score'])
-        for d in dept_rows:
+        writer.writerow(['Staff ID', 'Staff Name', 'Department', 'Position', 'Days Present', 'Days Absent', 'Days Late', 'Days on OD Applied', 'Days on Leave Applied', 'Days with Permission Applied', 'Total Working Days', 'Attendance Records'])
+        
+        for row in final_performance_rows:
             writer.writerow([
-                d['department'], d['staff_count'], d['avg_attendance_rate'], d['avg_punctuality_rate'],
-                d['avg_work_hours'], d['total_overtime'], d['total_training_sessions'], d['avg_performance_score']
+                row['staff_id'], row['staff_name'], row['department'], row['position'],
+                row['days_present'], row['days_absent'], row['days_late'], row['days_on_od_applied'],
+                row['days_on_leave_applied'], row['days_with_permission_applied'],
+                row['total_working_days'], row['total_attendance_records']
             ])
-        writer.writerow([])
-        # Staff Performance
-        writer.writerow(['Staff ID','Full Name','Department','Position','Present','Late','Absent','Leave','On Duty','Total Days','Attendance %','Punctuality %','Avg Work Hrs','Total OT','Training','Score','Manager Comments'])
-        for s in staff_rows:
-            writer.writerow([
-                s['staff_id'], s['full_name'], s['department'], s['position'], s['present'], s['late'], s['absent'], s['leave'], s['on_duty'], s['total_days'],
-                s['attendance_rate'], s['punctuality_rate'], s['avg_work_hours'], s['total_overtime'], s['training_sessions'], s['performance_score'], s['manager_comments']
-            ])
+        
         resp = make_response(output.getvalue())
-        fname = f"performance_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        fname = f"staff_performance_report_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv"
         resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
         resp.headers['Content-Type'] = 'text/csv'
         resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -2074,52 +2361,53 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
     # PDF export
     if format_type == 'pdf':
         try:
-            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.pagesizes import A4, landscape
             from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
             from reportlab.lib.styles import getSampleStyleSheet
             from reportlab.lib import colors
+            
             buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=18)
+            doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=18)
             styles = getSampleStyleSheet()
             elements = []
-            elements.append(Paragraph(f"Performance Report - {period_label}", styles['Title']))
+            
+            elements.append(Paragraph(f"Staff Performance Metrics Report", styles['Title']))
+            elements.append(Paragraph(f"Period: {period_label}", styles['Normal']))
+            if department:
+                elements.append(Paragraph(f"Department: {department}", styles['Normal']))
             elements.append(Spacer(1, 12))
-            # Department table
-            dep_headers = ['Department','Staff','Avg Att%','Avg Punct%','Avg Hrs','Total OT','Training','Avg Score']
-            dep_data = [dep_headers]
-            for d in dept_rows:
-                dep_data.append([
-                    d['department'], d['staff_count'], d['avg_attendance_rate'], d['avg_punctuality_rate'], d['avg_work_hours'], d['total_overtime'], d['total_training_sessions'], d['avg_performance_score']
+            
+            # Create table data
+            headers = ['Staff ID', 'Staff Name', 'Department', 'Position', 'Days Present', 'Days Absent', 'Days Late', 'Days on OD', 'Days on Leave', 'Permission (Days)', 'Working Days', 'Records']
+            table_data = [headers]
+            
+            for row in final_performance_rows:
+                table_data.append([
+                    row['staff_id'], row['staff_name'], row['department'], row['position'],
+                    str(row['days_present']), str(row['days_absent']), str(row['days_late']),
+                    str(row['days_on_od_applied']), str(row['days_on_leave_applied']), 
+                    str(row['days_with_permission_applied']), str(row['total_working_days']),
+                    str(row['total_attendance_records'])
                 ])
-            dep_table = Table(dep_data, repeatRows=1)
-            dep_table.setStyle(TableStyle([
+            
+            table = Table(table_data, repeatRows=1)
+            table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#366092')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('FONTSIZE', (0, 1), (-1, -1), 7),
                 ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
             ]))
-            elements.append(dep_table)
-            elements.append(Spacer(1, 12))
-            # Staff table (limit rows if very large?)
-            st_headers = ['Staff ID','Name','Dept','Pos','Pres','Late','Abs','Lev','OD','Tot','Att%','Punct%','Hrs','OT','Train','Score']
-            st_data = [st_headers]
-            for s in staff_rows:
-                st_data.append([
-                    s['staff_id'], s['full_name'], s['department'], s['position'], s['present'], s['late'], s['absent'], s['leave'], s['on_duty'], s['total_days'],
-                    s['attendance_rate'], s['punctuality_rate'], s['avg_work_hours'], s['total_overtime'], s['training_sessions'], s['performance_score']
-                ])
-            st_table = Table(st_data, repeatRows=1)
-            st_table.setStyle(TableStyle([
-                ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
-                ('FONTSIZE', (0, 0), (-1, -1), 7),
-            ]))
-            elements.append(st_table)
+            elements.append(table)
+            
             doc.build(elements)
-            pdf = buffer.getvalue(); buffer.close()
+            pdf = buffer.getvalue()
+            buffer.close()
+            
             resp = make_response(pdf)
-            fname = f"performance_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            fname = f"staff_performance_report_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.pdf"
             resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
             resp.headers['Content-Type'] = 'application/pdf'
             resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -2129,68 +2417,69 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
         except Exception as e:
             return jsonify({'success': False, 'error': f'PDF generation failed: {str(e)}'})
 
-    # Default: Excel export with Summary and Staff Performance sheets
+    # Default: Excel export  
     import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
     from io import BytesIO
 
     wb = openpyxl.Workbook()
-    ws = wb.active; ws.title = 'Summary'
+    ws = wb.active
+    ws.title = 'Staff Performance Report'
 
+    # Styling
     header_font = Font(bold=True, size=11, color='FFFFFF')
     header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
     border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+    
+    # Report title and metadata
+    ws.cell(row=1, column=1, value=f'Staff Performance Metrics Report').font = Font(bold=True, size=14)
+    ws.cell(row=2, column=1, value=f'Period: {period_label}').font = Font(bold=True, size=11)
+    if department:
+        ws.cell(row=3, column=1, value=f'Department: {department}').font = Font(bold=True, size=11)
+        header_row = 5
+    else:
+        header_row = 4
 
-    ws.cell(row=1, column=1, value=f'Performance Report - {period_label}').font = Font(bold=True, size=12)
-    ws.append([])
+    # Column headers
+    headers = ['Staff ID', 'Staff Name', 'Department', 'Position', 'Days Present', 'Days Absent', 'Days Late', 'Days on OD', 'Days on Leave', 'Permission (Days)', 'Total Working Days', 'Attendance Records']
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=header_row, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = Alignment(horizontal='center')
 
-    sum_headers = ['Department','Staff Count','Avg Attendance (%)','Avg Punctuality (%)','Avg Work Hours','Total Overtime','Training Sessions','Avg Score']
-    for col, h in enumerate(sum_headers, 1):
-        c = ws.cell(row=3, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
-    r = 4
-    for d in dept_rows:
-        vals = [d['department'], d['staff_count'], d['avg_attendance_rate'], d['avg_punctuality_rate'], d['avg_work_hours'], d['total_overtime'], d['total_training_sessions'], d['avg_performance_score']]
-        for cidx, val in enumerate(vals, 1):
-            cell = ws.cell(row=r, column=cidx, value=val); cell.border = border
-        r += 1
-    for col in range(1, len(sum_headers)+1):
-        ws.column_dimensions[get_column_letter(col)].width = 22
+    # Data rows
+    data_start_row = header_row + 1
+    for row_idx, data in enumerate(final_performance_rows, data_start_row):
+        values = [
+            data['staff_id'], data['staff_name'], data['department'], data['position'],
+            data['days_present'], data['days_absent'], data['days_late'],
+            data['days_on_od_applied'], data['days_on_leave_applied'], 
+            data['days_with_permission_applied'], data['total_working_days'],
+            data['total_attendance_records']
+        ]
+        
+        for col, value in enumerate(values, 1):
+            cell = ws.cell(row=row_idx, column=col, value=value)
+            cell.border = border
+            if col >= 5:  # Numeric columns - center align
+                cell.alignment = Alignment(horizontal='center')
 
-    # Staff Performance sheet
-    ws2 = wb.create_sheet(title='Staff Performance')
-    st_headers = ['Staff ID','Full Name','Department','Position','Present','Late','Absent','Leave','On Duty','Total Days','Attendance (%)','Punctuality (%)','Avg Work Hours','Total Overtime','Training Sessions','Performance Score','Manager Comments']
-    for col, h in enumerate(st_headers, 1):
-        c = ws2.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
-    r = 2
-    for s in staff_rows:
-        vals = [s['staff_id'], s['full_name'], s['department'], s['position'], s['present'], s['late'], s['absent'], s['leave'], s['on_duty'], s['total_days'], s['attendance_rate'], s['punctuality_rate'], s['avg_work_hours'], s['total_overtime'], s['training_sessions'], s['performance_score'], s['manager_comments']]
-        for cidx, val in enumerate(vals, 1):
-            cell = ws2.cell(row=r, column=cidx, value=val); cell.border = border
-        r += 1
-    widths = [14, 26, 18, 18, 10, 10, 10, 10, 10, 12, 16, 16, 16, 16, 18, 16, 28]
-    for col, w in enumerate(widths, 1):
-        ws2.column_dimensions[get_column_letter(col)].width = w
+    # Auto-adjust column widths
+    column_widths = [12, 25, 18, 18, 12, 12, 12, 12, 14, 16, 16, 18]
+    for col, width in enumerate(column_widths, 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
 
-    # Optional Training sheet
-    ws3 = wb.create_sheet(title='Training')
-    tr_headers = ['Staff ID','Full Name','Department','Training Sessions']
-    for col, h in enumerate(tr_headers, 1):
-        c = ws3.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
-    r = 2
-    for s in staff_rows:
-        vals = [s['staff_id'], s['full_name'], s['department'], s['training_sessions']]
-        for cidx, val in enumerate(vals, 1):
-            cell = ws3.cell(row=r, column=cidx, value=val); cell.border = border
-        r += 1
-
-    # Save workbook and return as response
+    # Save workbook and return response
     output = BytesIO()
     wb.save(output)
     output.seek(0)
 
     resp = make_response(output.getvalue())
-    fname = f"performance_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    fname = f"staff_performance_report_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.xlsx"
     resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
     resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
