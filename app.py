@@ -2184,6 +2184,18 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
             cell = ws3.cell(row=r, column=cidx, value=val); cell.border = border
         r += 1
 
+    # Save workbook and return as response
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    resp = make_response(output.getvalue())
+    fname = f"performance_report_{year}_{str(month).zfill(2)}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+    resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
+
 
 def generate_daily_attendance_report(school_id, date_str=None, department=None, format_type='excel'):
     """Generate comprehensive Daily Attendance Report (multi-format).
