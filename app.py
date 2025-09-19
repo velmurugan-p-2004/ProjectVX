@@ -477,39 +477,80 @@ def export_staff_data():
 @app.route('/add_admin', methods=['POST'])
 def add_admin():
     if 'user_id' not in session or session['user_type'] != 'company_admin':
-        return jsonify({'success': False, 'error': 'Unauthorized'})
+        return jsonify({'success': False, 'error': 'Unauthorized access'}), 401
 
+    # Get form data
     school_id = request.form.get('school_id')
     username = request.form.get('username')
-    password = generate_password_hash(request.form.get('password'))
+    password = request.form.get('password')
     full_name = request.form.get('full_name')
     email = request.form.get('email')
 
+    # Validate required fields
+    if not school_id:
+        return jsonify({'success': False, 'error': 'School ID is required'}), 400
+    
+    if not username or not username.strip():
+        return jsonify({'success': False, 'error': 'Username is required'}), 400
+    
+    if not password or not password.strip():
+        return jsonify({'success': False, 'error': 'Password is required'}), 400
+        
+    if not full_name or not full_name.strip():
+        return jsonify({'success': False, 'error': 'Full name is required'}), 400
+
+    # Validate school exists
     db = get_db()
+    school = db.execute('SELECT id FROM schools WHERE id = ?', (school_id,)).fetchone()
+    if not school:
+        return jsonify({'success': False, 'error': 'Invalid school ID'}), 400
+
+    # Clean data
+    username = username.strip()
+    full_name = full_name.strip()
+    email = email.strip() if email else None
+    
+    # Hash password
+    password_hash = generate_password_hash(password)
 
     try:
         db.execute('''
             INSERT INTO admins (school_id, username, password, full_name, email)
             VALUES (?, ?, ?, ?, ?)
-        ''', (school_id, username, password, full_name, email))
+        ''', (school_id, username, password_hash, full_name, email))
         db.commit()
-        return jsonify({'success': True})
-    except sqlite3.IntegrityError:
-        return jsonify({'success': False, 'error': 'Username already exists'})
+        return jsonify({'success': True, 'message': 'Administrator added successfully'})
+    except sqlite3.IntegrityError as e:
+        if 'username' in str(e).lower():
+            return jsonify({'success': False, 'error': 'Username already exists'}), 400
+        else:
+            return jsonify({'success': False, 'error': 'Database constraint error'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': 'An unexpected error occurred'}), 500
 
 @app.route('/delete_admin', methods=['POST'])
 def delete_admin():
     if 'user_id' not in session or session['user_type'] != 'company_admin':
-        return jsonify({'success': False, 'error': 'Unauthorized'})
+        return jsonify({'success': False, 'error': 'Unauthorized access'}), 401
 
     admin_id = request.form.get('admin_id')
+    
+    if not admin_id:
+        return jsonify({'success': False, 'error': 'Admin ID is required'}), 400
 
     db = get_db()
 
-    db.execute('DELETE FROM admins WHERE id = ?', (admin_id,))
-    db.commit()
+    try:
+        # Check if admin exists
+        admin = db.execute('SELECT id FROM admins WHERE id = ?', (admin_id,)).fetchone()
+        if not admin:
+            return jsonify({'success': False, 'error': 'Administrator not found'}), 404
 
-    return jsonify({'success': True})
+        db.execute('DELETE FROM admins WHERE id = ?', (admin_id,))
+        db.commit()
+        return jsonify({'success': True, 'message': 'Administrator deleted successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': 'An error occurred while deleting administrator'}), 500
 
 
 

@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/salary_management.css') }}">
     <style>
-        /* Fix two-column layout positioning for school details */
+        /* Fix sidebar positioning for school details */
         .container-fluid {
             padding: 0;
             margin: 0;
@@ -29,17 +29,18 @@
             position: fixed !important;
             top: 0;
             left: 0;
-            width: 16.666667%; /* 2/12 columns */
+            width: 250px; /* Fixed width */
             height: 100vh;
             overflow-y: auto;
             overflow-x: hidden;
             z-index: 1000;
+            display: block !important; /* Override inline style */
         }
         
         /* Main content positioning */
         .salary-main-content {
-            margin-left: 16.666667% !important; /* Match sidebar width */
-            width: 83.333333% !important; /* 10/12 columns */
+            margin-left: 250px !important; /* Match sidebar width exactly */
+            width: calc(100% - 250px) !important; /* Fill remaining space */
             min-height: 100vh;
             padding: 2rem 1rem;
             overflow-x: hidden;
@@ -56,6 +57,49 @@
             margin-bottom: 2rem;
         }
         
+        /* Ensure tables and content fit properly within fixed layout */
+        .table-responsive {
+            overflow-x: auto;
+            border-radius: 0.375rem;
+        }
+        
+        .salary-table {
+            min-width: 600px; /* Ensure minimum table width */
+        }
+        
+        /* Prevent horizontal scrolling issues */
+        .card-body {
+            overflow-x: auto;
+        }
+        
+        /* Ensure proper spacing for sections */
+        .salary-header {
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        /* Fix info items spacing */
+        .info-item {
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #f8f9fa;
+        }
+        
+        .info-item:last-child {
+            border-bottom: none;
+        }
+        
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 0.25rem;
+        }
+        
+        .info-value {
+            color: #212529;
+            word-wrap: break-word;
+        }
+        
         /* Mobile responsive fixes */
         @media (max-width: 767.98px) {
             .enhanced-sidebar {
@@ -67,10 +111,12 @@
                 overflow: hidden !important;
                 transition: left 0.3s ease;
                 z-index: 1050;
+                display: none !important; /* Hidden by default on mobile */
             }
             
             .enhanced-sidebar.show {
                 left: 0;
+                display: block !important;
             }
             
             .salary-main-content {
@@ -79,19 +125,295 @@
                 padding: 1rem 0.5rem;
                 padding-top: 4rem; /* Account for mobile toggle button */
             }
+            
+            .sidebar-toggle {
+                display: block !important;
+            }
+        }
+        
+        /* Ensure sidebar toggle is properly styled */
+        .sidebar-toggle {
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            z-index: 1100;
+            background: var(--primary-color, #007bff);
+            color: white;
+            border: none;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            font-size: 1.25rem;
+            display: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            transition: all 0.2s ease;
+        }
+        
+        .sidebar-toggle:hover {
+            background: var(--primary-dark, #0056b3);
+            transform: scale(1.05);
+        }
+        
+        /* Smooth scrolling for better UX */
+        html {
+            scroll-behavior: smooth;
+        }
+        
+        /* Focus styles for better accessibility */
+        .nav-link:focus {
+            outline: 2px solid var(--primary-color, #007bff);
+            outline-offset: 2px;
+        }
+        
+        /* Ensure proper z-index stacking */
+        .modal {
+            z-index: 1060;
+        }
+        
+        .modal-backdrop {
+            z-index: 1055;
+        }
+        
+        /* Enhanced card hover effects */
+        .salary-filters-card {
+            transition: box-shadow 0.2s ease;
+        }
+        
+        .salary-filters-card:hover {
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        /* Enhanced School Information Section Layout Fixes */
+        
+        /* Fix header actions responsive behavior */
+        .header-actions {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: flex-end;
+        }
+        
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .title-icon {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,123,255,0.3);
+        }
+        
+        .title-text h1 {
+            margin: 0;
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .title-text p {
+            margin: 0;
+            font-size: 0.95rem;
+            color: #6c757d;
+        }
+        
+        /* Improve School Information card layout */
+        .salary-filters-card {
+            border: none;
+            border-radius: 1rem;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.08);
+            overflow: hidden;
+            margin-bottom: 2rem;
+        }
+        
+        .salary-filters-card .card-header {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: none;
+            padding: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .card-header .header-icon {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            box-shadow: 0 2px 8px rgba(0,123,255,0.3);
+        }
+        
+        .card-header .header-content {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .card-header .card-title {
+            margin: 0;
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .card-header .card-subtitle {
+            margin: 0;
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        
+        /* Enhanced info items layout */
+        .info-item {
+            padding: 1rem 0;
+            border-bottom: 1px solid #f1f3f4;
+            transition: all 0.2s ease;
+        }
+        
+        .info-item:last-child {
+            border-bottom: none;
+        }
+        
+        .info-item:hover {
+            background-color: #f8f9fa;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+            border-radius: 0.5rem;
+        }
+        
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+        }
+        
+        .info-value {
+            color: #212529;
+            word-wrap: break-word;
+            font-size: 1rem;
+            line-height: 1.4;
+        }
+        
+        /* Better card body spacing */
+        .card-body {
+            padding: 2rem;
+            overflow: visible;
+        }
+        
+        /* Responsive improvements for mobile screens */
+        @media (max-width: 575.98px) {
+            .header-content {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 1rem;
+            }
+            
+            .header-actions {
+                width: 100%;
+                justify-content: center;
+                gap: 0.5rem;
+            }
+            
+            .header-actions .btn {
+                flex: 1;
+                min-width: 120px;
+                font-size: 0.875rem;
+            }
+            
+            .title-text h1 {
+                font-size: 1.5rem;
+            }
+            
+            .title-text p {
+                font-size: 0.875rem;
+            }
+            
+            .card-body {
+                padding: 1.5rem;
+            }
+            
+            .info-item {
+                padding: 0.75rem 0;
+            }
+            
+            .info-label {
+                font-size: 0.95rem;
+            }
+            
+            .info-value {
+                font-size: 0.95rem;
+            }
+        }
+        
+        /* Medium screen responsive improvements */
+        @media (max-width: 991.98px) {
+            .header-actions {
+                flex-wrap: wrap;
+                justify-content: flex-start;
+            }
+            
+            .header-actions .btn {
+                margin-bottom: 0.5rem;
+            }
+            
+            .title-text h1 {
+                font-size: 1.6rem;
+            }
+            
+            .salary-main-content {
+                padding: 1.5rem 0.75rem;
+            }
+        }
+        
+        /* Additional spacing fixes for better visual hierarchy */
+        .school-info-section {
+            margin-top: 1rem;
+        }
+        
+        /* Ensure proper spacing between sections */
+        #school-info + .salary-filters-card {
+            margin-top: 0.5rem;
         }
     </style>
 </head>
 <body>
     <!-- Mobile Sidebar Toggle -->
-    <button type="button" class="sidebar-toggle d-md-none" id="sidebarToggle" title="Toggle sidebar menu">
+    <button type="button" class="sidebar-toggle d-md-none" id="sidebarToggle" 
+            title="Toggle sidebar menu" 
+            aria-label="Toggle navigation sidebar"
+            aria-expanded="false"
+            aria-controls="sidebar-navigation">
         <i class="bi bi-list"></i>
     </button>
 
     <div class="container-fluid">
         <div class="row">
             <!-- Enhanced Sidebar -->
-            <nav class="col-md-2 d-none d-md-block enhanced-sidebar">
+            <nav class="col-md-2 d-none d-md-block enhanced-sidebar" id="sidebar-navigation" role="navigation" aria-label="School details navigation">
                 <div class="sidebar-header">
                     <div class="brand-logo">
                         <div class="logo-icon">
@@ -157,7 +479,7 @@
                     </div>
                     
                     <!-- Quick Actions Section -->
-                    <div class="nav-section">
+                    <!-- <div class="nav-section">
                         <div class="nav-section-title">
                             <i class="bi bi-lightning"></i>
                             <span>Quick Actions</span>
@@ -177,7 +499,7 @@
                             </button>
                         </div>
                     </div>
-                </div>
+                </div> -->
                 
                 <!-- Sidebar Footer -->
                 <div class="sidebar-footer">
@@ -223,46 +545,48 @@
                 </div>
 
                 <!-- School Information Card -->
-                <div class="salary-filters-card" id="school-info">
+                <div class="salary-filters-card school-info-section" id="school-info">
                     <div class="card-header">
                         <div class="header-icon">
                             <i class="bi bi-info-circle"></i>
                         </div>
                         <div class="header-content">
-                            <h5 class="card-title">School Information</h5>
-                            <p class="card-subtitle">Basic details and contact information</p>
+                            <div class="header-title">
+                                <h5 class="card-title">School Information</h5>
+                                <p class="card-subtitle">Basic details and contact information</p>
+                            </div>
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="row">
+                        <div class="row g-4">
                             <div class="col-md-6">
-                                <div class="info-item mb-3">
+                                <div class="info-item">
                                     <div class="info-label">
                                         <i class="bi bi-building me-2 text-primary"></i>
-                                        <strong>School Name:</strong>
+                                        <strong>School Name</strong>
                                     </div>
                                     <div class="info-value">{{ school.name }}</div>
                                 </div>
-                                <div class="info-item mb-3">
+                                <div class="info-item">
                                     <div class="info-label">
                                         <i class="bi bi-geo-alt me-2 text-primary"></i>
-                                        <strong>Address:</strong>
+                                        <strong>Address</strong>
                                     </div>
                                     <div class="info-value">{{ school.address or 'Not specified' }}</div>
                                 </div>
                             </div>
                             <div class="col-md-6">
-                                <div class="info-item mb-3">
+                                <div class="info-item">
                                     <div class="info-label">
                                         <i class="bi bi-envelope me-2 text-primary"></i>
-                                        <strong>Contact Email:</strong>
+                                        <strong>Contact Email</strong>
                                     </div>
                                     <div class="info-value">{{ school.contact_email or 'Not provided' }}</div>
                                 </div>
-                                <div class="info-item mb-3">
+                                <div class="info-item">
                                     <div class="info-label">
                                         <i class="bi bi-telephone me-2 text-primary"></i>
-                                        <strong>Contact Phone:</strong>
+                                        <strong>Contact Phone</strong>
                                     </div>
                                     <div class="info-value">{{ school.contact_phone or 'Not provided' }}</div>
                                 </div>
@@ -359,6 +683,7 @@
                             </div>
                             <div class="modal-body">
                                 <form id="adminForm">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <div class="mb-3">
                                         <label for="newAdminUsername" class="form-label">Username</label>
                                         <input type="text" class="form-control" id="newAdminUsername" required>
@@ -544,63 +869,6 @@
         </div>
     </div>
 
-    <!-- Enhanced Add Admin Modal -->
-    <div class="modal fade" id="addAdminModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title">
-                        <i class="bi bi-person-plus"></i> Add New Administrator
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="adminForm">
-                        <div class="section-header">
-                            <div class="section-icon">
-                                <i class="bi bi-person-badge"></i>
-                            </div>
-                            <div class="section-title">
-                                <h6>Administrator Details</h6>
-                                <small class="text-muted">Create a new administrator account for this school</small>
-                            </div>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="newAdminUsername" class="form-label">
-                                <i class="bi bi-person me-1"></i>Username *
-                            </label>
-                            <input type="text" class="form-control" id="newAdminUsername" required placeholder="Enter username">
-                        </div>
-                        <div class="mb-3">
-                            <label for="newAdminPassword" class="form-label">
-                                <i class="bi bi-lock me-1"></i>Password *
-                            </label>
-                            <input type="password" class="form-control" id="newAdminPassword" required placeholder="Enter password">
-                        </div>
-                        <div class="mb-3">
-                            <label for="newAdminFullName" class="form-label">
-                                <i class="bi bi-person-circle me-1"></i>Full Name *
-                            </label>
-                            <input type="text" class="form-control" id="newAdminFullName" required placeholder="Enter full name">
-                        </div>
-                        <div class="mb-3">
-                            <label for="newAdminEmail" class="form-label">
-                                <i class="bi bi-envelope me-1"></i>Email
-                            </label>
-                            <input type="email" class="form-control" id="newAdminEmail" placeholder="admin@example.com">
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                        <i class="bi bi-x-circle"></i> Cancel
-                    </button>
-                    <button type="button" class="btn btn-primary" id="saveAdmin">
-                        <i class="bi bi-check-circle"></i> Create Administrator
-                    </button>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -639,6 +907,7 @@
             const password = document.getElementById('newAdminPassword').value;
             const fullName = document.getElementById('newAdminFullName').value;
             const email = document.getElementById('newAdminEmail').value;
+            const csrfToken = document.querySelector('input[name="csrf_token"]').value;
 
             if (!username || !password || !fullName) {
                 alert('Username, Password, and Full Name are required');
@@ -650,12 +919,18 @@
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                body: `school_id={{ school.id }}&username=${username}&password=${encodeURIComponent(password)}&full_name=${encodeURIComponent(fullName)}&email=${email}`
+                body: `csrf_token=${encodeURIComponent(csrfToken)}&school_id={{ school.id }}&username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&full_name=${encodeURIComponent(fullName)}&email=${encodeURIComponent(email)}`
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
                     alert('Administrator added successfully');
+                    // Clear form
+                    document.getElementById('adminForm').reset();
+                    // Close modal
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('addAdminModal'));
+                    if (modal) modal.hide();
+                    // Reload page to show new admin
                     location.reload();
                 } else {
                     alert(data.error || 'Failed to add administrator');
@@ -672,6 +947,7 @@
             btn.addEventListener('click', function() {
                 const adminId = this.getAttribute('data-admin-id');
                 const adminName = this.closest('tr').querySelector('td:nth-child(2)').textContent;
+                const csrfToken = document.querySelector('input[name="csrf_token"]').value;
 
                 if (confirm(`Are you sure you want to delete administrator ${adminName}?`)) {
                     fetch('/delete_admin', {
@@ -679,7 +955,7 @@
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded',
                         },
-                        body: `admin_id=${adminId}`
+                        body: `csrf_token=${encodeURIComponent(csrfToken)}&admin_id=${adminId}`
                     })
                     .then(response => response.json())
                     .then(data => {
@@ -698,10 +974,36 @@
             });
         });
         
-        // Mobile sidebar toggle
+        // Mobile sidebar toggle with improved UX
         document.getElementById('sidebarToggle')?.addEventListener('click', function() {
             const sidebar = document.querySelector('.enhanced-sidebar');
             sidebar.classList.toggle('show');
+            
+            // Update aria attributes for accessibility
+            const isExpanded = sidebar.classList.contains('show');
+            this.setAttribute('aria-expanded', isExpanded);
+        });
+        
+        // Close sidebar when clicking outside on mobile
+        document.addEventListener('click', function(e) {
+            const sidebar = document.querySelector('.enhanced-sidebar');
+            const toggle = document.getElementById('sidebarToggle');
+            
+            if (window.innerWidth < 768 && sidebar.classList.contains('show')) {
+                if (!sidebar.contains(e.target) && !toggle.contains(e.target)) {
+                    sidebar.classList.remove('show');
+                    toggle.setAttribute('aria-expanded', 'false');
+                }
+            }
+        });
+        
+        // Handle window resize for responsive behavior
+        window.addEventListener('resize', function() {
+            const sidebar = document.querySelector('.enhanced-sidebar');
+            if (window.innerWidth >= 768) {
+                sidebar.classList.remove('show');
+                document.getElementById('sidebarToggle')?.setAttribute('aria-expanded', 'false');
+            }
         });
         
         // Initialize page
@@ -711,65 +1013,6 @@
     </script>
 </body>
 </html>
-
-    <script>
-        // Add admin
-        document.getElementById('saveAdmin')?.addEventListener('click', function() {
-            const username = document.getElementById('newAdminUsername').value;
-            const password = document.getElementById('newAdminPassword').value;
-            const fullName = document.getElementById('newAdminFullName').value;
-            const email = document.getElementById('newAdminEmail').value;
-
-            if (!username || !password || !fullName) {
-                alert('Username, Password, and Full Name are required');
-                return;
-            }
-
-            fetch('/add_admin', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `school_id={{ school.id }}&username=${username}&password=${encodeURIComponent(password)}&full_name=${encodeURIComponent(fullName)}&email=${email}`
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('Admin added successfully');
-                    location.reload();
-                } else {
-                    alert(data.error || 'Failed to add admin');
-                }
-            });
-        });
-
-        // Delete admin
-        document.querySelectorAll('.delete-admin').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const adminId = this.getAttribute('data-admin-id');
-                const adminName = this.closest('tr').querySelector('td:nth-child(2)').textContent;
-
-                if (confirm(`Are you sure you want to delete admin ${adminName}?`)) {
-                    fetch('/delete_admin', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: `admin_id=${adminId}`
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert('Admin deleted successfully');
-                            location.reload();
-                        } else {
-                            alert(data.error || 'Failed to delete admin');
-                        }
-                    });
-                }
-            });
-        });
-    </script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
