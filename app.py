@@ -1763,9 +1763,452 @@ def generate_staff_directory_report(school_id, format_type):
 
 # Placeholder functions for other report types - can be expanded later
 def generate_payroll_summary_report(school_id, year, month, format_type):
-    """Generate payroll summary report - placeholder"""
-    # Use existing salary report as base
-    return generate_monthly_salary_report(school_id, year, month, '', format_type)
+    """Generate enhanced Payroll Summary Report with detailed breakdown.
+    
+    Includes:
+    1. Summary Section: Total payroll expenses, department breakdown, staff count
+    2. Detailed Staff Records: All salary components, allowances, and deductions
+    3. Attendance-based deductions for absent/late days
+    4. Professional Excel formatting with totals and styling
+    """
+    import datetime, calendar, io
+    from flask import request
+
+    db = get_db()
+
+    # Handle date range from request parameters (enhanced filtering)
+    from_date_str = request.args.get('from_date')
+    to_date_str = request.args.get('to_date')
+    department = request.args.get('department', '').strip()
+    
+    # Determine date range for the payroll report
+    if from_date_str and to_date_str:
+        try:
+            start_date = datetime.datetime.strptime(from_date_str, '%Y-%m-%d').date()
+            end_date = datetime.datetime.strptime(to_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            # Fallback to year/month if date parsing fails
+            if not isinstance(year, int) or year <= 0:
+                year = datetime.date.today().year
+            if not isinstance(month, int) or not (1 <= month <= 12):
+                month = datetime.date.today().month
+            start_date = datetime.date(year, month, 1)
+            end_date = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    elif year and month:
+        start_date = datetime.date(year, month, 1)
+        end_date = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    else:
+        # Default to current month
+        today = datetime.date.today()
+        start_date = datetime.date(today.year, today.month, 1)
+        end_date = datetime.date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+    
+    start_str, end_str = start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
+    period_label = f"{start_date.strftime('%B %d, %Y')} to {end_date.strftime('%B %d, %Y')}"
+
+    # Build department filter clause
+    dept_clause = ''
+    staff_params = [school_id]
+    if department:
+        dept_clause = ' AND COALESCE(s.department, "") = ?'
+        staff_params.append(department)
+
+    # Get staff data with salary components
+    staff_query = f"""
+        SELECT 
+            s.id as staff_db_id,
+            s.staff_id,
+            s.full_name,
+            COALESCE(NULLIF(TRIM(s.department), ''), 'Unassigned') as department,
+            COALESCE(NULLIF(TRIM(s.position), ''), 'Not Specified') as position,
+            COALESCE(s.basic_salary, 0) as base_salary,
+            COALESCE(s.hra, 0) as hra_allowance,
+            COALESCE(s.transport_allowance, 0) as transport_allowance,
+            COALESCE(s.other_allowances, 0) as other_allowances,
+            COALESCE(s.pf_deduction, 0) as pf_deduction,
+            COALESCE(s.esi_deduction, 0) as esi_deduction,
+            COALESCE(s.professional_tax, 0) as professional_tax,
+            COALESCE(s.other_deductions, 0) as other_deductions,
+            s.date_of_joining
+        FROM staff s
+        WHERE s.school_id = ? AND s.is_active = 1 {dept_clause}
+        ORDER BY s.department, s.full_name
+    """
+    
+    staff_rows = db.execute(staff_query, tuple(staff_params)).fetchall()
+
+    # Calculate working days in the period (excluding weekends and holidays)
+    total_days = (end_date - start_date).days + 1
+    working_days = 0
+    current_dt = start_date
+    weekend_days = 0
+    
+    # Get holidays in the period
+    holidays_in_period = db.execute("""
+        SELECT start_date, end_date, holiday_name 
+        FROM holidays 
+        WHERE school_id = ? AND is_active = 1
+        AND NOT (end_date < ? OR start_date > ?)
+    """, (school_id, start_str, end_str)).fetchall()
+    
+    # Create set of holiday dates
+    holiday_dates = set()
+    for holiday in holidays_in_period:
+        h_start = datetime.datetime.strptime(holiday['start_date'], '%Y-%m-%d').date()
+        h_end = datetime.datetime.strptime(holiday['end_date'], '%Y-%m-%d').date()
+        curr_date = h_start
+        while curr_date <= h_end:
+            holiday_dates.add(curr_date)
+            curr_date += datetime.timedelta(days=1)
+    
+    # Count working days (Mon-Fri, excluding holidays)
+    while current_dt <= end_date:
+        if current_dt.weekday() < 5:  # Monday = 0, Sunday = 6
+            if current_dt not in holiday_dates:
+                working_days += 1
+        else:
+            weekend_days += 1
+        current_dt += datetime.timedelta(days=1)
+    
+    holiday_days = len(holiday_dates)
+
+    # Process each staff member for detailed payroll calculation
+    payroll_records = []
+    total_payroll_expense = 0.0
+    department_totals = {}
+    
+    for staff in staff_rows:
+        staff_db_id = staff['staff_db_id']
+        staff_id = staff['staff_id']
+        
+        # Get attendance data for deduction calculations
+        attendance_data = db.execute("""
+            SELECT 
+                COUNT(*) as total_records,
+                SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) as days_present,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as days_absent,
+                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as days_late
+            FROM attendance 
+            WHERE staff_id = ? AND date BETWEEN ? AND ?
+        """, (staff_db_id, start_str, end_str)).fetchone()
+        
+        days_present = int(attendance_data['days_present'] or 0)
+        days_absent = int(attendance_data['days_absent'] or 0)
+        days_late = int(attendance_data['days_late'] or 0)
+        
+        # Calculate base salary components
+        base_salary = float(staff['base_salary'])
+        hra_allowance = float(staff['hra_allowance'])
+        transport_allowance = float(staff['transport_allowance'])
+        other_allowances = float(staff['other_allowances'])
+        
+        # Calculate total allowances
+        total_allowances = hra_allowance + transport_allowance + other_allowances
+        gross_pay = base_salary + total_allowances
+        
+        # Calculate attendance-based deductions
+        if working_days > 0:
+            daily_salary = base_salary / working_days
+            absent_days_deduction = days_absent * daily_salary
+            late_arrival_deduction = days_late * (daily_salary * 0.1)  # 10% penalty for late arrivals
+        else:
+            absent_days_deduction = 0
+            late_arrival_deduction = 0
+        
+        # Static deductions from staff record
+        pf_deduction = float(staff['pf_deduction'])
+        esi_deduction = float(staff['esi_deduction'])
+        professional_tax = float(staff['professional_tax'])
+        other_deductions = float(staff['other_deductions'])
+        
+        # Total deductions
+        total_deductions = (absent_days_deduction + late_arrival_deduction + 
+                           pf_deduction + esi_deduction + professional_tax + other_deductions)
+        
+        # Net payroll (final amount to be paid)
+        net_payroll = gross_pay - total_deductions
+        
+        # Add to department totals
+        dept = staff['department']
+        if dept not in department_totals:
+            department_totals[dept] = {'count': 0, 'total': 0.0}
+        department_totals[dept]['count'] += 1
+        department_totals[dept]['total'] += net_payroll
+        
+        # Add to total payroll expense
+        total_payroll_expense += net_payroll
+        
+        # Create detailed staff record
+        payroll_records.append({
+            'staff_id': staff_id,
+            'staff_name': staff['full_name'],
+            'department': staff['department'],
+            'position': staff['position'],
+            'base_salary': base_salary,
+            'allowances': {
+                'hra': hra_allowance,
+                'transport': transport_allowance,
+                'other': other_allowances,
+                'total': total_allowances
+            },
+            'gross_pay': gross_pay,
+            'deductions': {
+                'absent_days': {'count': days_absent, 'amount': absent_days_deduction},
+                'late_arrivals': {'count': days_late, 'amount': late_arrival_deduction},
+                'pf': pf_deduction,
+                'esi': esi_deduction,
+                'professional_tax': professional_tax,
+                'other': other_deductions,
+                'total': total_deductions
+            },
+            'net_payroll': net_payroll,
+            'attendance_summary': {
+                'days_present': days_present,
+                'days_absent': days_absent,
+                'days_late': days_late,
+                'working_days': working_days
+            }
+        })
+
+    # Create summary section
+    summary_data = {
+        'total_payroll_expense': total_payroll_expense,
+        'total_staff_count': len(payroll_records),
+        'period_covered': period_label,
+        'working_days': working_days,
+        'department_breakdown': department_totals
+    }
+
+    # Generate Excel report with professional formatting
+    if format_type == 'excel':
+        return _generate_payroll_summary_excel(payroll_records, summary_data, start_date, end_date, department)
+    
+    # Return JSON for API requests
+    return jsonify({
+        'success': True,
+        'summary': summary_data,
+        'payroll_records': payroll_records
+    })
+
+
+def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, end_date, department=None):
+    """Generate professionally formatted Excel report for payroll summary"""
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side, NamedStyle
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+
+    # Create workbook and worksheet
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Payroll Summary Report'
+
+    # Define professional styles
+    title_font = Font(bold=True, size=16, color='FFFFFF')
+    title_fill = PatternFill(start_color='2F4F4F', end_color='2F4F4F', fill_type='solid')
+    
+    header_font = Font(bold=True, size=12, color='FFFFFF')
+    header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    
+    subheader_font = Font(bold=True, size=11, color='FFFFFF')
+    subheader_fill = PatternFill(start_color='70AD47', end_color='70AD47', fill_type='solid')
+    
+    summary_font = Font(bold=True, size=11)
+    summary_fill = PatternFill(start_color='E7E6E6', end_color='E7E6E6', fill_type='solid')
+    
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    center_align = Alignment(horizontal='center', vertical='center')
+    right_align = Alignment(horizontal='right', vertical='center')
+
+    # Row tracker
+    current_row = 1
+
+    # TITLE SECTION
+    ws.merge_cells(f'A{current_row}:O{current_row}')
+    title_cell = ws[f'A{current_row}']
+    title_cell.value = 'PAYROLL SUMMARY REPORT'
+    title_cell.font = title_font
+    title_cell.fill = title_fill
+    title_cell.alignment = center_align
+    title_cell.border = border
+    current_row += 2
+
+    # SUMMARY SECTION
+    ws.merge_cells(f'A{current_row}:O{current_row}')
+    summary_title = ws[f'A{current_row}']
+    summary_title.value = 'PAYROLL SUMMARY'
+    summary_title.font = header_font
+    summary_title.fill = header_fill
+    summary_title.alignment = center_align
+    summary_title.border = border
+    current_row += 1
+
+    # Summary details
+    summary_details = [
+        ('Period Covered:', summary_data['period_covered']),
+        ('Total Staff Count:', str(summary_data['total_staff_count'])),
+        ('Total Working Days:', str(summary_data['working_days'])),
+        ('Total Payroll Expense:', f"₹{summary_data['total_payroll_expense']:,.2f}"),
+        ('Department Filter:', department if department else 'All Departments')
+    ]
+
+    for label, value in summary_details:
+        ws[f'A{current_row}'] = label
+        ws[f'B{current_row}'] = value
+        ws[f'A{current_row}'].font = summary_font
+        ws[f'B{current_row}'].font = Font(size=11)
+        ws[f'A{current_row}'].fill = summary_fill
+        ws[f'B{current_row}'].fill = summary_fill
+        ws[f'A{current_row}'].border = border
+        ws[f'B{current_row}'].border = border
+        current_row += 1
+
+    current_row += 1
+
+    # DEPARTMENT BREAKDOWN (if multiple departments)
+    if len(summary_data['department_breakdown']) > 1:
+        ws.merge_cells(f'A{current_row}:D{current_row}')
+        dept_title = ws[f'A{current_row}']
+        dept_title.value = 'DEPARTMENT BREAKDOWN'
+        dept_title.font = subheader_font
+        dept_title.fill = subheader_fill
+        dept_title.alignment = center_align
+        dept_title.border = border
+        current_row += 1
+
+        # Department breakdown headers
+        dept_headers = ['Department', 'Staff Count', 'Total Amount', 'Average per Staff']
+        for col, header in enumerate(dept_headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center_align
+            cell.border = border
+        current_row += 1
+
+        # Department breakdown data
+        for dept, data in summary_data['department_breakdown'].items():
+            avg_per_staff = data['total'] / data['count'] if data['count'] > 0 else 0
+            row_data = [dept, data['count'], f"₹{data['total']:,.2f}", f"₹{avg_per_staff:,.2f}"]
+            
+            for col, value in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=col, value=value)
+                cell.border = border
+                if col > 1:  # Right align numbers
+                    cell.alignment = right_align
+            current_row += 1
+
+        current_row += 1
+
+    # DETAILED STAFF RECORDS SECTION
+    ws.merge_cells(f'A{current_row}:O{current_row}')
+    details_title = ws[f'A{current_row}']
+    details_title.value = 'DETAILED STAFF PAYROLL RECORDS'
+    details_title.font = header_font
+    details_title.fill = header_fill
+    details_title.alignment = center_align
+    details_title.border = border
+    current_row += 1
+
+    # Main table headers
+    headers = [
+        'Staff ID', 'Staff Name', 'Department', 'Position', 'Base Salary',
+        'HRA', 'Transport', 'Other Allow.', 'Gross Pay',
+        'Absent Days', 'Late Count', 'PF', 'Other Ded.', 'Total Ded.', 'Net Pay'
+    ]
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=current_row, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+        cell.border = border
+    current_row += 1
+
+    # Data rows with alternating colors
+    light_fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
+    total_gross_pay = 0.0
+    total_deductions = 0.0
+    total_net_pay = 0.0
+
+    for idx, record in enumerate(payroll_records):
+        row_fill = light_fill if idx % 2 == 0 else None
+        
+        # Prepare row data
+        row_data = [
+            record['staff_id'],
+            record['staff_name'],
+            record['department'],
+            record['position'],
+            f"₹{record['base_salary']:,.2f}",
+            f"₹{record['allowances']['hra']:,.2f}",
+            f"₹{record['allowances']['transport']:,.2f}",
+            f"₹{record['allowances']['other']:,.2f}",
+            f"₹{record['gross_pay']:,.2f}",
+            f"{record['deductions']['absent_days']['count']} (₹{record['deductions']['absent_days']['amount']:,.0f})",
+            f"{record['deductions']['late_arrivals']['count']} (₹{record['deductions']['late_arrivals']['amount']:,.0f})",
+            f"₹{record['deductions']['pf']:,.2f}",
+            f"₹{record['deductions']['other']:,.2f}",
+            f"₹{record['deductions']['total']:,.2f}",
+            f"₹{record['net_payroll']:,.2f}"
+        ]
+        
+        # Write row data
+        for col, value in enumerate(row_data, 1):
+            cell = ws.cell(row=current_row, column=col, value=value)
+            cell.border = border
+            if row_fill:
+                cell.fill = row_fill
+            if col >= 5:  # Right align numeric columns
+                cell.alignment = right_align
+            else:
+                cell.alignment = center_align
+        
+        # Update totals
+        total_gross_pay += record['gross_pay']
+        total_deductions += record['deductions']['total']
+        total_net_pay += record['net_payroll']
+        
+        current_row += 1
+
+    # TOTALS ROW
+    totals_data = [
+        'TOTALS', '', '', '', '',
+        '', '', '', f"₹{total_gross_pay:,.2f}",
+        '', '', '', '', f"₹{total_deductions:,.2f}", f"₹{total_net_pay:,.2f}"
+    ]
+    
+    for col, value in enumerate(totals_data, 1):
+        cell = ws.cell(row=current_row, column=col, value=value)
+        cell.font = Font(bold=True, size=12)
+        cell.fill = summary_fill
+        cell.border = border
+        cell.alignment = right_align if col >= 5 else center_align
+
+    # Auto-adjust column widths
+    column_widths = [12, 25, 18, 18, 15, 12, 12, 12, 15, 15, 15, 12, 12, 15, 15]
+    for col, width in enumerate(column_widths, 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    # Save workbook and return response
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    from flask import make_response
+    resp = make_response(output.getvalue())
+    fname = f"payroll_summary_report_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.xlsx"
+    resp.headers['Content-Disposition'] = f'attachment; filename={fname}'
+    resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    
+    return resp
 
 def generate_department_salary_report(school_id, year, department, format_type):
     """Generate department salary report - placeholder"""
