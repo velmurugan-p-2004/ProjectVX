@@ -3422,53 +3422,83 @@ def generate_daily_attendance_report(school_id, date_str=None, department=None, 
     from io import BytesIO
 
     wb = openpyxl.Workbook()
-    ws = wb.active; ws.title = 'Summary'
+    
+    # Create Daily Records sheet FIRST as the active sheet
+    ws_daily = wb.active
+    ws_daily.title = 'Daily Records'
 
     header_font = Font(bold=True, size=11, color='FFFFFF')
     header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
     border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 
-    ws.cell(row=1, column=1, value=f'Daily Attendance Report - {date_label}').font = Font(bold=True, size=12)
-    ws.append([])
+    # DAILY RECORDS SHEET (MAIN DATA - First sheet for immediate visibility)
+    rec_headers = ['Staff ID','Full Name','Department','Position','Time In','Time Out','Status','Late (min)','Early Dep (min)','Work Hrs','OT Hrs']
+    
+    # Add title
+    ws_daily.cell(row=1, column=1, value=f'Daily Attendance Report - Individual Staff Records - {date_label}').font = Font(bold=True, size=12)
+    ws_daily.merge_cells('A1:K1')
+    ws_daily.append([])  # Empty row
+    
+    # Add headers
+    for col, h in enumerate(rec_headers, 1):
+        c = ws_daily.cell(row=3, column=col, value=h)
+        c.font = header_font
+        c.fill = header_fill
+        c.border = border
+        c.alignment = Alignment(horizontal='center')
+    
+    # Add staff data
+    r = 4
+    for s in staff_records:
+        vals = [s['staff_id'], s['full_name'], s['department'], s['position'], s['time_in'], s['time_out'], s['status'], s['late_minutes'], s['early_departure_minutes'], s['work_hours'], s['overtime_hours']]
+        for cidx, val in enumerate(vals, 1):
+            cell = ws_daily.cell(row=r, column=cidx, value=val)
+            cell.border = border
+        r += 1
+    
+    # Set column widths
+    widths = [14, 26, 18, 18, 12, 12, 12, 12, 14, 12, 12]
+    for col, w in enumerate(widths, 1):
+        ws_daily.column_dimensions[get_column_letter(col)].width = w
+
+    # SUMMARY SHEET (Second sheet)
+    ws_summary = wb.create_sheet(title='Summary')
+    ws_summary.cell(row=1, column=1, value=f'Daily Attendance Report - Summary - {date_label}').font = Font(bold=True, size=12)
+    ws_summary.append([])
 
     # Overall summary
     sum_headers = ['Total Staff','Present','Late','Leave','On Duty','Holiday','Absent']
     for col, h in enumerate(sum_headers, 1):
-        c = ws.cell(row=3, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+        c = ws_summary.cell(row=3, column=col, value=h)
+        c.font = header_font
+        c.fill = header_fill
+        c.border = border
+        c.alignment = Alignment(horizontal='center')
     vals = [total_staff, overall['present'], overall['late'], overall['leave'], overall['on_duty'], overall['holiday'], overall['absent']]
     for cidx, val in enumerate(vals, 1):
-        cell = ws.cell(row=4, column=cidx, value=val); cell.border = border
+        cell = ws_summary.cell(row=4, column=cidx, value=val)
+        cell.border = border
     for col in range(1, len(sum_headers)+1):
-        ws.column_dimensions[get_column_letter(col)].width = 18
+        ws_summary.column_dimensions[get_column_letter(col)].width = 18
 
-    # Department Summary sheet
-    ws2 = wb.create_sheet(title='Department Summary')
+    # Department Summary sheet (Third sheet)
+    ws_dept = wb.create_sheet(title='Department Summary')
     dep_headers = ['Department','Total','Present','Late','Leave','On Duty','Holiday','Absent','Present Rate (%)']
     for col, h in enumerate(dep_headers, 1):
-        c = ws2.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
+        c = ws_dept.cell(row=1, column=col, value=h)
+        c.font = header_font
+        c.fill = header_fill
+        c.border = border
+        c.alignment = Alignment(horizontal='center')
     r = 2
     for d in dept_rows:
         vals = [d['department'], d['total'], d['present'], d['late'], d['leave'], d['on_duty'], d['holiday'], d['absent'], d['present_rate']]
         for cidx, val in enumerate(vals, 1):
-            cell = ws2.cell(row=r, column=cidx, value=val); cell.border = border
+            cell = ws_dept.cell(row=r, column=cidx, value=val)
+            cell.border = border
         r += 1
     for col in range(1, len(dep_headers)+1):
-        ws2.column_dimensions[get_column_letter(col)].width = 20
-
-    # Daily Records sheet
-    ws3 = wb.create_sheet(title='Daily Records')
-    rec_headers = ['Staff ID','Full Name','Department','Position','Time In','Time Out','Status','Late (min)','Early Dep (min)','Work Hrs','OT Hrs']
-    for col, h in enumerate(rec_headers, 1):
-        c = ws3.cell(row=1, column=col, value=h); c.font = header_font; c.fill = header_fill; c.border = border; c.alignment = Alignment(horizontal='center')
-    r = 2
-    for s in staff_records:
-        vals = [s['staff_id'], s['full_name'], s['department'], s['position'], s['time_in'], s['time_out'], s['status'], s['late_minutes'], s['early_departure_minutes'], s['work_hours'], s['overtime_hours']]
-        for cidx, val in enumerate(vals, 1):
-            cell = ws3.cell(row=r, column=cidx, value=val); cell.border = border
-        r += 1
-    widths = [14, 26, 18, 18, 12, 12, 12, 12, 14, 12, 12]
-    for col, w in enumerate(widths, 1):
-        ws3.column_dimensions[get_column_letter(col)].width = w
+        ws_dept.column_dimensions[get_column_letter(col)].width = 20
 
     output = BytesIO(); wb.save(output); output.seek(0)
     resp = make_response(output.getvalue())
