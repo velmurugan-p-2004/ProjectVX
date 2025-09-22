@@ -80,7 +80,7 @@ class ExcelReportGenerator:
         return self._save_workbook_to_response(wb, f"Company_Report_{start_date}_to_{end_date}.xlsx")
     
     def create_monthly_report(self, school_id, year, month):
-        """Create monthly attendance report"""
+        """Create monthly attendance report with individual staff records"""
         start_date = datetime(year, month, 1).date()
         if month == 12:
             end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
@@ -90,6 +90,10 @@ class ExcelReportGenerator:
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
         
+        # Create Staff Records sheet FIRST (main data users want to see)
+        self._create_monthly_staff_records_sheet(wb, school_id, year, month)
+        
+        # Create summary sheets
         self._create_monthly_summary_sheet(wb, school_id, year, month)
         self._create_monthly_calendar_sheet(wb, school_id, year, month)
         self._create_monthly_trends_sheet(wb, school_id, year, month)
@@ -740,6 +744,187 @@ class ExcelReportGenerator:
         bar_chart.add_data(data, titles_from_data=True)
         bar_chart.set_categories(categories)
         ws.add_chart(bar_chart, "D3")
+
+    def _create_monthly_staff_records_sheet(self, wb, school_id, year, month):
+        """Create individual staff records sheet for monthly attendance"""
+        ws = wb.create_sheet("Staff Records")
+        
+        # Title
+        ws['A1'] = f"Monthly Staff Attendance Records - {year}/{month:02d}"
+        ws['A1'].font = self.title_font
+        ws.merge_cells('A1:I1')
+        
+        # Date range info
+        start_date = datetime(year, month, 1).date()
+        if month == 12:
+            end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
+        else:
+            end_date = datetime(year, month + 1, 1).date() - timedelta(days=1)
+        
+        ws['A2'] = f"Period: {start_date.strftime('%B %d, %Y')} to {end_date.strftime('%B %d, %Y')}"
+        ws['A2'].font = Font(bold=True, size=11)
+        
+        db = get_db()
+        school = db.execute('SELECT name FROM schools WHERE id = ?', (school_id,)).fetchone()
+        ws['A3'] = f"School: {school['name'] if school else 'Unknown'}"
+        
+        # Headers
+        headers = [
+            'Staff ID', 'Staff Name', 'Department', 'Position',
+            'Total Working Days', 'Absent (count)', 'Leave (count)',
+            'On Duty (OD) (count)', 'Total Present Days'
+        ]
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=5, column=col, value=header)
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = self.border
+        
+        # Calculate total working days in the month (business days)
+        import calendar
+        total_days_in_month = (end_date - start_date).days + 1
+        
+        # Count business days (excluding weekends) for more accurate working days
+        business_days_count = 0
+        current_date = start_date
+        while current_date <= end_date:
+            if current_date.weekday() < 5:  # Monday = 0, Sunday = 6, so < 5 means weekdays
+                business_days_count += 1
+            current_date += timedelta(days=1)
+        
+        # Get individual staff monthly attendance summary with corrected calculations
+        staff_records = db.execute('''
+            SELECT 
+                s.staff_id,
+                s.full_name,
+                s.department,
+                COALESCE(s.position, '') as position,
+                COUNT(CASE WHEN a.status = 'absent' THEN 1 END) as recorded_absent_count,
+                COUNT(CASE WHEN a.status = 'leave' THEN 1 END) as leave_count,
+                COUNT(CASE WHEN a.status = 'on_duty' THEN 1 END) as on_duty_count,
+                COUNT(CASE WHEN a.status IN ('present', 'late', 'early_departure') THEN 1 END) as recorded_present_count,
+                COUNT(CASE WHEN a.date IS NOT NULL THEN 1 END) as total_recorded_days
+            FROM staff s
+            LEFT JOIN attendance a ON s.id = a.staff_id 
+                AND a.date BETWEEN ? AND ?
+                AND a.school_id = ?
+            WHERE s.school_id = ? AND s.is_active = 1
+            GROUP BY s.id, s.staff_id, s.full_name, s.department, s.position
+            ORDER BY CAST(s.staff_id AS INTEGER) ASC
+        ''', (start_date, end_date, school_id, school_id)).fetchall()
+        
+        # Store corrected values for totals calculation
+        corrected_staff_data = []
+        
+        # Add staff data with corrected calculations
+        row = 6
+        for staff in staff_records:
+            # Calculate corrected values
+            working_days = business_days_count
+            leave_count = staff['leave_count']
+            on_duty_count = staff['on_duty_count']
+            recorded_present = staff['recorded_present_count']
+            
+            # Present count includes actual present + late + on_duty days
+            total_present_days = recorded_present + on_duty_count
+            
+            # Absent count = Working days - (Present + Leave + On Duty)
+            # But we need to account for days without attendance records
+            recorded_days = staff['total_recorded_days']
+            unrecorded_days = working_days - recorded_days
+            
+            # If there are unrecorded days, we assume they are absent
+            actual_absent_count = staff['recorded_absent_count'] + unrecorded_days
+            
+            # Store corrected data for totals
+            corrected_data = {
+                'working_days': working_days,
+                'absent_count': actual_absent_count,
+                'leave_count': leave_count,
+                'on_duty_count': on_duty_count,
+                'present_count': total_present_days
+            }
+            corrected_staff_data.append(corrected_data)
+            
+            values = [
+                staff['staff_id'],
+                staff['full_name'],
+                staff['department'] or 'Unassigned',
+                staff['position'],
+                working_days,  # Total working days (business days)
+                actual_absent_count,  # Corrected absent count
+                leave_count,
+                on_duty_count,
+                total_present_days  # Corrected present count
+            ]
+            
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.border = self.border
+                
+                # Add conditional formatting for better readability
+                if col == 6 and value > 5:  # High absence count
+                    cell.fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+                elif col == 9 and working_days > 0:  # Attendance rate coloring based on present days
+                    rate = value / working_days
+                    if rate >= 0.95:  # Excellent attendance
+                        cell.fill = PatternFill(start_color='CCFFCC', end_color='CCFFCC', fill_type='solid')
+                    elif rate < 0.80:  # Poor attendance
+                        cell.fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+            
+            row += 1
+        
+        # Add summary row
+        if corrected_staff_data:
+            row += 1
+            
+            # Calculate totals using corrected data
+            total_staff = len(corrected_staff_data)
+            total_working_days_display = total_staff * business_days_count
+            total_absent = sum(record['absent_count'] for record in corrected_staff_data)
+            total_leave = sum(record['leave_count'] for record in corrected_staff_data)
+            total_on_duty = sum(record['on_duty_count'] for record in corrected_staff_data)
+            total_present = sum(record['present_count'] for record in corrected_staff_data)
+            
+            # Create summary row values with proper structure
+            summary_values = [
+                "TOTALS:",
+                f"{total_staff} Staff",
+                "",
+                "",
+                total_working_days_display,
+                total_absent,
+                total_leave,
+                total_on_duty,
+                total_present
+            ]
+            
+            for col, value in enumerate(summary_values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font = Font(bold=True)
+                cell.border = self.border
+                if col == 1:  # "TOTALS:" label
+                    cell.fill = PatternFill(start_color='D3D3D3', end_color='D3D3D3', fill_type='solid')
+                else:  # Data cells
+                    cell.fill = PatternFill(start_color='E6E6FA', end_color='E6E6FA', fill_type='solid')
+        
+        # Format columns
+        column_widths = [12, 25, 18, 18, 16, 14, 12, 16, 16]
+        for col, width in enumerate(column_widths, 1):
+            ws.column_dimensions[chr(64 + col)].width = width
+        
+        # Add notes
+        notes_row = row + 3
+        ws.cell(row=notes_row, column=1, value="Notes:").font = Font(bold=True)
+        ws.cell(row=notes_row + 1, column=1, value=f"• Total Working Days: {business_days_count} business days in {year}/{month:02d}")
+        ws.cell(row=notes_row + 2, column=1, value="• Staff ID sorted in ascending numerical order") 
+        ws.cell(row=notes_row + 3, column=1, value="• Absent count = Working days - (Present + Leave + On Duty)")
+        ws.cell(row=notes_row + 4, column=1, value="• Total Present Days = Present + Late + On Duty")
+        ws.cell(row=notes_row + 5, column=1, value="• Days without attendance records are counted as absent")
+        ws.cell(row=notes_row + 6, column=1, value="• Green highlighting = Excellent attendance (≥95%)")
+        ws.cell(row=notes_row + 7, column=1, value="• Red highlighting = High absence count (>5) or poor attendance (<80%)")
 
     def _create_monthly_summary_sheet(self, wb, school_id, year, month):
         """Create monthly summary sheet"""
