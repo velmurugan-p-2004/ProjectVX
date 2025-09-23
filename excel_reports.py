@@ -100,6 +100,26 @@ class ExcelReportGenerator:
         
         return self._save_workbook_to_response(wb, f"Monthly_Report_{year}_{month:02d}.xlsx")
     
+    def create_overtime_report(self, school_id, year, month):
+        """Create comprehensive overtime report with individual staff overtime data"""
+        start_date = datetime(year, month, 1).date()
+        if month == 12:
+            end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
+        else:
+            end_date = datetime(year, month + 1, 1).date() - timedelta(days=1)
+        
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        
+        # Create Overtime Records sheet FIRST (main data users want to see)
+        self._create_overtime_records_sheet(wb, school_id, year, month)
+        
+        # Create summary sheets
+        self._create_overtime_summary_sheet(wb, school_id, year, month)
+        self._create_overtime_trends_sheet(wb, school_id, year, month)
+        
+        return self._save_workbook_to_response(wb, f"Overtime_Report_{year}_{month:02d}.xlsx")
+    
     def create_staff_profile_report(self, school_id):
         """Create comprehensive staff profile report"""
         wb = openpyxl.Workbook()
@@ -1096,3 +1116,341 @@ class ExcelReportGenerator:
         # Format columns
         for col in range(1, 6):
             ws.column_dimensions[chr(64 + col)].width = 12
+
+    def _create_overtime_records_sheet(self, wb, school_id, year, month):
+        """Create individual staff overtime records sheet"""
+        ws = wb.create_sheet("Overtime Records")
+        
+        # Title
+        ws['A1'] = f"Staff Overtime Records - {year}/{month:02d}"
+        ws['A1'].font = self.title_font
+        ws.merge_cells('A1:G1')
+        
+        # Date range info
+        start_date = datetime(year, month, 1).date()
+        if month == 12:
+            end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
+        else:
+            end_date = datetime(year, month + 1, 1).date() - timedelta(days=1)
+        
+        ws['A2'] = f"Period: {start_date.strftime('%B %d, %Y')} to {end_date.strftime('%B %d, %Y')}"
+        ws['A2'].font = Font(bold=True, size=11)
+        
+        db = get_db()
+        school = db.execute('SELECT name FROM schools WHERE id = ?', (school_id,)).fetchone()
+        ws['A3'] = f"School: {school['name'] if school else 'Unknown'}"
+        
+        # Headers
+        headers = [
+            'Staff ID', 'Staff Name', 'Department', 'Position',
+            'Total Overtime Days', 'Total Overtime Hours', 'Overtime Details'
+        ]
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=5, column=col, value=header)
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = self.border
+        
+        # Helper function to calculate overtime hours
+        def calculate_overtime_hours(overtime_in, overtime_out):
+            if not overtime_in or not overtime_out:
+                return 0.0
+            try:
+                # Convert time strings to datetime objects for calculation
+                if isinstance(overtime_in, str):
+                    in_time = datetime.strptime(overtime_in, '%H:%M:%S').time()
+                else:
+                    in_time = overtime_in
+                
+                if isinstance(overtime_out, str):
+                    out_time = datetime.strptime(overtime_out, '%H:%M:%S').time()
+                else:
+                    out_time = overtime_out
+                
+                # Calculate duration in hours
+                in_minutes = in_time.hour * 60 + in_time.minute
+                out_minutes = out_time.hour * 60 + out_time.minute
+                
+                # Handle overnight overtime
+                if out_minutes < in_minutes:
+                    out_minutes += 24 * 60
+                
+                duration_minutes = out_minutes - in_minutes
+                return round(duration_minutes / 60.0, 2)
+            except:
+                return 0.0
+        
+        # Get individual staff overtime data with detailed breakdown
+        staff_overtime_data = db.execute('''
+            SELECT 
+                s.staff_id,
+                s.full_name,
+                s.department,
+                COALESCE(s.position, '') as position,
+                COUNT(CASE WHEN a.overtime_in IS NOT NULL AND a.overtime_out IS NOT NULL THEN 1 END) as overtime_days,
+                GROUP_CONCAT(
+                    CASE 
+                        WHEN a.overtime_in IS NOT NULL AND a.overtime_out IS NOT NULL 
+                        THEN a.date || ' (' || a.overtime_in || '-' || a.overtime_out || ')'
+                    END, 
+                    '; '
+                ) as overtime_details,
+                a.overtime_in,
+                a.overtime_out
+            FROM staff s
+            LEFT JOIN attendance a ON s.id = a.staff_id 
+                AND a.date BETWEEN ? AND ?
+                AND a.school_id = ?
+                AND (a.overtime_in IS NOT NULL OR a.overtime_out IS NOT NULL)
+            WHERE s.school_id = ? AND s.is_active = 1
+            GROUP BY s.id, s.staff_id, s.full_name, s.department, s.position
+            ORDER BY CAST(s.staff_id AS INTEGER) ASC
+        ''', (start_date, end_date, school_id, school_id)).fetchall()
+        
+        # Calculate total hours for each staff member and collect data for totals
+        corrected_staff_data = []
+        row = 6
+        
+        for staff in staff_overtime_data:
+            # Get detailed overtime records for this staff member
+            overtime_records = db.execute('''
+                SELECT overtime_in, overtime_out, date
+                FROM attendance a
+                JOIN staff s ON s.id = a.staff_id
+                WHERE s.staff_id = ? AND s.school_id = ?
+                    AND a.date BETWEEN ? AND ?
+                    AND a.overtime_in IS NOT NULL 
+                    AND a.overtime_out IS NOT NULL
+            ''', (staff['staff_id'], school_id, start_date, end_date)).fetchall()
+            
+            # Calculate total overtime hours
+            total_overtime_hours = 0.0
+            for record in overtime_records:
+                hours = calculate_overtime_hours(record['overtime_in'], record['overtime_out'])
+                total_overtime_hours += hours
+            
+            overtime_days = len(overtime_records)
+            
+            # Format overtime details for display
+            overtime_details = ""
+            if overtime_records:
+                details_list = []
+                for record in overtime_records:
+                    details_list.append(f"{record['date']} ({record['overtime_in']}-{record['overtime_out']})")
+                overtime_details = "; ".join(details_list[:3])  # Show max 3 details
+                if len(overtime_records) > 3:
+                    overtime_details += f" and {len(overtime_records)-3} more..."
+            else:
+                overtime_details = "No overtime recorded"
+            
+            # Store data for totals calculation
+            corrected_data = {
+                'overtime_days': overtime_days,
+                'total_hours': total_overtime_hours
+            }
+            corrected_staff_data.append(corrected_data)
+            
+            values = [
+                staff['staff_id'],
+                staff['full_name'],
+                staff['department'] or 'Unassigned',
+                staff['position'],
+                overtime_days,
+                f"{total_overtime_hours:.2f}",
+                overtime_details
+            ]
+            
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.border = self.border
+                
+                # Add conditional formatting
+                if col == 5 and overtime_days > 5:  # High overtime days
+                    cell.fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+                elif col == 6 and total_overtime_hours > 20:  # High overtime hours
+                    cell.fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+                elif col == 5 and overtime_days > 0:  # Has overtime
+                    cell.fill = PatternFill(start_color='CCFFCC', end_color='CCFFCC', fill_type='solid')
+            
+            row += 1
+        
+        # Add summary row
+        if corrected_staff_data:
+            row += 1
+            
+            # Calculate totals
+            total_staff_with_overtime = len([d for d in corrected_staff_data if d['overtime_days'] > 0])
+            total_overtime_days = sum(record['overtime_days'] for record in corrected_staff_data)
+            total_overtime_hours = sum(record['total_hours'] for record in corrected_staff_data)
+            
+            summary_values = [
+                "TOTALS:",
+                f"{total_staff_with_overtime} Staff with Overtime",
+                "",
+                "",
+                total_overtime_days,
+                f"{total_overtime_hours:.2f}",
+                f"{total_staff_with_overtime} out of {len(corrected_staff_data)} staff worked overtime"
+            ]
+            
+            for col, value in enumerate(summary_values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font = Font(bold=True)
+                cell.border = self.border
+                if col == 1:  # "TOTALS:" label
+                    cell.fill = PatternFill(start_color='D3D3D3', end_color='D3D3D3', fill_type='solid')
+                else:  # Data cells
+                    cell.fill = PatternFill(start_color='E6E6FA', end_color='E6E6FA', fill_type='solid')
+        
+        # Format columns
+        column_widths = [12, 25, 18, 18, 16, 16, 50]
+        for col, width in enumerate(column_widths, 1):
+            ws.column_dimensions[chr(64 + col)].width = width
+        
+        # Add notes
+        notes_row = row + 3
+        ws.cell(row=notes_row, column=1, value="Notes:").font = Font(bold=True)
+        ws.cell(row=notes_row + 1, column=1, value=f"• Overtime data for {year}/{month:02d}")
+        ws.cell(row=notes_row + 2, column=1, value="• Staff ID sorted in ascending numerical order")
+        ws.cell(row=notes_row + 3, column=1, value="• Hours calculated from overtime_in and overtime_out times")
+        ws.cell(row=notes_row + 4, column=1, value="• Green highlighting = Staff with overtime recorded")
+        ws.cell(row=notes_row + 5, column=1, value="• Red highlighting = High overtime (>5 days or >20 hours)")
+
+    def _create_overtime_summary_sheet(self, wb, school_id, year, month):
+        """Create overtime summary sheet with statistics"""
+        ws = wb.create_sheet("Overtime Summary")
+        
+        # Title
+        ws['A1'] = f"Overtime Summary Report - {year}/{month:02d}"
+        ws['A1'].font = self.title_font
+        ws.merge_cells('A1:F1')
+        
+        db = get_db()
+        school = db.execute('SELECT name FROM schools WHERE id = ?', (school_id,)).fetchone()
+        ws['A3'] = f"School: {school['name'] if school else 'Unknown'}"
+        
+        # Monthly statistics
+        start_date = datetime(year, month, 1).date()
+        if month == 12:
+            end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
+        else:
+            end_date = datetime(year, month + 1, 1).date() - timedelta(days=1)
+        
+        # Get overtime statistics
+        overtime_stats = db.execute('''
+            SELECT
+                COUNT(DISTINCT s.id) as total_staff,
+                COUNT(DISTINCT CASE WHEN a.overtime_in IS NOT NULL AND a.overtime_out IS NOT NULL THEN s.id END) as staff_with_overtime,
+                COUNT(CASE WHEN a.overtime_in IS NOT NULL AND a.overtime_out IS NOT NULL THEN 1 END) as total_overtime_days,
+                AVG(CASE 
+                    WHEN a.overtime_in IS NOT NULL AND a.overtime_out IS NOT NULL 
+                    THEN (strftime('%H', a.overtime_out) * 60 + strftime('%M', a.overtime_out)) - 
+                         (strftime('%H', a.overtime_in) * 60 + strftime('%M', a.overtime_in))
+                END) / 60.0 as avg_overtime_hours_per_day
+            FROM staff s
+            LEFT JOIN attendance a ON s.id = a.staff_id 
+                AND a.date BETWEEN ? AND ?
+                AND a.school_id = ?
+            WHERE s.school_id = ? AND s.is_active = 1
+        ''', (start_date, end_date, school_id, school_id)).fetchone()
+        
+        # Summary statistics
+        ws['A5'] = "Summary Statistics"
+        ws['A5'].font = Font(bold=True, size=12)
+        
+        stats = [
+            ["Total Active Staff", overtime_stats['total_staff'] or 0],
+            ["Staff with Overtime", overtime_stats['staff_with_overtime'] or 0],
+            ["Total Overtime Days", overtime_stats['total_overtime_days'] or 0],
+            ["Average Hours per Overtime Day", f"{overtime_stats['avg_overtime_hours_per_day']:.2f}" if overtime_stats['avg_overtime_hours_per_day'] else "0.00"],
+            ["Overtime Coverage %", f"{((overtime_stats['staff_with_overtime'] or 0) / max(overtime_stats['total_staff'], 1) * 100):.1f}%"]
+        ]
+        
+        for row, (label, value) in enumerate(stats, 7):
+            ws.cell(row=row, column=1, value=label).font = Font(bold=True)
+            ws.cell(row=row, column=2, value=value)
+            
+            # Add borders
+            ws.cell(row=row, column=1).border = self.border
+            ws.cell(row=row, column=2).border = self.border
+        
+        # Format columns
+        ws.column_dimensions['A'].width = 25
+        ws.column_dimensions['B'].width = 15
+
+    def _create_overtime_trends_sheet(self, wb, school_id, year, month):
+        """Create overtime trends analysis sheet"""
+        ws = wb.create_sheet("Overtime Trends")
+        
+        # Title
+        ws['A1'] = f"Overtime Trends - {year}/{month:02d}"
+        ws['A1'].font = self.title_font
+        ws.merge_cells('A1:F1')
+        
+        # Date range
+        start_date = datetime(year, month, 1).date()
+        if month == 12:
+            end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
+        else:
+            end_date = datetime(year, month + 1, 1).date() - timedelta(days=1)
+        
+        db = get_db()
+        
+        # Department-wise overtime analysis
+        dept_overtime = db.execute('''
+            SELECT
+                COALESCE(s.department, 'Unassigned') as department,
+                COUNT(DISTINCT s.id) as total_staff,
+                COUNT(DISTINCT CASE WHEN a.overtime_in IS NOT NULL AND a.overtime_out IS NOT NULL THEN s.id END) as staff_with_overtime,
+                COUNT(CASE WHEN a.overtime_in IS NOT NULL AND a.overtime_out IS NOT NULL THEN 1 END) as overtime_instances
+            FROM staff s
+            LEFT JOIN attendance a ON s.id = a.staff_id 
+                AND a.date BETWEEN ? AND ?
+                AND a.school_id = ?
+            WHERE s.school_id = ? AND s.is_active = 1
+            GROUP BY s.department
+            ORDER BY overtime_instances DESC
+        ''', (start_date, end_date, school_id, school_id)).fetchall()
+        
+        # Department analysis
+        ws['A3'] = "Department-wise Overtime Analysis"
+        ws['A3'].font = Font(bold=True, size=12)
+        
+        headers = ['Department', 'Total Staff', 'Staff with OT', 'OT Instances', 'Coverage %']
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col)
+            cell.value = header
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+            cell.border = self.border
+        
+        for row, dept in enumerate(dept_overtime, 5):
+            coverage_pct = (dept['staff_with_overtime'] / max(dept['total_staff'], 1) * 100)
+            
+            values = [
+                dept['department'],
+                dept['total_staff'],
+                dept['staff_with_overtime'],
+                dept['overtime_instances'],
+                f"{coverage_pct:.1f}%"
+            ]
+            
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.border = self.border
+                
+                # Color coding for coverage
+                if col == 5:  # Coverage percentage
+                    if coverage_pct >= 50:
+                        cell.fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+                    elif coverage_pct >= 25:
+                        cell.fill = PatternFill(start_color='FFFFCC', end_color='FFFFCC', fill_type='solid')
+                    else:
+                        cell.fill = PatternFill(start_color='CCFFCC', end_color='CCFFCC', fill_type='solid')
+        
+        # Format columns
+        column_widths = [18, 12, 14, 12, 12]
+        for col, width in enumerate(column_widths, 1):
+            ws.column_dimensions[chr(64 + col)].width = width

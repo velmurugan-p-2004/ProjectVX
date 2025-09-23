@@ -3517,13 +3517,16 @@ def generate_daily_attendance_report(school_id, date_str=None, department=None, 
     return resp
 
 def generate_overtime_report(school_id, year, month, format_type):
-    """Generate overtime report - placeholder"""
+    """Generate comprehensive overtime report with individual staff data"""
     excel_generator = ExcelReportGenerator()
+    
     if month:
-        return excel_generator.create_monthly_report(school_id, year, month)
+        # Generate overtime-specific report with individual staff overtime data
+        return excel_generator.create_overtime_report(school_id, year, month)
     else:
-        today = datetime.datetime.now().strftime('%Y-%m-%d')
-        return excel_generator.create_staff_attendance_report(school_id, today, today)
+        # For non-monthly requests, generate current month overtime report
+        today = datetime.datetime.now()
+        return excel_generator.create_overtime_report(school_id, today.year, today.month)
 
 
 
