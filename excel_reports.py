@@ -285,7 +285,7 @@ class ExcelReportGenerator:
         # Get data
         db = get_db()
         staff_data = db.execute('''
-            SELECT staff_id, full_name, department, position, email, phone, created_at
+            SELECT staff_id, full_name, department, destination, email, phone, created_at
             FROM staff
             WHERE school_id = ?
             ORDER BY full_name
@@ -296,7 +296,7 @@ class ExcelReportGenerator:
             ws.cell(row=row, column=1, value=staff['staff_id'])
             ws.cell(row=row, column=2, value=staff['full_name'])
             ws.cell(row=row, column=3, value=staff['department'] or 'N/A')
-            ws.cell(row=row, column=4, value=staff['position'] or 'N/A')
+            ws.cell(row=row, column=4, value=staff['destination'] or 'N/A')
             ws.cell(row=row, column=5, value=staff['email'] or 'N/A')
             ws.cell(row=row, column=6, value=staff['phone'] or 'N/A')
             ws.cell(row=row, column=7, value=staff['created_at'][:10] if staff['created_at'] else 'N/A')
@@ -467,7 +467,7 @@ class ExcelReportGenerator:
             ('Staff ID:', staff['staff_id']),
             ('Full Name:', staff['full_name']),
             ('Department:', staff['department'] or 'N/A'),
-            ('Position:', staff['position'] or 'N/A'),
+            ('Position:', staff['destination'] or 'N/A'),
             ('Email:', staff['email'] or 'N/A'),
             ('Phone:', staff['phone'] or 'N/A')
         ]
@@ -820,7 +820,7 @@ class ExcelReportGenerator:
                 s.staff_id,
                 s.full_name,
                 s.department,
-                COALESCE(s.position, '') as position,
+                COALESCE(s.destination, '') as position,
                 COUNT(CASE WHEN a.status = 'absent' THEN 1 END) as recorded_absent_count,
                 COUNT(CASE WHEN a.status = 'leave' THEN 1 END) as leave_count,
                 COUNT(CASE WHEN a.status = 'on_duty' THEN 1 END) as on_duty_count,
@@ -831,7 +831,7 @@ class ExcelReportGenerator:
                 AND a.date BETWEEN ? AND ?
                 AND a.school_id = ?
             WHERE s.school_id = ? AND s.is_active = 1
-            GROUP BY s.id, s.staff_id, s.full_name, s.department, s.position
+            GROUP BY s.id, s.staff_id, s.full_name, s.department, s.destination
             ORDER BY CAST(s.staff_id AS INTEGER) ASC
         ''', (start_date, end_date, school_id, school_id)).fetchall()
         
@@ -1188,7 +1188,7 @@ class ExcelReportGenerator:
                 s.staff_id,
                 s.full_name,
                 s.department,
-                COALESCE(s.position, '') as position,
+                COALESCE(s.destination, '') as position,
                 COUNT(CASE WHEN a.overtime_in IS NOT NULL AND a.overtime_out IS NOT NULL THEN 1 END) as overtime_days,
                 GROUP_CONCAT(
                     CASE 
@@ -1205,7 +1205,7 @@ class ExcelReportGenerator:
                 AND a.school_id = ?
                 AND (a.overtime_in IS NOT NULL OR a.overtime_out IS NOT NULL)
             WHERE s.school_id = ? AND s.is_active = 1
-            GROUP BY s.id, s.staff_id, s.full_name, s.department, s.position
+            GROUP BY s.id, s.staff_id, s.full_name, s.department, s.destination
             ORDER BY CAST(s.staff_id AS INTEGER) ASC
         ''', (start_date, end_date, school_id, school_id)).fetchall()
         

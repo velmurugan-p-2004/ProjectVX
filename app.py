@@ -1494,7 +1494,7 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
 
     # Get staff with salary information
     staff_query = f'''
-        SELECT s.id, s.staff_id, s.full_name, s.department, s.position,
+        SELECT s.id, s.staff_id, s.full_name, s.department, s.destination as position,
                s.basic_salary,
                (COALESCE(s.hra, 0) + COALESCE(s.transport_allowance, 0) + COALESCE(s.other_allowances, 0)) as allowances,
                (COALESCE(s.pf_deduction, 0) + COALESCE(s.esi_deduction, 0) + COALESCE(s.professional_tax, 0) + COALESCE(s.other_deductions, 0)) as deductions,
@@ -1608,7 +1608,7 @@ def generate_staff_directory_report(school_id, format_type):
     # Get comprehensive staff information
     staff_data = db.execute('''
         SELECT s.staff_id, s.full_name, s.first_name, s.last_name,
-               s.date_of_birth, s.date_of_joining, s.department, s.position,
+               s.date_of_birth, s.date_of_joining, s.department, s.destination as position,
                s.gender, s.phone, s.email, s.shift_type, s.basic_salary,
                s.created_at
         FROM staff s
@@ -1820,7 +1820,7 @@ def generate_payroll_summary_report(school_id, year, month, format_type):
             s.staff_id,
             s.full_name,
             COALESCE(NULLIF(TRIM(s.department), ''), 'Unassigned') as department,
-            COALESCE(NULLIF(TRIM(s.position), ''), 'Not Specified') as position,
+            COALESCE(NULLIF(TRIM(s.destination), ''), 'Not Specified') as position,
             COALESCE(s.basic_salary, 0) as base_salary,
             COALESCE(s.hra, 0) as hra_allowance,
             COALESCE(s.transport_allowance, 0) as transport_allowance,
@@ -2223,7 +2223,7 @@ def generate_department_salary_report(school_id, year, department, format_type):
     # Build query with optional department filtering
     query = """
         SELECT 
-            staff_id, full_name, department, position,
+            staff_id, full_name, department, destination as position,
             COALESCE(basic_salary, 0) as basic_salary,
             COALESCE(hra, 0) as hra,
             COALESCE(transport_allowance, 0) as transport_allowance,
@@ -2771,7 +2771,7 @@ def generate_department_analysis_report(school_id, year=None, month=None, format
     # Staff Details sheet
     staff_details = db.execute(
         """
-        SELECT department, staff_id, full_name, COALESCE(position,'Unspecified') AS position,
+        SELECT department, staff_id, full_name, COALESCE(destination,'Unspecified') AS position,
                COALESCE(gender,'Other') AS gender, date_of_joining, COALESCE(basic_salary,0) AS basic_salary
         FROM staff
         WHERE school_id = ? AND COALESCE(department, '') <> ''
@@ -2862,7 +2862,7 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
             s.staff_id,
             s.full_name,
             COALESCE(NULLIF(TRIM(s.department), ''), 'Unassigned') as department,
-            COALESCE(NULLIF(TRIM(s.position), ''), 'Not Specified') as position,
+            COALESCE(NULLIF(TRIM(s.destination), ''), 'Not Specified') as position,
             s.date_of_joining
             
         FROM staff s
@@ -3247,7 +3247,7 @@ def generate_daily_attendance_report(school_id, date_str=None, department=None, 
 
     # Pull per-staff daily records
     select_fields = [
-        "s.staff_id", "s.full_name", "s.department", "COALESCE(s.position,'') AS position",
+        "s.staff_id", "s.full_name", "s.department", "COALESCE(s.destination,'') AS position",
         "a.time_in", "a.time_out", "a.status",
     ]
     if has_work_hours:
@@ -5499,10 +5499,10 @@ def add_staff():
         created_at = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         db.execute('''
             INSERT INTO staff
-            (school_id, staff_id, password_hash, full_name, email, phone, department, position, photo_url, created_at,
+            (school_id, staff_id, password_hash, full_name, email, phone, department, position, destination, photo_url, created_at,
              basic_salary, hra, transport_allowance, other_allowances, pf_deduction, esi_deduction, professional_tax, other_deductions)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (school_id, staff_id, password, full_name, email, phone, department, position, photo_url, created_at,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (school_id, staff_id, password, full_name, email, phone, department, position, position, photo_url, created_at,
               basic_salary, hra, transport_allowance, other_allowances, pf_deduction, esi_deduction, professional_tax, other_deductions))
 
         db.commit()
@@ -5608,7 +5608,7 @@ def update_staff_enhanced():
     date_of_birth = request.form.get('date_of_birth')
     date_of_joining = request.form.get('date_of_joining')
     department = request.form.get('department')
-    destination = request.form.get('destination')
+    destination = request.form.get('destination') or request.form.get('position')  # Support both field names
     gender = request.form.get('gender')
     phone = request.form.get('phone')
     email = request.form.get('email')
@@ -6046,15 +6046,15 @@ def update_staff():
         if photo_url:
             db.execute('''
                 UPDATE staff
-                SET full_name = ?, email = ?, phone = ?, department = ?, position = ?, shift_type = ?, photo_url = ?
+                SET full_name = ?, email = ?, phone = ?, department = ?, position = ?, destination = ?, shift_type = ?, photo_url = ?
                 WHERE id = ? AND school_id = ?
-            ''', (full_name, email, phone, department, position, shift_type, photo_url, staff_id, school_id))
+            ''', (full_name, email, phone, department, position, position, shift_type, photo_url, staff_id, school_id))
         else:
             db.execute('''
                 UPDATE staff
-                SET full_name = ?, email = ?, phone = ?, department = ?, position = ?, shift_type = ?
+                SET full_name = ?, email = ?, phone = ?, department = ?, position = ?, destination = ?, shift_type = ?
                 WHERE id = ? AND school_id = ?
-            ''', (full_name, email, phone, department, position, shift_type, staff_id, school_id))
+            ''', (full_name, email, phone, department, position, position, shift_type, staff_id, school_id))
 
         db.commit()
         return jsonify({'success': True})
