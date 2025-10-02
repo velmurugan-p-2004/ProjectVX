@@ -437,6 +437,42 @@ function loadStaffForEdit(staffId) {
     });
 }
 
+// Load departments dynamically for edit form
+async function loadDepartmentsForEdit(currentDepartment) {
+    const editDepartmentSelect = document.getElementById('editDepartment');
+    
+    if (!editDepartmentSelect) {
+        console.error('Edit department select not found');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/admin/get_departments_list');
+        const result = await response.json();
+        
+        if (result.success && result.departments) {
+            // Clear existing options except the first one
+            editDepartmentSelect.innerHTML = '<option value="">Select Department</option>';
+            
+            // Add department options
+            result.departments.forEach(dept => {
+                const option = document.createElement('option');
+                option.value = dept.department_name;
+                option.textContent = dept.department_name;
+                
+                // Select the current department
+                if (dept.department_name === currentDepartment) {
+                    option.selected = true;
+                }
+                
+                editDepartmentSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading departments for edit:', error);
+    }
+}
+
 function populateEditForm(staff) {
     const modalBody = document.getElementById('editStaffModalBody');
 
@@ -481,10 +517,7 @@ function populateEditForm(staff) {
                     <label for="editDepartment" class="form-label">Department</label>
                     <select class="form-select" id="editDepartment" name="department">
                         <option value="">Select Department</option>
-                        <option value="Teaching" ${staff.department === 'Teaching' ? 'selected' : ''}>Teaching</option>
-                        <option value="Administration" ${staff.department === 'Administration' ? 'selected' : ''}>Administration</option>
-                        <option value="Support" ${staff.department === 'Support' ? 'selected' : ''}>Support</option>
-                        <option value="Management" ${staff.department === 'Management' ? 'selected' : ''}>Management</option>
+                        <!-- Will be populated dynamically -->
                     </select>
                 </div>
             </div>
@@ -648,6 +681,9 @@ function populateEditForm(staff) {
 
     // Set the staff ID for the form
     document.getElementById('editStaffDbId').value = staff.id;
+
+    // Load departments dynamically for edit form
+    loadDepartmentsForEdit(staff.department);
 
     // Debug: Log salary field values
     console.log('Salary field values from database:');

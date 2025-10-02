@@ -4073,8 +4073,13 @@ def staff_management():
     if 'user_id' not in session or session['user_type'] != 'admin':
         return redirect(url_for('index'))
 
+    from database import get_all_departments, initialize_default_departments
+    
     db = get_db()
     school_id = session['school_id']
+
+    # Initialize default departments if needed
+    initialize_default_departments(school_id)
 
     # Get all staff with comprehensive details
     staff = db.execute('''
@@ -4094,8 +4099,91 @@ def staff_management():
     ''', (school_id,)).fetchall()
 
     dept_shift_map = {mapping['department']: mapping['default_shift_type'] for mapping in dept_mappings}
+    
+    # Get all available departments for dropdown
+    departments = get_all_departments(school_id)
 
-    return render_template('staff_management.html', staff=staff, dept_shift_map=dept_shift_map)
+    return render_template('staff_management.html', staff=staff, dept_shift_map=dept_shift_map, departments=departments)
+
+@app.route('/admin/add_department', methods=['POST'])
+@csrf.exempt
+def add_department_route():
+    """Add a new custom department"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    from database import add_department
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+            
+        department_name = data.get('name', '').strip()
+        department_description = data.get('description', '').strip()
+        
+        if not department_name:
+            return jsonify({'success': False, 'error': 'Department name is required'}), 400
+        
+        school_id = session['school_id']
+        result = add_department(department_name, department_description, school_id)
+        
+        if result['success']:
+            return jsonify(result), 200
+        else:
+            return jsonify({'success': False, 'error': result['message']}), 400
+            
+    except Exception as e:
+        print(f"Error in add_department route: {e}")
+        return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/admin/get_departments_list', methods=['GET'])
+@csrf.exempt
+def get_departments_list():
+    """Get all departments for a school"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    from database import get_all_departments
+    
+    try:
+        school_id = session['school_id']
+        departments = get_all_departments(school_id)
+        return jsonify({'success': True, 'departments': departments}), 200
+    except Exception as e:
+        print(f"Error in get_departments_list route: {e}")
+        return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/admin/delete_department', methods=['POST'])
+@csrf.exempt
+def delete_department_route():
+    """Delete a department"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    from database import delete_department
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+            
+        department_id = data.get('id')
+        
+        if not department_id:
+            return jsonify({'success': False, 'error': 'Department ID is required'}), 400
+        
+        school_id = session['school_id']
+        result = delete_department(department_id, school_id)
+        
+        if result['success']:
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        print(f"Error in delete_department route: {e}")
+        return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/admin/work_time_assignment')
 def work_time_assignment():

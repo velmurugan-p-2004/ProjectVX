@@ -395,16 +395,11 @@
                                 </label>
                                 <select class="form-select enhanced-select" id="departmentFilter" title="Filter by department">
                                     <option value="">All Departments</option>
-                                    <option value="Teaching">Teaching</option>
-                                    <option value="Administration">Administration</option>
-                                    <option value="Support">Support</option>
-                                    <option value="Management">Management</option>
-                                    <option value="IT">IT</option>
-                                    <option value="Finance">Finance</option>
-                                    <option value="HR">HR</option>
-                                    <option value="Security">Security</option>
-                                    <option value="Maintenance">Maintenance</option>
-                                    <option value="Library">Library</option>
+                                    {% if departments %}
+                                        {% for department in departments %}
+                                            <option value="{{ department.department_name }}">{{ department.department_name }}</option>
+                                        {% endfor %}
+                                    {% endif %}
                                 </select>
                             </div>
                             <div class="filter-group">
@@ -797,19 +792,19 @@
                                     <label for="addDepartment" class="form-label">
                                         <i class="bi bi-building"></i> Department
                                     </label>
-                                    <select class="form-select" id="addDepartment" name="department" title="Select department">
-                                        <option value="">Select Department</option>
-                                        <option value="Teaching">Teaching</option>
-                                        <option value="Administration">Administration</option>
-                                        <option value="Support">Support</option>
-                                        <option value="Management">Management</option>
-                                        <option value="IT">IT</option>
-                                        <option value="Finance">Finance</option>
-                                        <option value="HR">HR</option>
-                                        <option value="Security">Security</option>
-                                        <option value="Maintenance">Maintenance</option>
-                                        <option value="Library">Library</option>
-                                    </select>
+                                    <div class="input-group">
+                                        <select class="form-select" id="addDepartment" name="department" title="Select department">
+                                            <option value="">Select Department</option>
+                                            {% if departments %}
+                                                {% for department in departments %}
+                                                    <option value="{{ department.department_name }}">{{ department.department_name }}</option>
+                                                {% endfor %}
+                                            {% endif %}
+                                        </select>
+                                        <button class="btn btn-outline-primary" type="button" id="addNewDepartmentBtn" title="Add New Department">
+                                            <i class="bi bi-plus-circle"></i> Add New
+                                        </button>
+                                    </div>
                                     <small class="form-text">Department where staff member works</small>
                                 </div>
                                 <div class="rule-item">
@@ -1005,6 +1000,87 @@
         </div>
     </div>
 
+    <!-- Manage Departments Modal (Add & Delete) -->
+    <div class="modal fade" id="addDepartmentModal" tabindex="-1" aria-labelledby="addDepartmentModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title" id="addDepartmentModalLabel">
+                        <i class="bi bi-building-gear"></i> Manage Departments
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <!-- Left Column: Add New Department -->
+                        <div class="col-md-6 border-end">
+                            <h6 class="mb-3"><i class="bi bi-plus-circle"></i> Add New Department</h6>
+                            <form id="addDepartmentForm">
+                                <div class="alert alert-info small">
+                                    <i class="bi bi-info-circle"></i> New department will be available immediately.
+                                </div>
+                                <div id="departmentErrorAlert" class="alert alert-danger d-none" role="alert">
+                                    <i class="bi bi-exclamation-triangle"></i> <span id="departmentErrorMessage"></span>
+                                </div>
+                                <div id="departmentSuccessAlert" class="alert alert-success d-none" role="alert">
+                                    <i class="bi bi-check-circle"></i> <span id="departmentSuccessMessage"></span>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="newDepartmentName" class="form-label">
+                                        <i class="bi bi-building"></i> Department Name <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" class="form-control" id="newDepartmentName" name="department_name" 
+                                           placeholder="e.g., Operations, Marketing" required>
+                                    <small class="form-text text-muted">Unique name (case-insensitive)</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="newDepartmentDescription" class="form-label">
+                                        <i class="bi bi-text-paragraph"></i> Description (Optional)
+                                    </label>
+                                    <textarea class="form-control" id="newDepartmentDescription" name="department_description" 
+                                              rows="2" placeholder="Brief description"></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-success w-100" id="saveDepartmentBtn">
+                                    <i class="bi bi-check-circle"></i> Add Department
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Right Column: Delete Existing Departments -->
+                        <div class="col-md-6">
+                            <h6 class="mb-3"><i class="bi bi-trash"></i> Delete Departments</h6>
+                            <div class="alert alert-warning small">
+                                <i class="bi bi-exclamation-triangle"></i> Deleting a department cannot be undone.
+                            </div>
+                            <div id="deleteSuccessAlert" class="alert alert-success d-none small" role="alert">
+                                <i class="bi bi-check-circle"></i> <span id="deleteSuccessMessage"></span>
+                            </div>
+                            <div id="deleteErrorAlert" class="alert alert-danger d-none small" role="alert">
+                                <i class="bi bi-exclamation-triangle"></i> <span id="deleteErrorMessage"></span>
+                            </div>
+                            <div id="departmentListContainer" style="max-height: 350px; overflow-y: auto;">
+                                <div class="list-group" id="departmentDeleteList">
+                                    <!-- Will be populated dynamically -->
+                                    <div class="text-center text-muted py-3">
+                                        <div class="spinner-border spinner-border-sm" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                        <p class="small mb-0 mt-2">Loading departments...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle"></i> Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Loading Overlay -->
     <div class="loading-overlay d-none" id="loadingOverlay">
         <div class="loading-content">
@@ -1134,6 +1210,279 @@
                 window.location.href = "{{ url_for('logout') }}";
             }
         }
+
+        // Add New Department Modal Functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const addNewDeptBtn = document.getElementById('addNewDepartmentBtn');
+            const addDeptModalEl = document.getElementById('addDepartmentModal');
+            const addDeptModal = new bootstrap.Modal(addDeptModalEl);
+            const addDeptForm = document.getElementById('addDepartmentForm');
+            const saveDeptBtn = document.getElementById('saveDepartmentBtn');
+            const errorAlert = document.getElementById('departmentErrorAlert');
+            const errorMessage = document.getElementById('departmentErrorMessage');
+            const successAlert = document.getElementById('departmentSuccessAlert');
+            const successMessage = document.getElementById('departmentSuccessMessage');
+
+            // Load department list for deletion when modal opens
+            addDeptModalEl.addEventListener('shown.bs.modal', function() {
+                loadDepartmentsForDeletion();
+            });
+
+            // Open modal when "Add New" button is clicked
+            if (addNewDeptBtn) {
+                addNewDeptBtn.addEventListener('click', function() {
+                    // Clear form
+                    addDeptForm.reset();
+                    errorAlert.classList.add('d-none');
+                    if (successAlert) successAlert.classList.add('d-none');
+                    // Show modal
+                    addDeptModal.show();
+                });
+            }
+
+            // Load departments for deletion list
+            async function loadDepartmentsForDeletion() {
+                const listContainer = document.getElementById('departmentDeleteList');
+                
+                try {
+                    const response = await fetch('/admin/get_departments_list');
+                    const result = await response.json();
+                    
+                    if (result.success && result.departments) {
+                        if (result.departments.length === 0) {
+                            listContainer.innerHTML = '<div class="text-center text-muted py-3"><p class="small mb-0">No departments found</p></div>';
+                            return;
+                        }
+                        
+                        listContainer.innerHTML = '';
+                        result.departments.forEach(dept => {
+                            const item = document.createElement('div');
+                            item.className = 'list-group-item d-flex justify-content-between align-items-center';
+                            item.innerHTML = `
+                                <div>
+                                    <strong>${dept.department_name}</strong>
+                                    ${dept.description ? `<br><small class="text-muted">${dept.description}</small>` : ''}
+                                </div>
+                                <button class="btn btn-sm btn-outline-danger delete-dept-btn" 
+                                        data-dept-id="${dept.id}" 
+                                        data-dept-name="${dept.department_name}"
+                                        title="Delete ${dept.department_name}">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            `;
+                            listContainer.appendChild(item);
+                        });
+                        
+                        // Attach delete handlers
+                        document.querySelectorAll('.delete-dept-btn').forEach(btn => {
+                            btn.addEventListener('click', function() {
+                                const deptId = this.dataset.deptId;
+                                const deptName = this.dataset.deptName;
+                                deleteDepartment(deptId, deptName);
+                            });
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error loading departments:', error);
+                    listContainer.innerHTML = '<div class="text-center text-danger py-3"><p class="small mb-0">Error loading departments</p></div>';
+                }
+            }
+
+            // Delete department function
+            async function deleteDepartment(deptId, deptName) {
+                const deleteErrorAlert = document.getElementById('deleteErrorAlert');
+                const deleteErrorMessage = document.getElementById('deleteErrorMessage');
+                const deleteSuccessAlert = document.getElementById('deleteSuccessAlert');
+                const deleteSuccessMessage = document.getElementById('deleteSuccessMessage');
+                
+                // Confirm deletion
+                if (!confirm(`Are you sure you want to delete the department "${deptName}"?\n\nThis action cannot be undone.`)) {
+                    return;
+                }
+                
+                // Hide previous alerts
+                deleteErrorAlert.classList.add('d-none');
+                deleteSuccessAlert.classList.add('d-none');
+                
+                try {
+                    const response = await fetch('/admin/delete_department', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ id: deptId })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        // Show success message
+                        deleteSuccessMessage.textContent = result.message || 'Department deleted successfully';
+                        deleteSuccessAlert.classList.remove('d-none');
+                        
+                        // Reload department list
+                        await loadDepartmentsForDeletion();
+                        
+                        // Refresh all dropdowns
+                        await refreshAllDepartmentDropdowns();
+                        
+                        // Hide success message after 3 seconds
+                        setTimeout(() => {
+                            deleteSuccessAlert.classList.add('d-none');
+                        }, 3000);
+                    } else {
+                        // Show error message
+                        deleteErrorMessage.textContent = result.message || 'Failed to delete department';
+                        deleteErrorAlert.classList.remove('d-none');
+                    }
+                } catch (error) {
+                    console.error('Error deleting department:', error);
+                    deleteErrorMessage.textContent = 'Network error occurred';
+                    deleteErrorAlert.classList.remove('d-none');
+                }
+            }
+
+            // Handle form submission
+            if (addDeptForm) {
+                addDeptForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const departmentName = document.getElementById('newDepartmentName').value.trim();
+                    const departmentDescription = document.getElementById('newDepartmentDescription').value.trim();
+                    
+                    // Validation
+                    if (!departmentName) {
+                        showDepartmentError('Department name cannot be empty');
+                        return;
+                    }
+                    
+                    // Disable button and show loading
+                    saveDeptBtn.disabled = true;
+                    saveDeptBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+                    errorAlert.classList.add('d-none');
+                    
+                    try {
+                        const response = await fetch('/admin/add_department', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                name: departmentName,
+                                description: departmentDescription
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            // Show success message in modal
+                            errorAlert.classList.add('d-none');
+                            successMessage.textContent = result.message || 'Department added successfully!';
+                            successAlert.classList.remove('d-none');
+                            
+                            // Clear form
+                            addDeptForm.reset();
+                            
+                            // Refresh all department dropdowns
+                            await refreshAllDepartmentDropdowns();
+                            
+                            // Reload department list for deletion
+                            await loadDepartmentsForDeletion();
+                            
+                            // Select the new department in the add staff form
+                            const addDeptSelect = document.getElementById('addDepartment');
+                            if (addDeptSelect) {
+                                addDeptSelect.value = result.department_name;
+                            }
+                            
+                            // Hide success message after 3 seconds
+                            setTimeout(() => {
+                                successAlert.classList.add('d-none');
+                            }, 3000);
+                        } else {
+                            // Show error in modal
+                            showDepartmentError(result.error || 'Failed to add department');
+                        }
+                    } catch (error) {
+                        console.error('Error adding department:', error);
+                        showDepartmentError('Network error occurred. Please try again.');
+                    } finally {
+                        // Re-enable button
+                        saveDeptBtn.disabled = false;
+                        saveDeptBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Department';
+                    }
+                });
+            }
+
+            function showDepartmentError(message) {
+                errorMessage.textContent = message;
+                errorAlert.classList.remove('d-none');
+            }
+
+            // Refresh all department dropdowns function
+            async function refreshAllDepartmentDropdowns() {
+                try {
+                    const response = await fetch('/admin/get_departments_list');
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        const departments = result.departments;
+                        
+                        // Update all department dropdowns on the page
+                        const departmentSelects = document.querySelectorAll('select[name="department"], #addDepartment, #departmentFilter, #editDepartment');
+                        
+                        departmentSelects.forEach(select => {
+                            const currentValue = select.value;
+                            const hasEmptyOption = select.querySelector('option[value=""]');
+                            
+                            // Clear existing options except empty option
+                            select.innerHTML = '';
+                            
+                            // Add empty option if it existed
+                            if (hasEmptyOption) {
+                                const emptyOpt = document.createElement('option');
+                                emptyOpt.value = '';
+                                emptyOpt.textContent = hasEmptyOption.textContent;
+                                select.appendChild(emptyOpt);
+                            }
+                            
+                            // Add department options
+                            departments.forEach(dept => {
+                                const option = document.createElement('option');
+                                option.value = dept.department_name;
+                                option.textContent = dept.department_name;
+                                select.appendChild(option);
+                            });
+                            
+                            // Restore selected value if it still exists
+                            if (currentValue && [...select.options].some(opt => opt.value === currentValue)) {
+                                select.value = currentValue;
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error refreshing department dropdowns:', error);
+                }
+            }
+
+            // Helper function for showing alerts (if not already defined in external JS)
+            function showAlert(message, type = 'info') {
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+                alertDiv.style.cssText = 'top: 80px; right: 20px; z-index: 9999; min-width: 300px;';
+                alertDiv.innerHTML = `
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.body.appendChild(alertDiv);
+                
+                // Auto-dismiss after 5 seconds
+                setTimeout(() => {
+                    alertDiv.remove();
+                }, 5000);
+            }
+        });
     </script>
     <script src="{{ url_for('static', filename='js/staff_management.js') }}"></script>
 </body>

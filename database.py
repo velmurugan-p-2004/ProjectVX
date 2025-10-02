@@ -1164,3 +1164,238 @@ def is_weekly_off_day(date, school_id=None):
     except Exception as e:
         print(f"Error checking weekly off day: {e}")
         return False
+
+
+# ===========================
+# Department Management Functions
+# ===========================
+
+def create_departments_table():
+    """Create the departments table if it doesn't exist"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS departments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            department_name TEXT NOT NULL,
+            description TEXT,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (school_id) REFERENCES schools(id),
+            UNIQUE(school_id, department_name COLLATE NOCASE)
+        )
+        ''')
+        
+        db.commit()
+        return True
+    except Exception as e:
+        print(f"Error creating departments table: {e}")
+        return False
+
+
+def initialize_default_departments(school_id):
+    """Initialize default departments for a school if none exist"""
+    try:
+        # Create table if it doesn't exist
+        create_departments_table()
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Check if departments already exist for this school
+        existing = cursor.execute(
+            'SELECT COUNT(*) as count FROM departments WHERE school_id = ?',
+            (school_id,)
+        ).fetchone()
+        
+        if existing['count'] > 0:
+            return True  # Departments already exist
+        
+        # Default departments to add
+        default_departments = [
+            ('Administration', 'Administrative staff and management'),
+            ('Teaching', 'Teaching faculty and educators'),
+            ('IT & Technology', 'Information technology and technical support'),
+            ('Finance', 'Accounting, finance, and budgeting'),
+            ('Human Resources', 'HR and personnel management'),
+            ('Maintenance', 'Facilities and maintenance staff'),
+            ('Library', 'Library staff and resources'),
+            ('Security', 'Security and safety personnel')
+        ]
+        
+        # Insert default departments
+        for dept_name, description in default_departments:
+            cursor.execute('''
+                INSERT INTO departments (school_id, department_name, description)
+                VALUES (?, ?, ?)
+            ''', (school_id, dept_name, description))
+        
+        db.commit()
+        print(f"Initialized {len(default_departments)} default departments for school_id {school_id}")
+        return True
+        
+    except Exception as e:
+        print(f"Error initializing default departments: {e}")
+        db.rollback()
+        return False
+
+
+def get_all_departments(school_id):
+    """Get all active departments for a school"""
+    try:
+        # Create table if it doesn't exist
+        create_departments_table()
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        departments = cursor.execute('''
+            SELECT id, department_name, description
+            FROM departments
+            WHERE school_id = ? AND is_active = 1
+            ORDER BY department_name
+        ''', (school_id,)).fetchall()
+        
+        # Convert to list of dictionaries
+        result = [dict(dept) for dept in departments]
+        
+        # If no departments exist, initialize defaults
+        if not result:
+            initialize_default_departments(school_id)
+            # Fetch again after initialization
+            departments = cursor.execute('''
+                SELECT id, department_name, description
+                FROM departments
+                WHERE school_id = ? AND is_active = 1
+                ORDER BY department_name
+            ''', (school_id,)).fetchall()
+            result = [dict(dept) for dept in departments]
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error fetching departments: {e}")
+        # Return default list if database operation fails
+        return [
+            {'id': 0, 'department_name': 'Administration', 'description': ''},
+            {'id': 0, 'department_name': 'Teaching', 'description': ''},
+            {'id': 0, 'department_name': 'IT & Technology', 'description': ''},
+            {'id': 0, 'department_name': 'Finance', 'description': ''}
+        ]
+
+
+def add_department(name, description, school_id):
+    """Add a new department to the database"""
+    db = None
+    try:
+        if not name or not name.strip():
+            return {'success': False, 'message': 'Department name is required'}
+        
+        name = name.strip()
+        
+        # Create table if it doesn't exist
+        create_departments_table()
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Check for existing department (both active and inactive)
+        existing = cursor.execute('''
+            SELECT id, is_active FROM departments 
+            WHERE school_id = ? AND LOWER(department_name) = LOWER(?)
+        ''', (school_id, name)).fetchone()
+        
+        if existing:
+            # If department exists and is inactive, reactivate it
+            if existing['is_active'] == 0:
+                cursor.execute('''
+                    UPDATE departments 
+                    SET is_active = 1, description = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND school_id = ?
+                ''', (description or '', existing['id'], school_id))
+                
+                db.commit()
+                
+                return {
+                    'success': True,
+                    'message': f'Department "{name}" reactivated successfully',
+                    'department_name': name
+                }
+            else:
+                # Department exists and is active
+                return {'success': False, 'message': 'Department already exists'}
+        
+        # Insert new department if it doesn't exist
+        cursor.execute('''
+            INSERT INTO departments (school_id, department_name, description)
+            VALUES (?, ?, ?)
+        ''', (school_id, name, description or ''))
+        
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f'Department "{name}" added successfully',
+            'department_name': name
+        }
+        
+    except Exception as e:
+        print(f"Error adding department: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error adding department: {str(e)}'}
+
+
+def delete_department(department_id, school_id):
+    """Delete a department from the database"""
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Check if department exists and belongs to this school
+        existing = cursor.execute('''
+            SELECT department_name FROM departments 
+            WHERE id = ? AND school_id = ?
+        ''', (department_id, school_id)).fetchone()
+        
+        if not existing:
+            return {'success': False, 'message': 'Department not found'}
+        
+        department_name = existing['department_name']
+        
+        # Check if any staff members are assigned to this department
+        staff_count = cursor.execute('''
+            SELECT COUNT(*) as count FROM staff 
+            WHERE school_id = ? AND department = ?
+        ''', (school_id, department_name)).fetchone()
+        
+        if staff_count and staff_count['count'] > 0:
+            return {
+                'success': False, 
+                'message': f'Cannot delete department "{department_name}". {staff_count["count"]} staff member(s) are assigned to it.'
+            }
+        
+        # Soft delete: Set is_active to 0
+        cursor.execute('''
+            UPDATE departments 
+            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND school_id = ?
+        ''', (department_id, school_id))
+        
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f'Department "{department_name}" deleted successfully'
+        }
+        
+    except Exception as e:
+        print(f"Error deleting department: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error deleting department: {str(e)}'}
