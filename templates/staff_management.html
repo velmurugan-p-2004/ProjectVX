@@ -408,19 +408,9 @@
                                 </label>
                                 <select class="form-select enhanced-select" id="positionFilter" title="Filter by position">
                                     <option value="">All Positions</option>
-                                    <option value="Principal">Principal</option>
-                                    <option value="Vice Principal">Vice Principal</option>
-                                    <option value="Teacher">Teacher</option>
-                                    <option value="Senior Teacher">Senior Teacher</option>
-                                    <option value="Assistant Teacher">Assistant Teacher</option>
-                                    <option value="Administration">Administration</option>
-                                    <option value="Clerk">Clerk</option>
-                                    <option value="Accountant">Accountant</option>
-                                    <option value="Librarian">Librarian</option>
-                                    <option value="Lab Assistant">Lab Assistant</option>
-                                    <option value="Security Guard">Security Guard</option>
-                                    <option value="IT">IT</option>
-                                    <option value="Peon">Peon</option>
+                                    {% for position in positions %}
+                                    <option value="{{ position.position_name }}">{{ position.position_name }}</option>
+                                    {% endfor %}
                                 </select>
                             </div>
                             <div class="filter-group">
@@ -809,10 +799,22 @@
                                 </div>
                                 <div class="rule-item">
                                     <label for="addDestination" class="form-label">
-                                        <i class="bi bi-geo-alt"></i> Position/Destination *
+                                        <i class="bi bi-briefcase"></i> Position *
                                     </label>
-                                    <input type="text" class="form-control" id="addDestination" name="destination" required title="Enter position or destination">
-                                    <small class="form-text">Job position or work destination</small>
+                                    <div class="input-group">
+                                        <select class="form-select" id="addDestination" name="destination" title="Select position" required>
+                                            <option value="">Select Position</option>
+                                            {% if positions %}
+                                                {% for position in positions %}
+                                                    <option value="{{ position.position_name }}">{{ position.position_name }}</option>
+                                                {% endfor %}
+                                            {% endif %}
+                                        </select>
+                                        <button class="btn btn-outline-primary" type="button" id="addNewPositionBtn" title="Add New Position">
+                                            <i class="bi bi-plus-circle"></i> Add New
+                                        </button>
+                                    </div>
+                                    <small class="form-text">Job position or role</small>
                                 </div>
                                 <div class="rule-item">
                                     <label for="addShiftType" class="form-label">
@@ -1066,6 +1068,87 @@
                                             <span class="visually-hidden">Loading...</span>
                                         </div>
                                         <p class="small mb-0 mt-2">Loading departments...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle"></i> Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Position Modal -->
+    <div class="modal fade" id="addPositionModal" tabindex="-1" aria-labelledby="addPositionModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="addPositionModalLabel">
+                        <i class="bi bi-briefcase-fill"></i> Manage Positions
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <!-- Left Column: Add New Position -->
+                        <div class="col-md-6 border-end">
+                            <h6 class="mb-3"><i class="bi bi-plus-circle"></i> Add New Position</h6>
+                            <form id="addPositionForm">
+                                <div class="alert alert-info small">
+                                    <i class="bi bi-info-circle"></i> New position will be available immediately.
+                                </div>
+                                <div id="positionErrorAlert" class="alert alert-danger d-none" role="alert">
+                                    <i class="bi bi-exclamation-triangle"></i> <span id="positionErrorMessage"></span>
+                                </div>
+                                <div id="positionSuccessAlert" class="alert alert-success d-none" role="alert">
+                                    <i class="bi bi-check-circle"></i> <span id="positionSuccessMessage"></span>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="newPositionName" class="form-label">
+                                        <i class="bi bi-briefcase"></i> Position Name <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" class="form-control" id="newPositionName" name="position_name" 
+                                           placeholder="e.g., Data Analyst, HR Manager" required>
+                                    <small class="form-text text-muted">Unique name (case-insensitive)</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="newPositionDescription" class="form-label">
+                                        <i class="bi bi-text-paragraph"></i> Description (Optional)
+                                    </label>
+                                    <textarea class="form-control" id="newPositionDescription" name="position_description" 
+                                              rows="2" placeholder="Brief description"></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-success w-100" id="savePositionBtn">
+                                    <i class="bi bi-check-circle"></i> Add Position
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Right Column: Delete Existing Positions -->
+                        <div class="col-md-6">
+                            <h6 class="mb-3"><i class="bi bi-trash"></i> Delete Positions</h6>
+                            <div class="alert alert-warning small">
+                                <i class="bi bi-exclamation-triangle"></i> Deleting a position cannot be undone.
+                            </div>
+                            <div id="deletePositionSuccessAlert" class="alert alert-success d-none small" role="alert">
+                                <i class="bi bi-check-circle"></i> <span id="deletePositionSuccessMessage"></span>
+                            </div>
+                            <div id="deletePositionErrorAlert" class="alert alert-danger d-none small" role="alert">
+                                <i class="bi bi-exclamation-triangle"></i> <span id="deletePositionErrorMessage"></span>
+                            </div>
+                            <div id="positionListContainer" style="max-height: 350px; overflow-y: auto;">
+                                <div class="list-group" id="positionDeleteList">
+                                    <!-- Will be populated dynamically -->
+                                    <div class="text-center text-muted py-3">
+                                        <div class="spinner-border spinner-border-sm" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                        <p class="small mb-0 mt-2">Loading positions...</p>
                                     </div>
                                 </div>
                             </div>
@@ -1481,6 +1564,260 @@
                 setTimeout(() => {
                     alertDiv.remove();
                 }, 5000);
+            }
+
+            // ===== Add New Position Modal Functionality =====
+            const addNewPositionBtn = document.getElementById('addNewPositionBtn');
+            const addPositionModalEl = document.getElementById('addPositionModal');
+            const addPositionModal = new bootstrap.Modal(addPositionModalEl);
+            const addPositionForm = document.getElementById('addPositionForm');
+            const savePositionBtn = document.getElementById('savePositionBtn');
+            const positionErrorAlert = document.getElementById('positionErrorAlert');
+            const positionErrorMessage = document.getElementById('positionErrorMessage');
+            const positionSuccessAlert = document.getElementById('positionSuccessAlert');
+            const positionSuccessMessage = document.getElementById('positionSuccessMessage');
+
+            // Load position list for deletion when modal opens
+            addPositionModalEl.addEventListener('shown.bs.modal', function() {
+                loadPositionsForDeletion();
+            });
+
+            // Open modal when "Add New" button is clicked
+            if (addNewPositionBtn) {
+                addNewPositionBtn.addEventListener('click', function() {
+                    // Clear form
+                    addPositionForm.reset();
+                    positionErrorAlert.classList.add('d-none');
+                    if (positionSuccessAlert) positionSuccessAlert.classList.add('d-none');
+                    // Show modal
+                    addPositionModal.show();
+                });
+            }
+
+            // Load positions for deletion list
+            async function loadPositionsForDeletion() {
+                const listContainer = document.getElementById('positionDeleteList');
+                
+                try {
+                    const response = await fetch('/admin/get_positions_list');
+                    const result = await response.json();
+                    
+                    if (result.success && result.positions) {
+                        if (result.positions.length === 0) {
+                            listContainer.innerHTML = '<div class="text-center text-muted py-3"><p class="small mb-0">No positions found</p></div>';
+                            return;
+                        }
+                        
+                        listContainer.innerHTML = '';
+                        result.positions.forEach(pos => {
+                            const item = document.createElement('div');
+                            item.className = 'list-group-item d-flex justify-content-between align-items-center';
+                            item.innerHTML = `
+                                <div>
+                                    <strong>${pos.position_name}</strong>
+                                    ${pos.description ? `<br><small class="text-muted">${pos.description}</small>` : ''}
+                                </div>
+                                <button class="btn btn-sm btn-outline-danger delete-position-btn" 
+                                        data-position-id="${pos.id}" 
+                                        data-position-name="${pos.position_name}"
+                                        title="Delete ${pos.position_name}">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            `;
+                            listContainer.appendChild(item);
+                        });
+                        
+                        // Attach delete handlers
+                        document.querySelectorAll('.delete-position-btn').forEach(btn => {
+                            btn.addEventListener('click', function() {
+                                const positionId = this.dataset.positionId;
+                                const positionName = this.dataset.positionName;
+                                deletePosition(positionId, positionName);
+                            });
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error loading positions:', error);
+                    listContainer.innerHTML = '<div class="text-center text-danger py-3"><p class="small mb-0">Error loading positions</p></div>';
+                }
+            }
+
+            // Delete position function
+            async function deletePosition(positionId, positionName) {
+                const deleteErrorAlert = document.getElementById('deletePositionErrorAlert');
+                const deleteErrorMessage = document.getElementById('deletePositionErrorMessage');
+                const deleteSuccessAlert = document.getElementById('deletePositionSuccessAlert');
+                const deleteSuccessMessage = document.getElementById('deletePositionSuccessMessage');
+                
+                // Confirm deletion
+                if (!confirm(`Are you sure you want to delete the position "${positionName}"?\n\nThis action cannot be undone.`)) {
+                    return;
+                }
+                
+                // Hide previous alerts
+                deleteErrorAlert.classList.add('d-none');
+                deleteSuccessAlert.classList.add('d-none');
+                
+                try {
+                    const response = await fetch('/admin/delete_position', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ id: positionId })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        // Show success message
+                        deleteSuccessMessage.textContent = result.message || 'Position deleted successfully';
+                        deleteSuccessAlert.classList.remove('d-none');
+                        
+                        // Reload position list
+                        await loadPositionsForDeletion();
+                        
+                        // Refresh all dropdowns
+                        await refreshAllPositionDropdowns();
+                        
+                        // Hide success message after 3 seconds
+                        setTimeout(() => {
+                            deleteSuccessAlert.classList.add('d-none');
+                        }, 3000);
+                    } else {
+                        // Show error message
+                        deleteErrorMessage.textContent = result.message || 'Failed to delete position';
+                        deleteErrorAlert.classList.remove('d-none');
+                    }
+                } catch (error) {
+                    console.error('Error deleting position:', error);
+                    deleteErrorMessage.textContent = 'Network error occurred';
+                    deleteErrorAlert.classList.remove('d-none');
+                }
+            }
+
+            // Handle form submission
+            if (addPositionForm) {
+                addPositionForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const positionName = document.getElementById('newPositionName').value.trim();
+                    const positionDescription = document.getElementById('newPositionDescription').value.trim();
+                    
+                    // Validation
+                    if (!positionName) {
+                        showPositionError('Position name cannot be empty');
+                        return;
+                    }
+                    
+                    // Disable button and show loading
+                    savePositionBtn.disabled = true;
+                    savePositionBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+                    positionErrorAlert.classList.add('d-none');
+                    
+                    try {
+                        const response = await fetch('/admin/add_position', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                name: positionName,
+                                description: positionDescription
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            // Show success message in modal
+                            positionErrorAlert.classList.add('d-none');
+                            positionSuccessMessage.textContent = result.message || 'Position added successfully!';
+                            positionSuccessAlert.classList.remove('d-none');
+                            
+                            // Clear form
+                            addPositionForm.reset();
+                            
+                            // Refresh all position dropdowns
+                            await refreshAllPositionDropdowns();
+                            
+                            // Reload position list for deletion
+                            await loadPositionsForDeletion();
+                            
+                            // Select the new position in the add staff form
+                            const addPositionSelect = document.getElementById('addDestination');
+                            if (addPositionSelect) {
+                                addPositionSelect.value = result.position_name;
+                            }
+                            
+                            // Hide success message after 3 seconds
+                            setTimeout(() => {
+                                positionSuccessAlert.classList.add('d-none');
+                            }, 3000);
+                        } else {
+                            // Show error in modal
+                            showPositionError(result.error || 'Failed to add position');
+                        }
+                    } catch (error) {
+                        console.error('Error adding position:', error);
+                        showPositionError('Network error occurred. Please try again.');
+                    } finally {
+                        // Re-enable button
+                        savePositionBtn.disabled = false;
+                        savePositionBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Position';
+                    }
+                });
+            }
+
+            function showPositionError(message) {
+                positionErrorMessage.textContent = message;
+                positionErrorAlert.classList.remove('d-none');
+            }
+
+            // Refresh all position dropdowns function
+            async function refreshAllPositionDropdowns() {
+                try {
+                    const response = await fetch('/admin/get_positions_list');
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        const positions = result.positions;
+                        
+                        // Update all position dropdowns on the page
+                        const positionSelects = document.querySelectorAll('select[name="destination"], #addDestination, #editDestination, #positionFilter');
+                        
+                        positionSelects.forEach(select => {
+                            const currentValue = select.value;
+                            const hasEmptyOption = select.querySelector('option[value=""]');
+                            
+                            // Clear existing options except empty option
+                            select.innerHTML = '';
+                            
+                            // Add empty option if it existed
+                            if (hasEmptyOption) {
+                                const emptyOpt = document.createElement('option');
+                                emptyOpt.value = '';
+                                emptyOpt.textContent = hasEmptyOption.textContent;
+                                select.appendChild(emptyOpt);
+                            }
+                            
+                            // Add position options
+                            positions.forEach(pos => {
+                                const option = document.createElement('option');
+                                option.value = pos.position_name;
+                                option.textContent = pos.position_name;
+                                select.appendChild(option);
+                            });
+                            
+                            // Restore selected value if it still exists
+                            if (currentValue && [...select.options].some(opt => opt.value === currentValue)) {
+                                select.value = currentValue;
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error refreshing position dropdowns:', error);
+                }
             }
         });
     </script>

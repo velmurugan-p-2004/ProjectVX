@@ -1382,7 +1382,7 @@ def test_performance_report_json():
         # Count working days
         current_dt = start_date
         while current_dt <= end_date:
-            if current_dt.weekday() < 5:  # Monday = 0, Sunday = 6
+            if current_dt.weekday() < 6:  # Monday-Saturday = 0-5, Sunday = 6
                 if current_dt not in holiday_dates:
                     working_days += 1
             else:
@@ -1861,9 +1861,9 @@ def generate_payroll_summary_report(school_id, year, month, format_type):
             holiday_dates.add(curr_date)
             curr_date += datetime.timedelta(days=1)
     
-    # Count working days (Mon-Fri, excluding holidays)
+    # Count working days (Mon-Sat, excluding holidays and Sundays)
     while current_dt <= end_date:
-        if current_dt.weekday() < 5:  # Monday = 0, Sunday = 6
+        if current_dt.weekday() < 6:  # Monday-Saturday = 0-5, Sunday = 6
             if current_dt not in holiday_dates:
                 working_days += 1
         else:
@@ -3013,9 +3013,9 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
             holiday_dates.add(curr_date)
             curr_date += datetime.timedelta(days=1)
     
-    # Count working days (Mon-Fri, excluding holidays)
+    # Count working days (Mon-Sat, excluding holidays and Sundays)
     while current_dt <= end_date:
-        if current_dt.weekday() < 5:  # Monday = 0, Sunday = 6
+        if current_dt.weekday() < 6:  # Monday-Saturday = 0-5, Sunday = 6
             if current_dt not in holiday_dates:
                 working_days += 1
         else:
@@ -4073,13 +4073,14 @@ def staff_management():
     if 'user_id' not in session or session['user_type'] != 'admin':
         return redirect(url_for('index'))
 
-    from database import get_all_departments, initialize_default_departments
+    from database import get_all_departments, initialize_default_departments, get_all_positions, initialize_default_positions
     
     db = get_db()
     school_id = session['school_id']
 
-    # Initialize default departments if needed
+    # Initialize default departments and positions if needed
     initialize_default_departments(school_id)
+    initialize_default_positions(school_id)
 
     # Get all staff with comprehensive details
     staff = db.execute('''
@@ -4100,10 +4101,11 @@ def staff_management():
 
     dept_shift_map = {mapping['department']: mapping['default_shift_type'] for mapping in dept_mappings}
     
-    # Get all available departments for dropdown
+    # Get all available departments and positions for dropdowns
     departments = get_all_departments(school_id)
+    positions = get_all_positions(school_id)
 
-    return render_template('staff_management.html', staff=staff, dept_shift_map=dept_shift_map, departments=departments)
+    return render_template('staff_management.html', staff=staff, dept_shift_map=dept_shift_map, departments=departments, positions=positions)
 
 @app.route('/admin/add_department', methods=['POST'])
 @csrf.exempt
@@ -4183,6 +4185,86 @@ def delete_department_route():
             
     except Exception as e:
         print(f"Error in delete_department route: {e}")
+        return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/admin/add_position', methods=['POST'])
+@csrf.exempt
+def add_position_route():
+    """Add a new custom position"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    from database import add_position
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+            
+        position_name = data.get('name', '').strip()
+        position_description = data.get('description', '').strip()
+        
+        if not position_name:
+            return jsonify({'success': False, 'error': 'Position name is required'}), 400
+        
+        school_id = session['school_id']
+        result = add_position(position_name, position_description, school_id)
+        
+        if result['success']:
+            return jsonify(result), 200
+        else:
+            return jsonify({'success': False, 'error': result['message']}), 400
+            
+    except Exception as e:
+        print(f"Error in add_position route: {e}")
+        return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/admin/get_positions_list', methods=['GET'])
+@csrf.exempt
+def get_positions_list():
+    """Get all positions for a school"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    from database import get_all_positions
+    
+    try:
+        school_id = session['school_id']
+        positions = get_all_positions(school_id)
+        return jsonify({'success': True, 'positions': positions}), 200
+    except Exception as e:
+        print(f"Error in get_positions_list route: {e}")
+        return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/admin/delete_position', methods=['POST'])
+@csrf.exempt
+def delete_position_route():
+    """Delete a position (soft delete)"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    from database import delete_position
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+            
+        position_id = data.get('id')
+        
+        if not position_id:
+            return jsonify({'success': False, 'error': 'Position ID is required'}), 400
+        
+        school_id = session['school_id']
+        result = delete_position(position_id, school_id)
+        
+        if result['success']:
+            return jsonify(result), 200
+        else:
+            return jsonify({'success': False, 'message': result['message']}), 400
+            
+    except Exception as e:
+        print(f"Error in delete_position route: {e}")
         return jsonify({'success': False, 'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/admin/work_time_assignment')
@@ -7430,7 +7512,6 @@ def get_comprehensive_staff_profile():
             FROM biometric_verifications
             WHERE staff_id = ? AND DATE(verification_time) >= ?
             ORDER BY verification_time DESC
-            LIMIT 50
         ''', (staff_id, thirty_days_ago)).fetchall()
 
         # Get leave applications

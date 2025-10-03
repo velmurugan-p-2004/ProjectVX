@@ -254,7 +254,7 @@ function renderFilteredStaffTable(staffList) {
             <td>
                 <span class="badge bg-primary">${staff.department || 'N/A'}</span>
             </td>
-            <td>${staff.position || 'N/A'}</td>
+            <td>${staff.position || staff.destination || 'N/A'}</td>
             <td>
                 <div>
                     <small class="d-block"><i class="bi bi-telephone"></i> ${staff.phone || 'N/A'}</small>
@@ -473,6 +473,48 @@ async function loadDepartmentsForEdit(currentDepartment) {
     }
 }
 
+// Load positions dynamically for edit form
+async function loadPositionsForEdit(currentPosition) {
+    const editPositionSelect = document.getElementById('editDestination');
+    
+    if (!editPositionSelect) {
+        console.error('Edit position select not found');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/admin/get_positions_list');
+        const result = await response.json();
+        
+        if (result.success && result.positions) {
+            // Clear existing options except the first one
+            editPositionSelect.innerHTML = '<option value="">Select Position</option>';
+            
+            // Trim currentPosition for comparison
+            const trimmedCurrentPosition = currentPosition ? currentPosition.trim() : '';
+            
+            // Add position options
+            result.positions.forEach(pos => {
+                const option = document.createElement('option');
+                option.value = pos.position_name;
+                option.textContent = pos.position_name;
+                
+                // Select the current position (case-sensitive comparison with trimming)
+                if (pos.position_name.trim() === trimmedCurrentPosition) {
+                    option.selected = true;
+                }
+                
+                editPositionSelect.appendChild(option);
+            });
+            
+            // Debug: Log if position was selected
+            console.log('Current position:', trimmedCurrentPosition, 'Selected:', editPositionSelect.value);
+        }
+    } catch (error) {
+        console.error('Error loading positions for edit:', error);
+    }
+}
+
 function populateEditForm(staff) {
     const modalBody = document.getElementById('editStaffModalBody');
 
@@ -526,7 +568,10 @@ function populateEditForm(staff) {
             <div class="col-md-6">
                 <div class="mb-3">
                     <label for="editDestination" class="form-label">Destination *</label>
-                    <input type="text" class="form-control" id="editDestination" name="destination" value="${staff.destination || ''}" required>
+                    <select class="form-select" id="editDestination" name="destination" required>
+                        <option value="">Select Position</option>
+                        <!-- Will be populated dynamically -->
+                    </select>
                 </div>
             </div>
             <div class="col-md-6">
@@ -684,6 +729,11 @@ function populateEditForm(staff) {
 
     // Load departments dynamically for edit form
     loadDepartmentsForEdit(staff.department);
+    
+    // Load positions dynamically for edit form
+    // Use destination field or fallback to position field
+    const currentPosition = staff.destination || staff.position || '';
+    loadPositionsForEdit(currentPosition);
 
     // Debug: Log salary field values
     console.log('Salary field values from database:');
@@ -996,10 +1046,55 @@ function showDepartmentShiftsError() {
     `;
 }
 
+async function loadDepartmentsForDeptMapping() {
+    const deptSelect = document.getElementById('deptAddDepartment');
+    
+    if (!deptSelect) {
+        console.error('Department select for dept mapping not found');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/admin/get_departments_list');
+        const result = await response.json();
+        
+        if (result.success && result.departments) {
+            // Clear existing options
+            deptSelect.innerHTML = '<option value="">Select Department</option>';
+            
+            // Add department options from database
+            result.departments.forEach(dept => {
+                const option = document.createElement('option');
+                option.value = dept.department_name;
+                option.textContent = dept.department_name;
+                deptSelect.appendChild(option);
+            });
+            
+            // Add custom department option at the end
+            const customOption = document.createElement('option');
+            customOption.value = 'custom';
+            customOption.textContent = '+ Add Custom Department';
+            deptSelect.appendChild(customOption);
+            
+            console.log(`✅ Loaded ${result.departments.length} departments for dept mapping dropdown`);
+        }
+    } catch (error) {
+        console.error('Error loading departments for dept mapping:', error);
+    }
+}
+
 function initializeDeptMappingForm() {
     const form = document.getElementById('addDeptMappingForm');
     if (form) {
         form.addEventListener('submit', handleDeptMappingSubmit);
+    }
+
+    // Load departments when modal is opened
+    const modal = document.getElementById('addDeptMappingModal');
+    if (modal) {
+        modal.addEventListener('show.bs.modal', function() {
+            loadDepartmentsForDeptMapping();
+        });
     }
 
     // Handle custom department toggle

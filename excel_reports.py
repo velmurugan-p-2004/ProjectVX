@@ -806,11 +806,11 @@ class ExcelReportGenerator:
         import calendar
         total_days_in_month = (end_date - start_date).days + 1
         
-        # Count business days (excluding weekends) for more accurate working days
+        # Count business days (excluding only Sundays) for more accurate working days
         business_days_count = 0
         current_date = start_date
         while current_date <= end_date:
-            if current_date.weekday() < 5:  # Monday = 0, Sunday = 6, so < 5 means weekdays
+            if current_date.weekday() < 6:  # Monday-Saturday = 0-5, Sunday = 6
                 business_days_count += 1
             current_date += timedelta(days=1)
         

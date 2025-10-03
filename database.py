@@ -1399,3 +1399,280 @@ def delete_department(department_id, school_id):
         if db:
             db.rollback()
         return {'success': False, 'message': f'Error deleting department: {str(e)}'}
+
+
+# ===========================
+# Position Management Functions
+# ===========================
+
+def create_positions_table():
+    """Create the positions table if it doesn't exist"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL,
+            position_name TEXT NOT NULL,
+            description TEXT,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (school_id) REFERENCES schools(id),
+            UNIQUE(school_id, position_name COLLATE NOCASE)
+        )
+        ''')
+        
+        db.commit()
+        return True
+    except Exception as e:
+        print(f"Error creating positions table: {e}")
+        return False
+
+
+def initialize_default_positions(school_id):
+    """Initialize default positions for a school if none exist"""
+    try:
+        # Create table if it doesn't exist
+        create_positions_table()
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Check if positions already exist for this school
+        existing = cursor.execute(
+            'SELECT COUNT(*) as count FROM positions WHERE school_id = ?',
+            (school_id,)
+        ).fetchone()
+        
+        if existing['count'] > 0:
+            return True  # Positions already exist
+        
+        # Default positions to add
+        default_positions = [
+            ('Teacher', 'Teaching staff and faculty members'),
+            ('Principal', 'School principal and head administrator'),
+            ('Vice Principal', 'Assistant to the principal'),
+            ('HOD', 'Head of Department'),
+            ('Coordinator', 'Department or program coordinator'),
+            ('Lab Assistant', 'Laboratory technical assistant'),
+            ('Librarian', 'Library management and services'),
+            ('Accountant', 'Finance and accounting staff'),
+            ('Office Administrator', 'Office management and administration'),
+            ('Receptionist', 'Front desk and reception staff'),
+            ('Clerk', 'Administrative clerk'),
+            ('Peon', 'Support and housekeeping staff'),
+            ('Security Guard', 'Security and safety personnel'),
+            ('IT Support', 'Information technology support staff'),
+            ('Counselor', 'Student counseling and guidance')
+        ]
+        
+        # Insert default positions
+        for position_name, description in default_positions:
+            cursor.execute('''
+                INSERT INTO positions (school_id, position_name, description)
+                VALUES (?, ?, ?)
+            ''', (school_id, position_name, description))
+        
+        db.commit()
+        print(f"Initialized {len(default_positions)} default positions for school_id {school_id}")
+        return True
+        
+    except Exception as e:
+        print(f"Error initializing default positions: {e}")
+        db.rollback()
+        return False
+
+
+def get_all_positions(school_id):
+    """
+    Get all active positions for a school, including positions currently used by staff
+    This ensures backward compatibility with legacy position data
+    """
+    try:
+        # Create table if it doesn't exist
+        create_positions_table()
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Get active positions from positions table
+        positions = cursor.execute('''
+            SELECT id, position_name, description
+            FROM positions
+            WHERE school_id = ? AND is_active = 1
+            ORDER BY position_name
+        ''', (school_id,)).fetchall()
+        
+        # Convert to list of dictionaries
+        result = [dict(pos) for pos in positions]
+        
+        # If no positions exist, initialize defaults
+        if not result:
+            initialize_default_positions(school_id)
+            # Fetch again after initialization
+            positions = cursor.execute('''
+                SELECT id, position_name, description
+                FROM positions
+                WHERE school_id = ? AND is_active = 1
+                ORDER BY position_name
+            ''', (school_id,)).fetchall()
+            result = [dict(pos) for pos in positions]
+        
+        # Get position names that are already in the result
+        existing_position_names = {pos['position_name'].lower() for pos in result if pos.get('position_name')}
+        
+        # Also get positions that are currently being used by staff but not in positions table
+        # This handles legacy data and deleted positions
+        staff_positions = cursor.execute('''
+            SELECT DISTINCT destination as position_name
+            FROM staff
+            WHERE school_id = ? 
+            AND destination IS NOT NULL 
+            AND TRIM(destination) != ''
+            UNION
+            SELECT DISTINCT position as position_name
+            FROM staff
+            WHERE school_id = ? 
+            AND position IS NOT NULL 
+            AND TRIM(position) != ''
+        ''', (school_id, school_id)).fetchall()
+        
+        # Add staff positions that aren't already in the result
+        for staff_pos in staff_positions:
+            pos_name = staff_pos['position_name'].strip() if staff_pos['position_name'] else None
+            if pos_name and pos_name.lower() not in existing_position_names:
+                result.append({
+                    'id': 0,  # Legacy position (not in positions table)
+                    'position_name': pos_name,
+                    'description': 'Legacy position'
+                })
+                existing_position_names.add(pos_name.lower())
+        
+        # Sort the final result by position name
+        result.sort(key=lambda x: x['position_name'])
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error fetching positions: {e}")
+        # Return default list if database operation fails
+        return [
+            {'id': 0, 'position_name': 'Teacher', 'description': ''},
+            {'id': 0, 'position_name': 'Principal', 'description': ''},
+            {'id': 0, 'position_name': 'Vice Principal', 'description': ''},
+            {'id': 0, 'position_name': 'HOD', 'description': ''}
+        ]
+
+
+def add_position(name, description, school_id):
+    """Add a new position to the database"""
+    db = None
+    try:
+        if not name or not name.strip():
+            return {'success': False, 'message': 'Position name is required'}
+        
+        name = name.strip()
+        
+        # Create table if it doesn't exist
+        create_positions_table()
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Check for existing position (both active and inactive)
+        existing = cursor.execute('''
+            SELECT id, is_active FROM positions 
+            WHERE school_id = ? AND LOWER(position_name) = LOWER(?)
+        ''', (school_id, name)).fetchone()
+        
+        if existing:
+            # If position exists and is inactive, reactivate it
+            if existing['is_active'] == 0:
+                cursor.execute('''
+                    UPDATE positions 
+                    SET is_active = 1, description = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND school_id = ?
+                ''', (description or '', existing['id'], school_id))
+                
+                db.commit()
+                
+                return {
+                    'success': True,
+                    'message': f'Position "{name}" reactivated successfully',
+                    'position_name': name
+                }
+            else:
+                # Position exists and is active
+                return {'success': False, 'message': 'Position already exists'}
+        
+        # Insert new position if it doesn't exist
+        cursor.execute('''
+            INSERT INTO positions (school_id, position_name, description)
+            VALUES (?, ?, ?)
+        ''', (school_id, name, description or ''))
+        
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f'Position "{name}" added successfully',
+            'position_name': name
+        }
+        
+    except Exception as e:
+        print(f"Error adding position: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error adding position: {str(e)}'}
+
+def delete_position(position_id, school_id):
+    """
+    Soft delete a position by setting is_active to 0
+    
+    Args:
+        position_id: The ID of the position to delete
+        school_id: The school ID (for security)
+    
+    Returns:
+        dict: {'success': bool, 'message': str}
+    """
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Verify the position belongs to the school
+        cursor.execute('''
+            SELECT id, position_name FROM positions 
+            WHERE id = ? AND school_id = ? AND is_active = 1
+        ''', (position_id, school_id))
+        
+        position = cursor.fetchone()
+        
+        if not position:
+            return {'success': False, 'message': 'Position not found or already deleted'}
+        
+        position_name = position[1]
+        
+        # Soft delete the position
+        cursor.execute('''
+            UPDATE positions 
+            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND school_id = ?
+        ''', (position_id, school_id))
+        
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f'Position "{position_name}" deleted successfully'
+        }
+        
+    except Exception as e:
+        print(f"Error deleting position: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error deleting position: {str(e)}'}

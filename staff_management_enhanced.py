@@ -170,7 +170,9 @@ class StaffManager:
             params.append(filters['department'])
         
         if filters.get('position'):
-            where_conditions.append('position = ?')
+            # Check both position and destination columns for backward compatibility
+            where_conditions.append('(position = ? OR destination = ?)')
+            params.append(filters['position'])
             params.append(filters['position'])
         
         if filters.get('gender'):

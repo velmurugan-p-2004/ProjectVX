@@ -285,40 +285,46 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
 
             <!-- Tabs for detailed information -->
-            <ul class="nav nav-tabs" id="staffProfileTabs" role="tablist">
+            <ul class="nav nav-tabs" id="staffProfileTabs" role="tablist" style="border-bottom: 2px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="attendance-tab" data-bs-toggle="tab"
-                            data-bs-target="#attendance-pane" type="button" role="tab">
+                            data-bs-target="#attendance-pane" type="button" role="tab"
+                            style="color: #495057; background-color: #f8f9fa; border: 1px solid #dee2e6; border-bottom-color: transparent; box-shadow: 0 2px 4px rgba(0,0,0,0.08); margin-right: 2px;">
                         <i class="bi bi-calendar-check"></i> Attendance Records
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="biometric-tab" data-bs-toggle="tab"
-                            data-bs-target="#biometric-pane" type="button" role="tab">
+                            data-bs-target="#biometric-pane" type="button" role="tab"
+                            style="color: #495057; background-color: transparent; border: 1px solid #dee2e6; border-bottom-color: #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,0.08); margin-right: 2px;">
                         <i class="bi bi-fingerprint"></i> Biometric Verifications
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="leaves-tab" data-bs-toggle="tab"
-                            data-bs-target="#leaves-pane" type="button" role="tab">
+                            data-bs-target="#leaves-pane" type="button" role="tab"
+                            style="color: #495057; background-color: transparent; border: 1px solid #dee2e6; border-bottom-color: #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,0.08); margin-right: 2px;">
                         <i class="bi bi-calendar-x"></i> Leave Applications
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="on-duty-tab" data-bs-toggle="tab"
-                            data-bs-target="#on-duty-pane" type="button" role="tab">
+                            data-bs-target="#on-duty-pane" type="button" role="tab"
+                            style="color: #495057; background-color: transparent; border: 1px solid #dee2e6; border-bottom-color: #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,0.08); margin-right: 2px;">
                         <i class="bi bi-briefcase"></i> On Duty Applications
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="permissions-tab" data-bs-toggle="tab"
-                            data-bs-target="#permissions-pane" type="button" role="tab">
+                            data-bs-target="#permissions-pane" type="button" role="tab"
+                            style="color: #495057; background-color: transparent; border: 1px solid #dee2e6; border-bottom-color: #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,0.08); margin-right: 2px;">
                         <i class="bi bi-clock"></i> Permission Applications
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="weekly-calendar-tab" data-bs-toggle="tab"
-                            data-bs-target="#weekly-calendar-pane" type="button" role="tab">
+                            data-bs-target="#weekly-calendar-pane" type="button" role="tab"
+                            style="color: #495057; background-color: transparent; border: 1px solid #dee2e6; border-bottom-color: #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
                         <i class="bi bi-calendar-week"></i> Weekly Calendar
                     </button>
                 </li>
@@ -358,33 +364,78 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 <!-- Biometric Verifications Tab -->
                 <div class="tab-pane fade" id="biometric-pane" role="tabpanel">
+                    <div class="alert alert-info mb-3">
+                        <i class="bi bi-info-circle"></i> Showing biometric verification records for the <strong>last 30 days</strong>
+                    </div>
                     <div class="table-responsive">
                         <table class="table table-striped table-hover">
                             <thead class="table-dark">
                                 <tr>
-                                    <th>Date & Time</th>
-                                    <th>Verification Type</th>
-                                    <th>Status</th>
+                                    <th>Date</th>
+                                    <th>Check In</th>
+                                    <th>Check In Status</th>
+                                    <th>Check Out</th>
+                                    <th>Check Out Status</th>
                                     <th>Device IP</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${(data.verifications || []).map(verification => `
-                                    <tr>
-                                        <td>${verification.verification_time ? new Date(verification.verification_time).toLocaleString() : '--'}</td>
-                                        <td>
-                                            <span class="badge bg-info">
-                                                ${(verification.verification_type || 'unknown').replace('-', ' ').toUpperCase()}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <span class="badge bg-${verification.verification_status === 'success' ? 'success' : 'danger'}">
-                                                ${verification.verification_status || 'unknown'}
-                                            </span>
-                                        </td>
-                                        <td>${verification.device_ip || '--'}</td>
-                                    </tr>
-                                `).join('')}
+                                ${(() => {
+                                    // Group verifications by date
+                                    const groupedByDate = {};
+                                    (data.verifications || []).forEach(v => {
+                                        if (v.verification_time) {
+                                            const date = v.verification_time.split(' ')[0]; // Get date part
+                                            if (!groupedByDate[date]) {
+                                                groupedByDate[date] = { checkIn: null, checkOut: null };
+                                            }
+                                            if (v.verification_type === 'check-in') {
+                                                groupedByDate[date].checkIn = v;
+                                            } else if (v.verification_type === 'check-out') {
+                                                groupedByDate[date].checkOut = v;
+                                            }
+                                        }
+                                    });
+                                    
+                                    // Convert to array and sort by date descending
+                                    const sortedEntries = Object.entries(groupedByDate)
+                                        .sort((a, b) => b[0].localeCompare(a[0]));
+                                    
+                                    if (sortedEntries.length === 0) {
+                                        return '<tr><td colspan="6" class="text-center text-muted">No verification records found</td></tr>';
+                                    }
+                                    
+                                    return sortedEntries.map(([date, records]) => `
+                                            <tr>
+                                                <td><strong>${date}</strong></td>
+                                                <td>
+                                                    ${records.checkIn ? 
+                                                        new Date(records.checkIn.verification_time).toLocaleTimeString() : 
+                                                        '<span class="text-muted">--:--</span>'}
+                                                </td>
+                                                <td>
+                                                    ${records.checkIn ? 
+                                                        `<span class="badge bg-${records.checkIn.verification_status === 'success' ? 'success' : 'danger'}">
+                                                            ${records.checkIn.verification_status || 'unknown'}
+                                                        </span>` : 
+                                                        '<span class="text-muted">N/A</span>'}
+                                                </td>
+                                                <td>
+                                                    ${records.checkOut ? 
+                                                        new Date(records.checkOut.verification_time).toLocaleTimeString() : 
+                                                        '<span class="text-muted">--:--</span>'}
+                                                </td>
+                                                <td>
+                                                    ${records.checkOut ? 
+                                                        `<span class="badge bg-${records.checkOut.verification_status === 'success' ? 'success' : 'danger'}">
+                                                            ${records.checkOut.verification_status || 'unknown'}
+                                                        </span>` : 
+                                                        '<span class="text-muted">N/A</span>'}
+                                                </td>
+                                                <td>${records.checkIn?.device_ip || records.checkOut?.device_ip || '--'}</td>
+                                            </tr>
+                                        `).join('');
+                                })()}
                             </tbody>
                         </table>
                     </div>

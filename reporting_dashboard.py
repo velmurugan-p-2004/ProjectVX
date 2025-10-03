@@ -299,7 +299,7 @@ class ReportingDashboard:
         }
     
     def _get_working_days_in_month(self, year: int, month: int) -> int:
-        """Calculate working days in a month (excluding weekends)"""
+        """Calculate working days in a month (excluding only Sundays)"""
         start_date = date(year, month, 1)
         if month == 12:
             end_date = date(year + 1, 1, 1) - timedelta(days=1)
@@ -311,7 +311,7 @@ class ReportingDashboard:
         
         while current_date <= end_date:
             # Monday = 0, Sunday = 6
-            if current_date.weekday() < 5:  # Monday to Friday
+            if current_date.weekday() < 6:  # Monday to Saturday
                 working_days += 1
             current_date += timedelta(days=1)
         
