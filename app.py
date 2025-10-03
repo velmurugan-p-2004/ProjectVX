@@ -5249,6 +5249,45 @@ def get_weekly_attendance():
             ORDER BY date
         ''', (target_staff_id, week_start_date, week_end_date)).fetchall()
 
+        # Get leave applications for the week
+        leave_applications = db.execute('''
+            SELECT id, leave_type, start_date, end_date, reason, status
+            FROM leave_applications
+            WHERE staff_id = ? 
+              AND status IN ('approved', 'pending')
+              AND ((start_date BETWEEN ? AND ?) 
+                   OR (end_date BETWEEN ? AND ?)
+                   OR (start_date <= ? AND end_date >= ?))
+            ORDER BY start_date
+        ''', (target_staff_id, week_start_date, week_end_date, 
+              week_start_date, week_end_date,
+              week_start_date, week_end_date)).fetchall()
+
+        # Get on-duty applications for the week
+        on_duty_applications = db.execute('''
+            SELECT id, duty_type, start_date, end_date, location, purpose, status
+            FROM on_duty_applications
+            WHERE staff_id = ? 
+              AND status IN ('approved', 'pending')
+              AND ((start_date BETWEEN ? AND ?) 
+                   OR (end_date BETWEEN ? AND ?)
+                   OR (start_date <= ? AND end_date >= ?))
+            ORDER BY start_date
+        ''', (target_staff_id, week_start_date, week_end_date,
+              week_start_date, week_end_date,
+              week_start_date, week_end_date)).fetchall()
+
+        # Get permission applications for the week
+        permission_applications = db.execute('''
+            SELECT id, permission_type, permission_date, start_time, end_time, 
+                   duration_hours, reason, status
+            FROM permission_applications
+            WHERE staff_id = ? 
+              AND status IN ('approved', 'pending')
+              AND permission_date BETWEEN ? AND ?
+            ORDER BY permission_date
+        ''', (target_staff_id, week_start_date, week_end_date)).fetchall()
+
         # Create weekly data structure
         weekly_data = []
         current_date = week_start_date
@@ -5270,6 +5309,48 @@ def get_weekly_attendance():
             )
             day_data['day_name'] = day_name
             day_data['date'] = date_str
+
+            # Check for leave applications on this date
+            day_data['leave_applications'] = []
+            for leave in leave_applications:
+                leave_start = datetime.datetime.strptime(leave['start_date'], '%Y-%m-%d').date()
+                leave_end = datetime.datetime.strptime(leave['end_date'], '%Y-%m-%d').date()
+                if leave_start <= current_date <= leave_end:
+                    day_data['leave_applications'].append({
+                        'id': leave['id'],
+                        'type': leave['leave_type'],
+                        'reason': leave['reason'],
+                        'status': leave['status']
+                    })
+
+            # Check for on-duty applications on this date
+            day_data['on_duty_applications'] = []
+            for od in on_duty_applications:
+                od_start = datetime.datetime.strptime(od['start_date'], '%Y-%m-%d').date()
+                od_end = datetime.datetime.strptime(od['end_date'], '%Y-%m-%d').date()
+                if od_start <= current_date <= od_end:
+                    day_data['on_duty_applications'].append({
+                        'id': od['id'],
+                        'type': od['duty_type'],
+                        'location': od['location'],
+                        'purpose': od['purpose'],
+                        'status': od['status']
+                    })
+
+            # Check for permission applications on this date
+            day_data['permission_applications'] = []
+            for perm in permission_applications:
+                perm_date = datetime.datetime.strptime(perm['permission_date'], '%Y-%m-%d').date()
+                if perm_date == current_date:
+                    day_data['permission_applications'].append({
+                        'id': perm['id'],
+                        'type': perm['permission_type'],
+                        'start_time': perm['start_time'],
+                        'end_time': perm['end_time'],
+                        'duration': perm['duration_hours'],
+                        'reason': perm['reason'],
+                        'status': perm['status']
+                    })
 
             weekly_data.append(day_data)
             current_date += datetime.timedelta(days=1)
@@ -7619,6 +7700,41 @@ def staff_profile_page():
         WHERE staff_id = ? AND date BETWEEN ? AND ?
     ''', (staff_id, first_day, last_day)).fetchone()
 
+    # Get approved leave applications for current month and count leave days
+    approved_leaves = db.execute('''
+        SELECT start_date, end_date
+        FROM leave_applications
+        WHERE staff_id = ? 
+          AND status = 'approved'
+          AND ((start_date BETWEEN ? AND ?) 
+               OR (end_date BETWEEN ? AND ?)
+               OR (start_date <= ? AND end_date >= ?))
+    ''', (staff_id, first_day, last_day, first_day, last_day, first_day, last_day)).fetchall()
+
+    # Count leave days from approved leave applications
+    leave_days_from_applications = 0
+    dates_with_leave = set()
+    
+    for leave in approved_leaves:
+        start_date = datetime.datetime.strptime(leave['start_date'], '%Y-%m-%d').date()
+        end_date = datetime.datetime.strptime(leave['end_date'], '%Y-%m-%d').date()
+        
+        # Iterate through each day in the leave period
+        current_date = max(start_date, first_day)
+        end_date_capped = min(end_date, last_day)
+        
+        while current_date <= end_date_capped:
+            # Only count weekdays (Monday-Saturday), skip Sundays
+            if current_date.weekday() < 6:  # 0=Monday, 6=Sunday
+                dates_with_leave.add(current_date)
+            current_date += datetime.timedelta(days=1)
+    
+    leave_days_from_applications = len(dates_with_leave)
+
+    # Create a modified attendance_summary dict with updated leave count
+    attendance_summary_dict = dict(attendance_summary)
+    attendance_summary_dict['leave_days'] = (attendance_summary['leave_days'] or 0) + leave_days_from_applications
+
 
 
     # Get leave applications
@@ -7648,7 +7764,7 @@ def staff_profile_page():
 
     return render_template('staff_my_profile.html',
                          staff=staff,
-                         attendance_summary=attendance_summary,
+                         attendance_summary=attendance_summary_dict,
                          leave_applications=leave_applications,
                          recent_verifications=recent_verifications,
                          today=today,
@@ -7670,6 +7786,7 @@ def get_staff_attendance_summary():
         first_day = today.replace(day=1)
         last_day = (today.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)
 
+        # Get attendance records from attendance table
         attendance_summary = db.execute('''
             SELECT
                 COUNT(*) as total_days,
@@ -7682,12 +7799,46 @@ def get_staff_attendance_summary():
             WHERE staff_id = ? AND date BETWEEN ? AND ?
         ''', (staff_id, first_day, last_day)).fetchone()
 
+        # Get approved leave applications for current month
+        approved_leaves = db.execute('''
+            SELECT start_date, end_date
+            FROM leave_applications
+            WHERE staff_id = ? 
+              AND status = 'approved'
+              AND ((start_date BETWEEN ? AND ?) 
+                   OR (end_date BETWEEN ? AND ?)
+                   OR (start_date <= ? AND end_date >= ?))
+        ''', (staff_id, first_day, last_day, first_day, last_day, first_day, last_day)).fetchall()
+
+        # Count leave days from approved leave applications
+        leave_days_from_applications = 0
+        dates_with_leave = set()
+        
+        for leave in approved_leaves:
+            start_date = datetime.datetime.strptime(leave['start_date'], '%Y-%m-%d').date()
+            end_date = datetime.datetime.strptime(leave['end_date'], '%Y-%m-%d').date()
+            
+            # Iterate through each day in the leave period
+            current_date = max(start_date, first_day)
+            end_date_capped = min(end_date, last_day)
+            
+            while current_date <= end_date_capped:
+                # Only count weekdays (Monday-Saturday), skip Sundays
+                if current_date.weekday() < 6:  # 0=Monday, 6=Sunday
+                    dates_with_leave.add(current_date)
+                current_date += datetime.timedelta(days=1)
+        
+        leave_days_from_applications = len(dates_with_leave)
+
+        # Combine leave days (avoid double counting if already in attendance table)
+        total_leave_days = (attendance_summary['leave_days'] or 0) + leave_days_from_applications
+
         return jsonify({
             'success': True,
             'present_days': attendance_summary['present_days'] or 0,
             'absent_days': attendance_summary['absent_days'] or 0,
             'late_days': attendance_summary['late_days'] or 0,
-            'leave_days': attendance_summary['leave_days'] or 0,
+            'leave_days': total_leave_days,
             'on_duty_days': attendance_summary['on_duty_days'] or 0,
             'total_days': attendance_summary['total_days'] or 0,
             'current_month': today.strftime('%B %Y')

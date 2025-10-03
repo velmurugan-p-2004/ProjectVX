@@ -313,6 +313,53 @@ class WeeklyAttendanceCalendar {
 
         html += `<div class="status-badge"><strong class="${statusClass}">${statusText}</strong></div>`;
 
+        // Show leave applications (approved or pending)
+        if (dayData.leave_applications && dayData.leave_applications.length > 0) {
+            html += '<div class="application-badges mt-2">';
+            dayData.leave_applications.forEach(leave => {
+                const badgeClass = leave.status === 'approved' ? 'bg-success' : 'bg-warning';
+                const iconClass = leave.status === 'approved' ? 'bi-check-circle' : 'bi-clock-history';
+                const statusText = leave.status === 'approved' ? 'Approved' : 'Pending';
+                html += `<div class="badge ${badgeClass} d-block mb-1" title="${leave.reason}">`;
+                html += `<i class="bi bi-calendar-x"></i> Leave (${leave.type})`;
+                html += `<br><small><i class="bi ${iconClass}"></i> ${statusText}</small>`;
+                html += `</div>`;
+            });
+            html += '</div>';
+        }
+
+        // Show on-duty applications (approved or pending)
+        if (dayData.on_duty_applications && dayData.on_duty_applications.length > 0) {
+            html += '<div class="application-badges mt-2">';
+            dayData.on_duty_applications.forEach(od => {
+                const badgeClass = od.status === 'approved' ? 'bg-info' : 'bg-secondary';
+                const iconClass = od.status === 'approved' ? 'bi-check-circle' : 'bi-clock-history';
+                const statusText = od.status === 'approved' ? 'Approved' : 'Pending';
+                const locationText = od.location ? ` - ${od.location}` : '';
+                html += `<div class="badge ${badgeClass} d-block mb-1" title="${od.purpose}">`;
+                html += `<i class="bi bi-briefcase"></i> On Duty${locationText}`;
+                html += `<br><small><i class="bi ${iconClass}"></i> ${statusText}</small>`;
+                html += `</div>`;
+            });
+            html += '</div>';
+        }
+
+        // Show permission applications (approved or pending)
+        if (dayData.permission_applications && dayData.permission_applications.length > 0) {
+            html += '<div class="application-badges mt-2">';
+            dayData.permission_applications.forEach(perm => {
+                const badgeClass = perm.status === 'approved' ? 'bg-primary' : 'bg-light text-dark';
+                const iconClass = perm.status === 'approved' ? 'bi-check-circle' : 'bi-clock-history';
+                const statusText = perm.status === 'approved' ? 'Approved' : 'Pending';
+                const timeText = perm.start_time && perm.end_time ? ` ${perm.start_time}-${perm.end_time}` : '';
+                html += `<div class="badge ${badgeClass} d-block mb-1" title="${perm.reason}">`;
+                html += `<i class="bi bi-clock"></i> Permission${timeText}`;
+                html += `<br><small><i class="bi ${iconClass}"></i> ${statusText}</small>`;
+                html += `</div>`;
+            });
+            html += '</div>';
+        }
+
         // Holiday-specific information
         if (dayData.present_status === 'Holiday' && dayData.holiday_info) {
             html += `<div class="holiday-info">`;
@@ -707,6 +754,66 @@ const weeklyCalendarStyles = `
     font-size: 11px;
     margin-bottom: 2px;
     font-style: italic;
+}
+
+/* Application badges styling (Leave, On Duty, Permission) */
+.application-badges {
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.application-badges .badge {
+    font-size: 10px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    line-height: 1.4;
+    max-width: 100%;
+    word-wrap: break-word;
+}
+
+.application-badges .badge small {
+    font-size: 9px;
+    display: block;
+    margin-top: 2px;
+    opacity: 0.9;
+}
+
+.application-badges .badge i {
+    font-size: 10px;
+}
+
+/* Specific application badge styles */
+.application-badges .bg-success {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
+    border: 1px solid #28a745;
+}
+
+.application-badges .bg-warning {
+    background: linear-gradient(135deg, #ffc107 0%, #ffdd57 100%) !important;
+    border: 1px solid #ffc107;
+    color: #212529 !important;
+}
+
+.application-badges .bg-info {
+    background: linear-gradient(135deg, #17a2b8 0%, #5bc0de 100%) !important;
+    border: 1px solid #17a2b8;
+}
+
+.application-badges .bg-secondary {
+    background: linear-gradient(135deg, #6c757d 0%, #9ba3aa 100%) !important;
+    border: 1px solid #6c757d;
+}
+
+.application-badges .bg-primary {
+    background: linear-gradient(135deg, #0d6efd 0%, #4895ff 100%) !important;
+    border: 1px solid #0d6efd;
+}
+
+.application-badges .bg-light {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%) !important;
+    border: 1px solid #dee2e6;
 }
 
 </style>
