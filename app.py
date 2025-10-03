@@ -1088,7 +1088,9 @@ def salary_management():
         return redirect(url_for('login'))
     if session['user_type'] not in ['admin', 'company_admin']:
         return redirect(url_for('staff_dashboard'))
-    return render_template('salary_management.html')
+    
+    today = datetime.datetime.now()
+    return render_template('salary_management.html', current_year=today.year)
 
 @app.route('/get_summary_dashboard')
 def get_summary_dashboard():
@@ -8737,7 +8739,8 @@ def admin_reports():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return redirect(url_for('index'))
 
-    return render_template('admin_reports.html')
+    today = datetime.datetime.now()
+    return render_template('admin_reports.html', current_year=today.year)
 
 @app.route('/admin/settings')
 def admin_settings():

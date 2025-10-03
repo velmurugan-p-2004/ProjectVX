@@ -1117,7 +1117,32 @@
             }
 
             // Set current date
-            document.getElementById('currentDate').textContent = new Date().toLocaleDateString();
+            const currentDateElement = document.getElementById('currentDate');
+            if (currentDateElement) {
+                const today = new Date();
+                const dateStr = today.toLocaleDateString('en-GB', { 
+                    day: '2-digit', 
+                    month: 'short', 
+                    year: 'numeric' 
+                });
+                currentDateElement.textContent = dateStr;
+            }
+
+            // Update total staff count in sidebar footer (dynamic update)
+            const totalStaffCountElement = document.getElementById('totalStaffCount');
+            if (totalStaffCountElement) {
+                // Get staff count from API
+                fetch('/get_staff_count')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success && data.count !== undefined) {
+                            totalStaffCountElement.textContent = data.count;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching staff count:', error);
+                    });
+            }
             
             console.log('✅ WORK TIME ASSIGNMENT fixed sidebar initialized successfully');
             

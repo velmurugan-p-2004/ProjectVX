@@ -258,9 +258,9 @@
                                         <i class="bi bi-calendar-event"></i> Year
                                     </label>
                                     <select class="form-select enhanced-select" id="reportYear">
-                                        <option value="2023">2023</option>
-                                        <option value="2024" selected>2024</option>
-                                        <option value="2025">2025</option>
+                                        {% for year in range(2023, current_year + 1) %}
+                                        <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
+                                        {% endfor %}
                                     </select>
                                 </div>
                                 <div class="filter-group">
@@ -575,6 +575,34 @@
 
                 // Handle window resize
                 window.addEventListener('resize', updateSidebarVisibility);
+            }
+
+            // Update current date in sidebar footer
+            const currentDateElement = document.getElementById('currentDate');
+            if (currentDateElement) {
+                const today = new Date();
+                const dateStr = today.toLocaleDateString('en-GB', { 
+                    day: '2-digit', 
+                    month: 'short', 
+                    year: 'numeric' 
+                });
+                currentDateElement.textContent = dateStr;
+            }
+
+            // Update total staff count in sidebar footer
+            const totalStaffCountElement = document.getElementById('totalStaffCount');
+            if (totalStaffCountElement) {
+                // Get staff count from API
+                fetch('/get_staff_count')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success && data.count !== undefined) {
+                            totalStaffCountElement.textContent = data.count;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching staff count:', error);
+                    });
             }
         });
 

@@ -92,9 +92,27 @@ function setDefaultDates() {
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
     const weekAgoStr = weekAgo.toISOString().split('T')[0];
     
-    document.getElementById('reportDate').value = todayStr;
-    document.getElementById('startDate').value = weekAgoStr;
-    document.getElementById('endDate').value = todayStr;
+    // Get current year and month - force to actual current year
+    const currentYear = today.getFullYear();
+    const currentMonth = today.toISOString().slice(0, 7); // Format: YYYY-MM
+    
+    console.log('Setting default dates - Current Year:', currentYear); // Debug log
+    
+    // Set date fields
+    const reportDate = document.getElementById('reportDate');
+    const startDate = document.getElementById('startDate');
+    const endDate = document.getElementById('endDate');
+    const yearInput = document.getElementById('year');
+    const monthYearInput = document.getElementById('monthYear');
+    
+    if (reportDate) reportDate.value = todayStr;
+    if (startDate) startDate.value = weekAgoStr;
+    if (endDate) endDate.value = todayStr;
+    if (yearInput) {
+        yearInput.value = currentYear;
+        console.log('Year input set to:', yearInput.value); // Debug log
+    }
+    if (monthYearInput) monthYearInput.value = currentMonth;
 }
 
 function loadSummaryDashboard() {
