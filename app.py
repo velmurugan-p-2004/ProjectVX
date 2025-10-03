@@ -7654,6 +7654,48 @@ def staff_profile_page():
                          today=today,
                          current_month=today.strftime('%B %Y'))
 
+@app.route('/staff/get_attendance_summary')
+def get_staff_attendance_summary():
+    """Get staff attendance summary for current month (dynamic API)"""
+    if 'user_id' not in session or session['user_type'] != 'staff':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    staff_id = session['user_id']
+    
+    try:
+        db = get_db()
+        
+        # Get attendance summary for current month
+        today = datetime.date.today()
+        first_day = today.replace(day=1)
+        last_day = (today.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)
+
+        attendance_summary = db.execute('''
+            SELECT
+                COUNT(*) as total_days,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_days,
+                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_days,
+                SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) as leave_days,
+                SUM(CASE WHEN status = 'on_duty' THEN 1 ELSE 0 END) as on_duty_days
+            FROM attendance
+            WHERE staff_id = ? AND date BETWEEN ? AND ?
+        ''', (staff_id, first_day, last_day)).fetchone()
+
+        return jsonify({
+            'success': True,
+            'present_days': attendance_summary['present_days'] or 0,
+            'absent_days': attendance_summary['absent_days'] or 0,
+            'late_days': attendance_summary['late_days'] or 0,
+            'leave_days': attendance_summary['leave_days'] or 0,
+            'on_duty_days': attendance_summary['on_duty_days'] or 0,
+            'total_days': attendance_summary['total_days'] or 0,
+            'current_month': today.strftime('%B %Y')
+        })
+    except Exception as e:
+        print(f"Error fetching attendance summary: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/staff/update_profile', methods=['POST'])
 def update_staff_profile():
     """Update staff profile information"""

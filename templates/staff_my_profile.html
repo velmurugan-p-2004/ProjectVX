@@ -318,6 +318,9 @@
                                     <h5 class="card-title">{{ current_month }} Summary</h5>
                                     <p class="card-subtitle">Your attendance statistics for this month</p>
                                 </div>
+                                <button id="refreshAttendanceSummary" class="btn btn-sm btn-outline-primary ms-auto" title="Refresh attendance data">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
                             </div>
                             <div class="card-body">
                                 <div class="filters-grid">
@@ -1104,6 +1107,11 @@
         // Enhanced attendance stat card styles
         const style = document.createElement('style');
         style.textContent = `
+            .salary-results-card .card-header {
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+            }
             .attendance-stat-card {
                 border: 1px solid rgba(0, 0, 0, 0.08);
                 border-radius: 1rem;

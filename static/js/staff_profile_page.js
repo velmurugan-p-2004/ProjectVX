@@ -61,73 +61,129 @@ document.addEventListener('DOMContentLoaded', function() {
         return isValid;
     }
 
-    // Initialize attendance summary chart
-    const ctx = document.getElementById('attendanceSummaryChart')?.getContext('2d');
-    if (ctx) {
-        // Get attendance data from the modernized stat cards
-        const statCards = document.querySelectorAll('.attendance-stat-card .stat-value');
-        const presentDays = statCards[0] ? parseInt(statCards[0].textContent) || 0 : 0;
-        const absentDays = statCards[1] ? parseInt(statCards[1].textContent) || 0 : 0;
-        const lateDays = statCards[2] ? parseInt(statCards[2].textContent) || 0 : 0;
-        const leaveDays = statCards[3] ? parseInt(statCards[3].textContent) || 0 : 0;
+    // Function to load and update attendance summary dynamically
+    let attendanceChart = null; // Store chart instance for updates
 
-        new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Present', 'Absent', 'Late', 'Leave'],
-                datasets: [{
-                    data: [presentDays, absentDays, lateDays, leaveDays],
-                    backgroundColor: [
-                        '#198754',
-                        '#dc3545',
-                        '#ffc107',
-                        '#0dcaf0'
-                    ],
-                    borderWidth: 3,
-                    borderColor: '#ffffff',
-                    hoverBorderWidth: 4,
-                    hoverOffset: 10
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: {
-                            padding: 20,
-                            usePointStyle: true,
-                            font: {
-                                size: 12,
-                                weight: '500'
-                            }
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: '#ffffff',
-                        bodyColor: '#ffffff',
-                        borderColor: '#ffffff',
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        padding: 12,
-                        callbacks: {
-                            label: function(context) {
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = total > 0 ? ((context.parsed * 100) / total).toFixed(1) : 0;
-                                return `${context.label}: ${context.parsed} days (${percentage}%)`;
-                            }
+    function loadAttendanceSummary() {
+        fetch('/staff/get_attendance_summary')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update stat cards
+                    const statCards = document.querySelectorAll('.attendance-stat-card .stat-value');
+                    if (statCards[0]) statCards[0].textContent = data.present_days;
+                    if (statCards[1]) statCards[1].textContent = data.absent_days;
+                    if (statCards[2]) statCards[2].textContent = data.late_days;
+                    if (statCards[3]) statCards[3].textContent = data.leave_days;
+
+                    // Update month title
+                    const monthTitle = document.querySelector('.card-title');
+                    if (monthTitle && data.current_month) {
+                        monthTitle.textContent = `${data.current_month} Summary`;
+                    }
+
+                    // Update or create chart
+                    const ctx = document.getElementById('attendanceSummaryChart')?.getContext('2d');
+                    if (ctx) {
+                        const chartData = {
+                            labels: ['Present', 'Absent', 'Late', 'Leave'],
+                            datasets: [{
+                                data: [data.present_days, data.absent_days, data.late_days, data.leave_days],
+                                backgroundColor: [
+                                    '#198754',
+                                    '#dc3545',
+                                    '#ffc107',
+                                    '#0dcaf0'
+                                ],
+                                borderWidth: 3,
+                                borderColor: '#ffffff',
+                                hoverBorderWidth: 4,
+                                hoverOffset: 10
+                            }]
+                        };
+
+                        if (attendanceChart) {
+                            // Update existing chart
+                            attendanceChart.data = chartData;
+                            attendanceChart.update();
+                        } else {
+                            // Create new chart
+                            attendanceChart = new Chart(ctx, {
+                                type: 'doughnut',
+                                data: chartData,
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    plugins: {
+                                        legend: {
+                                            position: 'bottom',
+                                            labels: {
+                                                padding: 20,
+                                                usePointStyle: true,
+                                                font: {
+                                                    size: 12,
+                                                    weight: '500'
+                                                }
+                                            }
+                                        },
+                                        tooltip: {
+                                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                            titleColor: '#ffffff',
+                                            bodyColor: '#ffffff',
+                                            borderColor: '#ffffff',
+                                            borderWidth: 1,
+                                            cornerRadius: 8,
+                                            padding: 12,
+                                            callbacks: {
+                                                label: function(context) {
+                                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                                    const percentage = total > 0 ? ((context.parsed * 100) / total).toFixed(1) : 0;
+                                                    return `${context.label}: ${context.parsed} days (${percentage}%)`;
+                                                }
+                                            }
+                                        }
+                                    },
+                                    animation: {
+                                        animateRotate: true,
+                                        animateScale: true,
+                                        duration: 1000,
+                                        easing: 'easeOutQuart'
+                                    }
+                                }
+                            });
                         }
                     }
-                },
-                animation: {
-                    animateRotate: true,
-                    animateScale: true,
-                    duration: 1000,
-                    easing: 'easeOutQuart'
+
+                    console.log('Attendance summary loaded successfully:', data);
+                } else {
+                    console.error('Failed to load attendance summary:', data.error);
                 }
-            }
+            })
+            .catch(error => {
+                console.error('Error loading attendance summary:', error);
+            });
+    }
+
+    // Load attendance summary on page load
+    loadAttendanceSummary();
+
+    // Add refresh button event listener
+    const refreshBtn = document.getElementById('refreshAttendanceSummary');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            // Add spinning animation to the icon
+            const icon = this.querySelector('i');
+            icon.classList.add('fa-spin');
+            this.disabled = true;
+            
+            // Load fresh data
+            loadAttendanceSummary();
+            
+            // Remove spinning animation after a delay
+            setTimeout(() => {
+                icon.classList.remove('fa-spin');
+                this.disabled = false;
+            }, 1000);
         });
     }
 
