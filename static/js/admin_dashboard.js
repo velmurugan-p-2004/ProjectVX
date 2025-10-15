@@ -1857,16 +1857,26 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateAttendanceSummary(summary) {
-        // Update summary badges in header
-        const presentBadge = document.querySelector('.badge.bg-success');
-        const absentBadge = document.querySelector('.badge.bg-danger');
-        const lateBadge = document.querySelector('.badge.bg-warning');
-        const leaveBadge = document.querySelector('.badge.bg-info');
-
-        if (presentBadge) presentBadge.textContent = `${summary.present || 0} Present`;
-        if (absentBadge) absentBadge.textContent = `${summary.absent || 0} Absent`;
-        if (lateBadge) lateBadge.textContent = `${summary.late || 0} Late`;
-        if (leaveBadge) leaveBadge.textContent = `${summary.on_leave || 0} On Leave`;
+        // Update summary values in header only (not in modals)
+        const headerStatsSection = document.querySelector('.results-stats');
+        if (headerStatsSection) {
+            const statItems = headerStatsSection.querySelectorAll('.stat-item');
+            
+            statItems.forEach(item => {
+                const statValue = item.querySelector('.stat-value');
+                const text = item.textContent.toLowerCase();
+                
+                if (text.includes('present') && statValue) {
+                    statValue.textContent = summary.present || 0;
+                } else if (text.includes('absent') && statValue) {
+                    statValue.textContent = summary.absent || 0;
+                } else if (text.includes('late') && statValue) {
+                    statValue.textContent = summary.late || 0;
+                } else if (text.includes('leave') && statValue) {
+                    statValue.textContent = summary.on_leave || 0;
+                }
+            });
+        }
     }
 
     function showNotification(message, type = 'info') {
