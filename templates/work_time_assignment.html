@@ -80,23 +80,54 @@
             }
             
             .sidebar-toggle {
-                display: block !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
             }
         }
         
-        /* Ensure sidebar toggle is properly styled - Match staff management */
+        /* Enhanced sidebar toggle styling with intelligent behavior */
         .sidebar-toggle {
             position: fixed;
             top: 1rem;
             left: 1rem;
             z-index: 1100;
-            background: var(--primary-color, #007bff);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            border-radius: 0.375rem;
-            padding: 0.5rem;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
             font-size: 1.25rem;
-            display: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            transition: all 0.3s ease, opacity 0.2s ease-in-out;
+            cursor: pointer;
+            opacity: 1;
+        }
+        
+        .sidebar-toggle:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+        }
+        
+        /* Show toggle button on mobile AND tablet/laptop views */
+        @media (max-width: 1024px) {
+            .sidebar-toggle {
+                display: flex !important;
+                align-items: center;
+                justify-content: center;
+            }
+        }
+        
+        /* Hide toggle only on large desktop screens */
+        @media (min-width: 1025px) {
+            .sidebar-toggle {
+                display: none !important;
+                opacity: 0;
+            }
         }
 
         /* Work Time Assignment specific styles */
@@ -1083,37 +1114,126 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('🔧 WORK TIME ASSIGNMENT: Fixed sidebar initialization...');
             
-            // Mobile sidebar toggle functionality
+            // Enhanced sidebar toggle functionality with intelligent hiding
             const sidebarToggle = document.getElementById('sidebarToggle');
             const sidebar = document.getElementById('enhanced-sidebar');
+            let sidebarVisible = false;
+            
+            // Intelligent toggle sidebar function
+            function toggleSidebar() {
+                if (sidebarVisible) {
+                    // Hide sidebar
+                    sidebar.classList.remove('show');
+                    sidebarVisible = false;
+                    
+                    // Update toggle button icon and make it reappear
+                    sidebarToggle.innerHTML = '<i class="bi bi-list"></i>';
+                    sidebarToggle.setAttribute('aria-expanded', 'false');
+                    sidebarToggle.setAttribute('title', 'Show sidebar menu');
+                    
+                    // Intelligent button reappearing - show toggle button when sidebar closes
+                    setTimeout(() => {
+                        sidebarToggle.style.display = 'flex';
+                        sidebarToggle.style.opacity = '1';
+                    }, 100);
+                    
+                    console.log('✅ Work Time Assignment - Sidebar hidden with intelligent toggle');
+                } else {
+                    // Show sidebar
+                    sidebar.classList.add('show');
+                    sidebarVisible = true;
+                    
+                    // Update toggle button icon
+                    sidebarToggle.innerHTML = '<i class="bi bi-x"></i>';
+                    sidebarToggle.setAttribute('aria-expanded', 'true');
+                    sidebarToggle.setAttribute('title', 'Hide sidebar menu');
+                    
+                    // Intelligent button hiding - hide toggle button when sidebar opens for clean UI
+                    setTimeout(() => {
+                        sidebarToggle.style.opacity = '0';
+                        setTimeout(() => {
+                            sidebarToggle.style.display = 'none';
+                        }, 200);
+                    }, 500);
+                    
+                    console.log('✅ Work Time Assignment - Sidebar shown with intelligent toggle');
+                }
+            }
             
             if (sidebarToggle && sidebar) {
                 sidebarToggle.addEventListener('click', function() {
-                    console.log('🔄 WORK TIME ASSIGNMENT - Toggle clicked!');
-                    sidebar.classList.toggle('show');
+                    console.log('🔄 WORK TIME ASSIGNMENT - Intelligent toggle clicked!');
                     
-                    // Update aria-expanded
-                    const isExpanded = sidebar.classList.contains('show');
-                    sidebarToggle.setAttribute('aria-expanded', isExpanded);
+                    if (window.innerWidth <= 1024) {
+                        toggleSidebar();
+                    }
                 });
 
-                // Close sidebar when clicking outside on mobile
+                // Close sidebar when clicking outside on mobile/tablet/laptop
                 document.addEventListener('click', function(event) {
-                    if (window.innerWidth <= 767.98 && sidebar.classList.contains('show')) {
-                        if (!sidebar.contains(event.target) && !sidebarToggle.contains(event.target)) {
+                    if (window.innerWidth <= 1024 && sidebarVisible) {
+                        const isClickInsideSidebar = sidebar.contains(event.target);
+                        const isClickOnToggle = sidebarToggle.contains(event.target);
+                        
+                        if (!isClickInsideSidebar && !isClickOnToggle) {
+                            // Close sidebar and intelligently show toggle button
                             sidebar.classList.remove('show');
+                            sidebarVisible = false;
+                            
+                            // Update toggle button and make it reappear
+                            sidebarToggle.innerHTML = '<i class="bi bi-list"></i>';
                             sidebarToggle.setAttribute('aria-expanded', 'false');
+                            sidebarToggle.setAttribute('title', 'Show sidebar menu');
+                            
+                            // Intelligent button reappearing
+                            setTimeout(() => {
+                                sidebarToggle.style.display = 'flex';
+                                sidebarToggle.style.opacity = '1';
+                            }, 100);
+                            
+                            console.log('Work Time Assignment - Sidebar closed by outside click with intelligent toggle');
                         }
                     }
                 });
 
                 // Handle window resize
                 window.addEventListener('resize', function() {
-                    if (window.innerWidth > 767.98) {
+                    if (window.innerWidth > 1024) {
+                        // Desktop: reset sidebar and toggle button state
                         sidebar.classList.remove('show');
+                        sidebarVisible = false;
+                        sidebarToggle.innerHTML = '<i class="bi bi-list"></i>';
                         sidebarToggle.setAttribute('aria-expanded', 'false');
+                        sidebarToggle.setAttribute('title', 'Toggle sidebar menu');
+                        
+                        // Reset toggle button visibility for desktop
+                        sidebarToggle.style.display = 'none';
+                        sidebarToggle.style.opacity = '0';
+                        
+                        console.log('Work Time Assignment - Desktop mode: sidebar fixed, toggle hidden');
+                    } else {
+                        // Mobile/Tablet/Laptop: ensure toggle button is visible when sidebar is closed
+                        if (!sidebarVisible) {
+                            sidebarToggle.style.display = 'flex';
+                            sidebarToggle.style.opacity = '1';
+                        }
+                        
+                        console.log('Work Time Assignment - Mobile/Tablet mode: toggle visible');
                     }
                 });
+                
+                // Initial state based on screen size
+                if (window.innerWidth <= 1024) {
+                    sidebarVisible = false;
+                    sidebarToggle.style.display = 'flex';
+                    sidebarToggle.style.opacity = '1';
+                    console.log('Work Time Assignment - Initial mobile/tablet state: toggle visible');
+                } else {
+                    sidebarVisible = false;
+                    sidebarToggle.style.display = 'none';
+                    sidebarToggle.style.opacity = '0';
+                    console.log('Work Time Assignment - Initial desktop state: toggle hidden');
+                }
             }
 
             // Set current date
