@@ -4,6 +4,201 @@ document.addEventListener('DOMContentLoaded', function() {
         const token = document.querySelector('input[name="csrf_token"]');
         return token ? token.value : '';
     }
+
+    // Quota Management Functions
+    function loadStaffQuotas() {
+        const staffId = window.currentStaffId;
+        if (!staffId) {
+            console.error('No staff ID available');
+            return;
+        }
+
+        fetch(`/api/staff/${staffId}/quotas`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateQuotaDisplay(data.quotas);
+                } else {
+                    console.error('Failed to load quotas:', data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading quotas:', error);
+            });
+    }
+
+    function updateQuotaDisplay(quotas) {
+        // Update Leave Quotas
+        if (quotas.leave) {
+            document.getElementById('leaveAllocatedQuota').textContent = quotas.leave.allocated || 0;
+            document.getElementById('leaveUsedQuota').textContent = quotas.leave.used || 0;
+            document.getElementById('leaveRemainingQuota').textContent = quotas.leave.remaining || 0;
+        }
+
+        // Update OD Quotas
+        if (quotas.od) {
+            document.getElementById('odAllocatedQuota').textContent = quotas.od.allocated || 0;
+            document.getElementById('odUsedQuota').textContent = quotas.od.used || 0;
+            document.getElementById('odRemainingQuota').textContent = quotas.od.remaining || 0;
+        }
+
+        // Update Permission Quotas (in hours)
+        if (quotas.permission) {
+            document.getElementById('permissionAllocatedQuota').textContent = quotas.permission.allocated || 0;
+            document.getElementById('permissionUsedQuota').textContent = quotas.permission.used || 0;
+            document.getElementById('permissionRemainingQuota').textContent = quotas.permission.remaining || 0;
+        }
+    }
+
+    function calculateLeaveDays() {
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        
+        if (startDate && endDate) {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            
+            if (end >= start) {
+                const timeDiff = Math.abs(end.getTime() - start.getTime());
+                const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
+                
+                document.getElementById('leaveTotalDays').textContent = `${daysDiff} days`;
+                
+                // Calculate remaining after this application
+                const currentRemaining = parseInt(document.getElementById('leaveRemainingQuota').textContent) || 0;
+                const remainingAfter = currentRemaining - daysDiff;
+                document.getElementById('leaveRemainingAfter').textContent = `${remainingAfter} days`;
+                
+                // Show warning if exceeding quota
+                const alertDiv = document.getElementById('leaveQuotaAlert');
+                if (remainingAfter < 0) {
+                    alertDiv.classList.remove('d-none');
+                    alertDiv.className = 'alert alert-danger mb-3';
+                    document.getElementById('leaveQuotaAlertText').textContent = 
+                        `This application exceeds your remaining quota by ${Math.abs(remainingAfter)} days.`;
+                } else if (remainingAfter <= 2) {
+                    alertDiv.classList.remove('d-none');
+                    alertDiv.className = 'alert alert-warning mb-3';
+                    document.getElementById('leaveQuotaAlertText').textContent = 
+                        `After this application, you will have only ${remainingAfter} days remaining.`;
+                } else {
+                    alertDiv.classList.add('d-none');
+                }
+            }
+        } else {
+            document.getElementById('leaveTotalDays').textContent = '0 days';
+            document.getElementById('leaveRemainingAfter').textContent = '-';
+            document.getElementById('leaveQuotaAlert').classList.add('d-none');
+        }
+    }
+
+    function calculateODDays() {
+        const startDate = document.getElementById('dutyStartDate').value;
+        const endDate = document.getElementById('dutyEndDate').value;
+        
+        if (startDate && endDate) {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            
+            if (end >= start) {
+                const timeDiff = Math.abs(end.getTime() - start.getTime());
+                const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
+                
+                document.getElementById('odTotalDays').textContent = `${daysDiff} days`;
+                
+                // Calculate remaining after this application
+                const currentRemaining = parseInt(document.getElementById('odRemainingQuota').textContent) || 0;
+                const remainingAfter = currentRemaining - daysDiff;
+                document.getElementById('odRemainingAfter').textContent = `${remainingAfter} days`;
+                
+                // Show warning if exceeding quota
+                const alertDiv = document.getElementById('odQuotaAlert');
+                if (remainingAfter < 0) {
+                    alertDiv.classList.remove('d-none');
+                    alertDiv.className = 'alert alert-danger mb-3';
+                    document.getElementById('odQuotaAlertText').textContent = 
+                        `This application exceeds your remaining quota by ${Math.abs(remainingAfter)} days.`;
+                } else if (remainingAfter <= 2) {
+                    alertDiv.classList.remove('d-none');
+                    alertDiv.className = 'alert alert-warning mb-3';
+                    document.getElementById('odQuotaAlertText').textContent = 
+                        `After this application, you will have only ${remainingAfter} days remaining.`;
+                } else {
+                    alertDiv.classList.add('d-none');
+                }
+            }
+        } else {
+            document.getElementById('odTotalDays').textContent = '0 days';
+            document.getElementById('odRemainingAfter').textContent = '-';
+            document.getElementById('odQuotaAlert').classList.add('d-none');
+        }
+    }
+
+    function calculatePermissionHours() {
+        const startTime = document.getElementById('permissionStartTime').value;
+        const endTime = document.getElementById('permissionEndTime').value;
+        
+        if (startTime && endTime) {
+            const start = new Date(`2000-01-01 ${startTime}`);
+            const end = new Date(`2000-01-01 ${endTime}`);
+            
+            if (end > start) {
+                const timeDiff = end.getTime() - start.getTime();
+                const hours = timeDiff / (1000 * 3600);
+                
+                document.getElementById('permissionTotalHours').textContent = `${hours.toFixed(1)} hours`;
+                
+                // Calculate remaining after this application
+                const currentRemaining = parseFloat(document.getElementById('permissionRemainingQuota').textContent) || 0;
+                const remainingAfter = currentRemaining - hours;
+                document.getElementById('permissionRemainingAfter').textContent = `${remainingAfter.toFixed(1)} hours`;
+                
+                // Show warning if exceeding quota
+                const alertDiv = document.getElementById('permissionQuotaAlert');
+                if (remainingAfter < 0) {
+                    alertDiv.classList.remove('d-none');
+                    alertDiv.className = 'alert alert-danger mb-3';
+                    document.getElementById('permissionQuotaAlertText').textContent = 
+                        `This application exceeds your remaining quota by ${Math.abs(remainingAfter).toFixed(1)} hours.`;
+                } else if (remainingAfter <= 2) {
+                    alertDiv.classList.remove('d-none');
+                    alertDiv.className = 'alert alert-warning mb-3';
+                    document.getElementById('permissionQuotaAlertText').textContent = 
+                        `After this application, you will have only ${remainingAfter.toFixed(1)} hours remaining.`;
+                } else {
+                    alertDiv.classList.add('d-none');
+                }
+            }
+        } else {
+            document.getElementById('permissionTotalHours').textContent = '0 hours';
+            document.getElementById('permissionRemainingAfter').textContent = '-';
+            document.getElementById('permissionQuotaAlert').classList.add('d-none');
+        }
+    }
+
+    // Load quotas when modals are opened
+    document.getElementById('applyLeaveModal')?.addEventListener('shown.bs.modal', function() {
+        loadStaffQuotas();
+    });
+
+    document.getElementById('applyOnDutyModal')?.addEventListener('shown.bs.modal', function() {
+        loadStaffQuotas();
+    });
+
+    document.getElementById('applyPermissionModal')?.addEventListener('shown.bs.modal', function() {
+        loadStaffQuotas();
+    });
+
+    // Add event listeners for real-time calculation
+    document.getElementById('startDate')?.addEventListener('change', calculateLeaveDays);
+    document.getElementById('endDate')?.addEventListener('change', calculateLeaveDays);
+    
+    document.getElementById('dutyStartDate')?.addEventListener('change', calculateODDays);
+    document.getElementById('dutyEndDate')?.addEventListener('change', calculateODDays);
+    
+    document.getElementById('permissionStartTime')?.addEventListener('change', calculatePermissionHours);
+    document.getElementById('permissionEndTime')?.addEventListener('change', calculatePermissionHours);
+
     // Initialize attendance chart with real data
     const ctx = document.getElementById('attendanceChart')?.getContext('2d');
     if (ctx) {

@@ -630,13 +630,23 @@
 
 <!-- Apply Leave Modal -->
 <div class="modal fade" id="applyLeaveModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">Apply for Leave</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+                <!-- Quota Balance Display -->
+                <div class="quota-balance-section mb-4" id="leaveQuotaBalance" style="display: none;">
+                    <h6 class="fw-bold text-primary mb-3">
+                        <i class="bi bi-bar-chart"></i> Your Leave Balance
+                    </h6>
+                    <div class="row" id="leaveBalanceCards">
+                        <!-- Leave balance cards will be populated here -->
+                    </div>
+                </div>
+                
                 <form id="leaveForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <div class="mb-3">
@@ -648,7 +658,15 @@
                             <option value="EL">Earned Leave (EL)</option>
                             <option value="ML">Maternity Leave (ML)</option>
                         </select>
+                        <div class="form-text" id="leaveTypeHelp">Select a leave type to see your remaining balance</div>
                     </div>
+                    
+                    <!-- Selected Leave Type Balance -->
+                    <div class="alert alert-info" id="selectedLeaveBalance" style="display: none;">
+                        <i class="bi bi-info-circle"></i> 
+                        <span id="selectedLeaveBalanceText">You have 0 days remaining for this leave type</span>
+                    </div>
+                    
                     <div class="mb-3">
                         <label for="startDate" class="form-label">Start Date</label>
                         <input type="date" class="form-control" id="startDate" required>
@@ -656,7 +674,17 @@
                     <div class="mb-3">
                         <label for="endDate" class="form-label">End Date</label>
                         <input type="date" class="form-control" id="endDate" required>
+                        <div class="form-text" id="leaveDaysCalculated" style="display: none;">
+                            Total days: <span id="totalLeaveDays">0</span>
+                        </div>
                     </div>
+                    
+                    <!-- Quota Validation Message -->
+                    <div class="alert alert-warning" id="leaveQuotaWarning" style="display: none;">
+                        <i class="bi bi-exclamation-triangle"></i> 
+                        <span id="leaveQuotaWarningText">Your request exceeds available balance</span>
+                    </div>
+                    
                     <div class="mb-3">
                         <label for="leaveReason" class="form-label">Reason</label>
                         <textarea class="form-control" id="leaveReason" rows="3" required></textarea>
@@ -680,6 +708,57 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+                <!-- OD Quota Balance Display -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="alert alert-info mb-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>On Duty Quota Information</strong>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="card border-primary">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-primary mb-1">
+                                            <i class="fas fa-calendar-plus me-1"></i>Allocated
+                                        </h6>
+                                        <h4 class="text-primary mb-0" id="odAllocatedQuota">-</h4>
+                                        <small class="text-muted">days/year</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card border-warning">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-warning mb-1">
+                                            <i class="fas fa-calendar-minus me-1"></i>Used
+                                        </h6>
+                                        <h4 class="text-warning mb-0" id="odUsedQuota">-</h4>
+                                        <small class="text-muted">days</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card border-success">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-success mb-1">
+                                            <i class="fas fa-calendar-check me-1"></i>Remaining
+                                        </h6>
+                                        <h4 class="text-success mb-0" id="odRemainingQuota">-</h4>
+                                        <small class="text-muted">days</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Application Validation Alert -->
+                <div id="odQuotaAlert" class="alert alert-warning d-none mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <span id="odQuotaAlertText"></span>
+                </div>
+
                 <form id="onDutyForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <div class="row">
@@ -718,6 +797,24 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Total Days Calculation -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <div class="alert alert-light border">
+                                <div class="row align-items-center">
+                                    <div class="col-md-8">
+                                        <strong>Total OD Days:</strong> 
+                                        <span id="odTotalDays" class="badge bg-primary ms-2">0 days</span>
+                                    </div>
+                                    <div class="col-md-4 text-end">
+                                        <small class="text-muted">Remaining after this: <span id="odRemainingAfter" class="fw-bold">-</span></small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
@@ -752,13 +849,64 @@
 
 <!-- Apply Permission Modal -->
 <div class="modal fade" id="applyPermissionModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title">Apply for Permission</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+                <!-- Permission Quota Balance Display -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="alert alert-info mb-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Permission Quota Information</strong>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="card border-primary">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-primary mb-1">
+                                            <i class="fas fa-clock me-1"></i>Allocated
+                                        </h6>
+                                        <h4 class="text-primary mb-0" id="permissionAllocatedQuota">-</h4>
+                                        <small class="text-muted">hours/year</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card border-warning">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-warning mb-1">
+                                            <i class="fas fa-clock me-1"></i>Used
+                                        </h6>
+                                        <h4 class="text-warning mb-0" id="permissionUsedQuota">-</h4>
+                                        <small class="text-muted">hours</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card border-success">
+                                    <div class="card-body text-center">
+                                        <h6 class="card-title text-success mb-1">
+                                            <i class="fas fa-clock me-1"></i>Remaining
+                                        </h6>
+                                        <h4 class="text-success mb-0" id="permissionRemainingQuota">-</h4>
+                                        <small class="text-muted">hours</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Application Validation Alert -->
+                <div id="permissionQuotaAlert" class="alert alert-warning d-none mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <span id="permissionQuotaAlertText"></span>
+                </div>
+
                 <form id="permissionForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <div class="mb-3">
@@ -790,6 +938,24 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Total Hours Calculation -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <div class="alert alert-light border">
+                                <div class="row align-items-center">
+                                    <div class="col-md-8">
+                                        <strong>Total Permission Hours:</strong> 
+                                        <span id="permissionTotalHours" class="badge bg-warning ms-2">0 hours</span>
+                                    </div>
+                                    <div class="col-md-4 text-end">
+                                        <small class="text-muted">Remaining after this: <span id="permissionRemainingAfter" class="fw-bold">-</span></small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="mb-3">
                         <label for="permissionReason" class="form-label">Reason</label>
                         <textarea class="form-control" id="permissionReason" name="reason" rows="3" required placeholder="Please provide detailed reason for permission"></textarea>

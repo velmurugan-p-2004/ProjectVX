@@ -279,6 +279,114 @@
             overflow-y: auto;
         }
 
+        /* Quota Management Styles */
+        .quota-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid rgba(0,0,0,0.08);
+        }
+
+        .quota-category-title {
+            color: #495057;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .quota-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .quota-status-card {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 4px solid #007bff;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .quota-status-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+
+        .quota-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .quota-card-title {
+            font-weight: 600;
+            color: #495057;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .quota-badge {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .quota-progress {
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .quota-progress-bar {
+            height: 100%;
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+
+        .quota-stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+        }
+
+        .quota-stat {
+            text-align: center;
+        }
+
+        .quota-stat-value {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .quota-stat-label {
+            color: #6c757d;
+            font-size: 0.8rem;
+        }
+
+        /* Quota progress bar colors */
+        .progress-bar-success { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
+        .progress-bar-warning { background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%); }
+        .progress-bar-danger { background: linear-gradient(135deg, #dc3545 0%, #e91e63 100%); }
+
+        /* Card border colors by quota type */
+        .quota-status-card.leave-card { border-left-color: #17a2b8; }
+        .quota-status-card.od-card { border-left-color: #007bff; }
+        .quota-status-card.permission-card { border-left-color: #6c757d; }
+
         /* Holiday Calendar Styles */
         .holiday-calendar-section {
             background: white;
@@ -972,6 +1080,163 @@
                             </div>
                             <div class="alert alert-danger" id="holidayErrorMessage" style="display: none;">
                                 <i class="bi bi-exclamation-triangle-fill"></i> <span id="holidayErrorText">Holiday operation failed. Please try again.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Leave & Permission Quota Management Section -->
+                <div class="salary-results-card mt-4">
+                    <div class="card-header">
+                        <div class="header-icon">
+                            <i class="bi bi-clipboard-data"></i>
+                        </div>
+                        <div class="header-content">
+                            <h5 class="card-title">Leave & Permission Quota Management</h5>
+                            <p class="card-subtitle">Assign and manage leave, on-duty, and permission quotas for staff members</p>
+                        </div>
+                        <div class="header-actions">
+                            <select class="form-select me-2" id="quotaYearSelect" style="width: auto; display: inline-block;">
+                                <option value="2024">2024</option>
+                                <option value="2025" selected>2025</option>
+                                <option value="2026">2026</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Quota Assignment Controls -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="quotaStaffSelect" class="form-label">Select Staff Member *</label>
+                                    <select class="form-select" id="quotaStaffSelect" required>
+                                        <option value="">Choose a staff member...</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="quotaYear" class="form-label">Quota Year</label>
+                                    <input type="text" class="form-control" id="quotaYear" value="2025" readonly>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Quota Configuration Form -->
+                        <div id="quotaConfigurationForm" style="display: none;">
+                            <h6 class="section-title mb-3">
+                                <i class="bi bi-gear text-primary"></i> Quota Configuration
+                            </h6>
+                            
+                            <!-- Leave Quotas -->
+                            <div class="quota-section mb-4">
+                                <h6 class="quota-category-title">
+                                    <i class="bi bi-calendar-x text-info"></i> Leave Quotas
+                                </h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <div class="mb-3">
+                                            <label for="clQuota" class="form-label">
+                                                Casual Leave (CL) <span class="text-muted">days</span>
+                                            </label>
+                                            <input type="number" class="form-control" id="clQuota" min="0" max="365" value="12">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="mb-3">
+                                            <label for="slQuota" class="form-label">
+                                                Sick Leave (SL) <span class="text-muted">days</span>
+                                            </label>
+                                            <input type="number" class="form-control" id="slQuota" min="0" max="365" value="7">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="mb-3">
+                                            <label for="elQuota" class="form-label">
+                                                Earned Leave (EL) <span class="text-muted">days</span>
+                                            </label>
+                                            <input type="number" class="form-control" id="elQuota" min="0" max="365" value="21">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="mb-3">
+                                            <label for="mlQuota" class="form-label">
+                                                Maternity Leave (ML) <span class="text-muted">days</span>
+                                            </label>
+                                            <input type="number" class="form-control" id="mlQuota" min="0" max="365" value="180">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- OD Quota -->
+                            <div class="quota-section mb-4">
+                                <h6 class="quota-category-title">
+                                    <i class="bi bi-briefcase text-primary"></i> On Duty (OD) Quota
+                                </h6>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="mb-3">
+                                            <label for="odQuota" class="form-label">
+                                                On Duty Days <span class="text-muted">days</span>
+                                            </label>
+                                            <input type="number" class="form-control" id="odQuota" min="0" max="365" value="10">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Permission Quota -->
+                            <div class="quota-section mb-4">
+                                <h6 class="quota-category-title">
+                                    <i class="bi bi-shield-check text-secondary"></i> Permission Quota
+                                </h6>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="mb-3">
+                                            <label for="permissionQuota" class="form-label">
+                                                Permission Hours <span class="text-muted">hours</span>
+                                            </label>
+                                            <input type="number" class="form-control" id="permissionQuota" min="0" max="500" step="0.5" value="15">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div class="quota-actions">
+                                <button type="button" class="btn btn-primary" id="saveQuotasBtn">
+                                    <i class="bi bi-save"></i> Save Quotas
+                                </button>
+                                <button type="button" class="btn btn-secondary" id="resetQuotasBtn">
+                                    <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
+                                </button>
+                                <button type="button" class="btn btn-outline-info" id="viewUsageBtn">
+                                    <i class="bi bi-bar-chart"></i> View Usage Summary
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Current Quota Display -->
+                        <div id="currentQuotaDisplay" style="display: none;">
+                            <h6 class="section-title mb-3">
+                                <i class="bi bi-list-check text-success"></i> Current Quota Status
+                            </h6>
+                            <div class="row" id="quotaStatusCards">
+                                <!-- Quota status cards will be populated here -->
+                            </div>
+                        </div>
+
+                        <!-- Messages -->
+                        <div class="quota-messages mt-3">
+                            <div class="alert alert-success" id="quotaSuccessMessage" style="display: none;">
+                                <i class="bi bi-check-circle-fill"></i> <span id="quotaSuccessText">Quota operation completed successfully!</span>
+                            </div>
+                            <div class="alert alert-danger" id="quotaErrorMessage" style="display: none;">
+                                <i class="bi bi-exclamation-triangle-fill"></i> <span id="quotaErrorText">Quota operation failed. Please try again.</span>
+                            </div>
+                            <div class="alert alert-info" id="quotaInfoMessage" style="display: none;">
+                                <i class="bi bi-info-circle-fill"></i> <span id="quotaInfoText">Please select a staff member to manage their quotas.</span>
                             </div>
                         </div>
                     </div>
@@ -2355,8 +2620,400 @@
             // Initialize both work time assignment and holiday management
             setTimeout(() => {
                 initializeHolidayManagement();
+                initializeQuotaManagement();
             }, 500);
         });
+
+        /*
+         * QUOTA MANAGEMENT SYSTEM
+         */
+
+        // Quota Management Global Variables
+        let selectedStaffId = null;
+        let currentQuotaYear = new Date().getFullYear();
+        let staffList = [];
+
+        // Initialize Quota Management System
+        function initializeQuotaManagement() {
+            console.log('📊 Initializing Quota Management System...');
+            
+            try {
+                // Load staff list
+                loadStaffList();
+                
+                // Setup event listeners
+                setupQuotaEventListeners();
+                
+                // Set initial year
+                document.getElementById('quotaYear').value = currentQuotaYear;
+                document.getElementById('quotaYearSelect').value = currentQuotaYear;
+                
+                // Show info message initially
+                showQuotaMessage('Please select a staff member to manage their quotas.', 'info');
+                
+                console.log('✅ Quota Management System initialized successfully');
+            } catch (error) {
+                console.error('❌ Error initializing Quota Management:', error);
+                showQuotaMessage('Failed to initialize Quota Management System', 'error');
+            }
+        }
+
+        // Setup Quota Management Event Listeners
+        function setupQuotaEventListeners() {
+            // Staff selection change
+            const staffSelect = document.getElementById('quotaStaffSelect');
+            if (staffSelect) {
+                staffSelect.addEventListener('change', function() {
+                    selectedStaffId = this.value;
+                    if (selectedStaffId) {
+                        loadStaffQuotas(selectedStaffId);
+                        document.getElementById('quotaConfigurationForm').style.display = 'block';
+                        document.getElementById('currentQuotaDisplay').style.display = 'block';
+                        hideQuotaMessage('info');
+                    } else {
+                        document.getElementById('quotaConfigurationForm').style.display = 'none';
+                        document.getElementById('currentQuotaDisplay').style.display = 'none';
+                        showQuotaMessage('Please select a staff member to manage their quotas.', 'info');
+                    }
+                });
+            }
+
+            // Year selection change
+            const yearSelect = document.getElementById('quotaYearSelect');
+            if (yearSelect) {
+                yearSelect.addEventListener('change', function() {
+                    currentQuotaYear = parseInt(this.value);
+                    document.getElementById('quotaYear').value = currentQuotaYear;
+                    if (selectedStaffId) {
+                        loadStaffQuotas(selectedStaffId);
+                    }
+                });
+            }
+
+            // Save quotas button
+            const saveBtn = document.getElementById('saveQuotasBtn');
+            if (saveBtn) {
+                saveBtn.addEventListener('click', saveStaffQuotas);
+            }
+
+            // Reset quotas button
+            const resetBtn = document.getElementById('resetQuotasBtn');
+            if (resetBtn) {
+                resetBtn.addEventListener('click', resetToDefaults);
+            }
+
+            // View usage button
+            const usageBtn = document.getElementById('viewUsageBtn');
+            if (usageBtn) {
+                usageBtn.addEventListener('click', viewUsageSummary);
+            }
+        }
+
+        // Load staff list for quota management
+        async function loadStaffList() {
+            try {
+                const response = await fetch('/api/staff/list', {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.staff) {
+                        staffList = data.staff;
+                        populateStaffSelect();
+                    } else {
+                        console.error('Failed to load staff list:', data.message);
+                        showQuotaMessage('Failed to load staff list', 'error');
+                    }
+                } else {
+                    console.error('Failed to load staff list:', response.status);
+                    showQuotaMessage('Failed to load staff list', 'error');
+                }
+            } catch (error) {
+                console.error('Error loading staff list:', error);
+                showQuotaMessage('Error loading staff list', 'error');
+            }
+        }
+
+        // Populate staff select dropdown
+        function populateStaffSelect() {
+            const select = document.getElementById('quotaStaffSelect');
+            if (!select) return;
+
+            // Clear existing options except the first one
+            select.innerHTML = '<option value="">Choose a staff member...</option>';
+
+            // Add staff options
+            staffList.forEach(staff => {
+                const option = document.createElement('option');
+                option.value = staff.id;
+                option.textContent = `${staff.full_name} (${staff.staff_id}) - ${staff.department}`;
+                select.appendChild(option);
+            });
+        }
+
+        // Load staff quotas
+        async function loadStaffQuotas(staffId) {
+            try {
+                const response = await fetch(`/api/staff/${staffId}/quotas/${currentQuotaYear}`, {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        populateQuotaForm(data.quotas);
+                        displayQuotaStatus(data.quotas);
+                    } else {
+                        console.error('Failed to load quotas:', data.message);
+                        showQuotaMessage('Failed to load staff quotas', 'error');
+                    }
+                } else {
+                    console.error('Failed to load quotas:', response.status);
+                    showQuotaMessage('Failed to load staff quotas', 'error');
+                }
+            } catch (error) {
+                console.error('Error loading quotas:', error);
+                showQuotaMessage('Error loading staff quotas', 'error');
+            }
+        }
+
+        // Populate quota form with current values
+        function populateQuotaForm(quotas) {
+            // Leave quotas
+            if (quotas.leave_quotas) {
+                document.getElementById('clQuota').value = quotas.leave_quotas.CL?.allocated_days || 12;
+                document.getElementById('slQuota').value = quotas.leave_quotas.SL?.allocated_days || 7;
+                document.getElementById('elQuota').value = quotas.leave_quotas.EL?.allocated_days || 21;
+                document.getElementById('mlQuota').value = quotas.leave_quotas.ML?.allocated_days || 180;
+            }
+
+            // OD quota
+            document.getElementById('odQuota').value = quotas.od_quota?.allocated_days || 10;
+
+            // Permission quota
+            document.getElementById('permissionQuota').value = quotas.permission_quota?.allocated_hours || 15;
+        }
+
+        // Display quota status cards
+        function displayQuotaStatus(quotas) {
+            const container = document.getElementById('quotaStatusCards');
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            // Create leave quota cards
+            if (quotas.leave_quotas) {
+                Object.entries(quotas.leave_quotas).forEach(([leaveType, quota]) => {
+                    const card = createQuotaCard('leave', leaveType, quota.allocated_days, quota.used_days, quota.remaining_days, 'days');
+                    container.appendChild(card);
+                });
+            }
+
+            // Create OD quota card
+            if (quotas.od_quota) {
+                const card = createQuotaCard('od', 'On Duty', quotas.od_quota.allocated_days, quotas.od_quota.used_days, quotas.od_quota.remaining_days, 'days');
+                container.appendChild(card);
+            }
+
+            // Create Permission quota card
+            if (quotas.permission_quota) {
+                const card = createQuotaCard('permission', 'Permission', quotas.permission_quota.allocated_hours, quotas.permission_quota.used_hours, quotas.permission_quota.remaining_hours, 'hours');
+                container.appendChild(card);
+            }
+        }
+
+        // Create quota status card
+        function createQuotaCard(type, title, allocated, used, remaining, unit) {
+            const col = document.createElement('div');
+            col.className = 'col-md-6 col-lg-4 mb-3';
+
+            const usagePercent = allocated > 0 ? (used / allocated) * 100 : 0;
+            let progressBarClass = 'progress-bar-success';
+            if (usagePercent > 80) progressBarClass = 'progress-bar-danger';
+            else if (usagePercent > 60) progressBarClass = 'progress-bar-warning';
+
+            const leaveTypeNames = {
+                'CL': 'Casual Leave',
+                'SL': 'Sick Leave', 
+                'EL': 'Earned Leave',
+                'ML': 'Maternity Leave'
+            };
+
+            const displayTitle = leaveTypeNames[title] || title;
+
+            col.innerHTML = `
+                <div class="quota-status-card ${type}-card">
+                    <div class="quota-card-header">
+                        <h6 class="quota-card-title">
+                            ${getQuotaIcon(type)} ${displayTitle}
+                        </h6>
+                        <span class="quota-badge">${allocated} ${unit}</span>
+                    </div>
+                    <div class="quota-progress">
+                        <div class="quota-progress-bar ${progressBarClass}" style="width: ${Math.min(usagePercent, 100)}%"></div>
+                    </div>
+                    <div class="quota-stats">
+                        <div class="quota-stat">
+                            <div class="quota-stat-value text-success">${allocated}</div>
+                            <div class="quota-stat-label">Allocated</div>
+                        </div>
+                        <div class="quota-stat">
+                            <div class="quota-stat-value text-warning">${used}</div>
+                            <div class="quota-stat-label">Used</div>
+                        </div>
+                        <div class="quota-stat">
+                            <div class="quota-stat-value text-primary">${remaining}</div>
+                            <div class="quota-stat-label">Remaining</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            return col;
+        }
+
+        // Get icon for quota type
+        function getQuotaIcon(type) {
+            const icons = {
+                'leave': '<i class="bi bi-calendar-x text-info"></i>',
+                'od': '<i class="bi bi-briefcase text-primary"></i>',
+                'permission': '<i class="bi bi-shield-check text-secondary"></i>'
+            };
+            return icons[type] || '<i class="bi bi-question-circle"></i>';
+        }
+
+        // Save staff quotas
+        async function saveStaffQuotas() {
+            if (!selectedStaffId) {
+                showQuotaMessage('Please select a staff member first', 'error');
+                return;
+            }
+
+            try {
+                const quotas = {
+                    leave: {
+                        CL: parseInt(document.getElementById('clQuota').value) || 0,
+                        SL: parseInt(document.getElementById('slQuota').value) || 0,
+                        EL: parseInt(document.getElementById('elQuota').value) || 0,
+                        ML: parseInt(document.getElementById('mlQuota').value) || 0
+                    },
+                    od: parseInt(document.getElementById('odQuota').value) || 0,
+                    permission: parseFloat(document.getElementById('permissionQuota').value) || 0
+                };
+
+                const csrfToken = getCSRFToken();
+                if (!csrfToken) {
+                    showQuotaMessage('CSRF token not found. Please refresh the page and try again.', 'error');
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('csrf_token', csrfToken);
+                formData.append('quotas', JSON.stringify(quotas));
+                formData.append('quota_year', currentQuotaYear);
+
+                const response = await fetch(`/api/staff/${selectedStaffId}/quotas`, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        showQuotaMessage('Quotas saved successfully!', 'success');
+                        // Reload quotas to show updated values
+                        setTimeout(() => loadStaffQuotas(selectedStaffId), 1000);
+                    } else {
+                        showQuotaMessage(data.message || 'Failed to save quotas', 'error');
+                    }
+                } else {
+                    showQuotaMessage('Failed to save quotas', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving quotas:', error);
+                showQuotaMessage('Error saving quotas', 'error');
+            }
+        }
+
+        // Reset to default values
+        async function resetToDefaults() {
+            try {
+                const response = await fetch('/api/default_quotas', {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.defaults) {
+                        // Populate form with defaults
+                        document.getElementById('clQuota').value = data.defaults.leave.CL || 12;
+                        document.getElementById('slQuota').value = data.defaults.leave.SL || 7;
+                        document.getElementById('elQuota').value = data.defaults.leave.EL || 21;
+                        document.getElementById('mlQuota').value = data.defaults.leave.ML || 180;
+                        document.getElementById('odQuota').value = data.defaults.od || 10;
+                        document.getElementById('permissionQuota').value = data.defaults.permission || 15;
+                        
+                        showQuotaMessage('Reset to default values', 'success');
+                    }
+                }
+            } catch (error) {
+                console.error('Error resetting to defaults:', error);
+                // Use hardcoded defaults if API fails
+                document.getElementById('clQuota').value = 12;
+                document.getElementById('slQuota').value = 7;
+                document.getElementById('elQuota').value = 21;
+                document.getElementById('mlQuota').value = 180;
+                document.getElementById('odQuota').value = 10;
+                document.getElementById('permissionQuota').value = 15;
+                
+                showQuotaMessage('Reset to default values', 'success');
+            }
+        }
+
+        // View usage summary (placeholder for future enhancement)
+        function viewUsageSummary() {
+            if (!selectedStaffId) {
+                showQuotaMessage('Please select a staff member first', 'error');
+                return;
+            }
+            
+            showQuotaMessage('Usage summary feature coming soon!', 'info');
+        }
+
+        // Show quota message
+        function showQuotaMessage(message, type) {
+            // Hide all messages first
+            hideQuotaMessage('success');
+            hideQuotaMessage('error');
+            hideQuotaMessage('info');
+
+            // Show the appropriate message
+            const messageElement = document.getElementById(`quota${type.charAt(0).toUpperCase() + type.slice(1)}Message`);
+            const textElement = document.getElementById(`quota${type.charAt(0).toUpperCase() + type.slice(1)}Text`);
+            
+            if (messageElement && textElement) {
+                textElement.textContent = message;
+                messageElement.style.display = 'block';
+                
+                // Auto-hide success messages after 5 seconds
+                if (type === 'success') {
+                    setTimeout(() => hideQuotaMessage('success'), 5000);
+                }
+            }
+        }
+
+        // Hide quota message
+        function hideQuotaMessage(type) {
+            const messageElement = document.getElementById(`quota${type.charAt(0).toUpperCase() + type.slice(1)}Message`);
+            if (messageElement) {
+                messageElement.style.display = 'none';
+            }
+        }
 
 
     </script>

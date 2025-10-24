@@ -9893,6 +9893,680 @@ def holiday_management():
     return render_template('holiday_management.html')
 
 
+# ===========================
+# QUOTA MANAGEMENT FUNCTIONS
+# ===========================
+
+def get_staff_quota_summary(staff_id, quota_year=None, school_id=None):
+    """
+    Get comprehensive quota summary for a staff member
+    
+    Args:
+        staff_id (int): Staff ID
+        quota_year (int, optional): Year for quota. Defaults to current year
+        school_id (int, optional): School ID. Defaults to session school_id
+    
+    Returns:
+        dict: Quota summary with leave, OD, and permission balances
+    """
+    import datetime
+    
+    if quota_year is None:
+        quota_year = datetime.datetime.now().year
+    
+    if school_id is None:
+        school_id = session.get('school_id')
+    
+    if not school_id:
+        return {'error': 'School ID required'}
+    
+    try:
+        db = get_db()
+        
+        # Get leave quotas
+        leave_quotas = db.execute('''
+            SELECT leave_type, allocated_days, used_days,
+                   (allocated_days - used_days) as remaining_days
+            FROM staff_leave_quotas
+            WHERE staff_id = ? AND school_id = ? AND quota_year = ?
+        ''', (staff_id, school_id, quota_year)).fetchall()
+        
+        # Get OD quota
+        od_quota = db.execute('''
+            SELECT allocated_days, used_days,
+                   (allocated_days - used_days) as remaining_days
+            FROM staff_od_quotas
+            WHERE staff_id = ? AND school_id = ? AND quota_year = ?
+        ''', (staff_id, school_id, quota_year)).fetchone()
+        
+        # Get Permission quota
+        permission_quota = db.execute('''
+            SELECT allocated_hours, used_hours,
+                   (allocated_hours - used_hours) as remaining_hours
+            FROM staff_permission_quotas
+            WHERE staff_id = ? AND school_id = ? AND quota_year = ?
+        ''', (staff_id, school_id, quota_year)).fetchone()
+        
+        # Format response
+        quota_summary = {
+            'staff_id': staff_id,
+            'quota_year': quota_year,
+            'leave_quotas': {},
+            'od_quota': {
+                'allocated_days': 0,
+                'used_days': 0,
+                'remaining_days': 0
+            },
+            'permission_quota': {
+                'allocated_hours': 0.0,
+                'used_hours': 0.0,
+                'remaining_hours': 0.0
+            }
+        }
+        
+        # Process leave quotas
+        for leave in leave_quotas:
+            quota_summary['leave_quotas'][leave['leave_type']] = {
+                'allocated_days': leave['allocated_days'],
+                'used_days': leave['used_days'],
+                'remaining_days': leave['remaining_days']
+            }
+        
+        # Process OD quota
+        if od_quota:
+            quota_summary['od_quota'] = {
+                'allocated_days': od_quota['allocated_days'],
+                'used_days': od_quota['used_days'],
+                'remaining_days': od_quota['remaining_days']
+            }
+        
+        # Process Permission quota
+        if permission_quota:
+            quota_summary['permission_quota'] = {
+                'allocated_hours': float(permission_quota['allocated_hours']),
+                'used_hours': float(permission_quota['used_hours']),
+                'remaining_hours': float(permission_quota['remaining_hours'])
+            }
+        
+        return quota_summary
+        
+    except Exception as e:
+        print(f"Error getting quota summary: {e}")
+        return {'error': str(e)}
+
+
+def calculate_used_quotas(staff_id, quota_year, school_id):
+    """
+    Calculate used quotas based on approved applications
+    
+    Args:
+        staff_id (int): Staff ID
+        quota_year (int): Year to calculate for
+        school_id (int): School ID
+    
+    Returns:
+        dict: Calculated usage for leave, OD, and permission
+    """
+    import datetime
+    
+    try:
+        db = get_db()
+        year_start = f"{quota_year}-01-01"
+        year_end = f"{quota_year}-12-31"
+        
+        # Calculate leave usage by type
+        leave_usage = {}
+        leave_types = ['CL', 'SL', 'EL', 'ML']
+        
+        for leave_type in leave_types:
+            usage = db.execute('''
+                SELECT COALESCE(SUM(
+                    julianday(end_date) - julianday(start_date) + 1
+                ), 0) as total_days
+                FROM leave_applications
+                WHERE staff_id = ? AND school_id = ? AND leave_type = ?
+                AND status = 'approved'
+                AND start_date BETWEEN ? AND ?
+            ''', (staff_id, school_id, leave_type, year_start, year_end)).fetchone()
+            
+            leave_usage[leave_type] = int(usage['total_days']) if usage else 0
+        
+        # Calculate OD usage
+        od_usage = db.execute('''
+            SELECT COALESCE(SUM(
+                julianday(end_date) - julianday(start_date) + 1
+            ), 0) as total_days
+            FROM on_duty_applications
+            WHERE staff_id = ? AND school_id = ? AND status = 'approved'
+            AND start_date BETWEEN ? AND ?
+        ''', (staff_id, school_id, year_start, year_end)).fetchone()
+        
+        # Calculate Permission usage (in hours)
+        permission_usage = db.execute('''
+            SELECT COALESCE(SUM(duration_hours), 0) as total_hours
+            FROM permission_applications
+            WHERE staff_id = ? AND school_id = ? AND status = 'approved'
+            AND permission_date BETWEEN ? AND ?
+        ''', (staff_id, school_id, year_start, year_end)).fetchone()
+        
+        return {
+            'leave_usage': leave_usage,
+            'od_usage': int(od_usage['total_days']) if od_usage else 0,
+            'permission_usage': float(permission_usage['total_hours']) if permission_usage else 0.0
+        }
+        
+    except Exception as e:
+        print(f"Error calculating used quotas: {e}")
+        return {
+            'leave_usage': {lt: 0 for lt in ['CL', 'SL', 'EL', 'ML']},
+            'od_usage': 0,
+            'permission_usage': 0.0
+        }
+
+
+def update_quota_usage(staff_id, school_id, quota_year=None):
+    """
+    Update quota usage based on approved applications
+    
+    Args:
+        staff_id (int): Staff ID
+        school_id (int): School ID
+        quota_year (int, optional): Year to update. Defaults to current year
+    
+    Returns:
+        dict: Success status and updated usage
+    """
+    import datetime
+    
+    if quota_year is None:
+        quota_year = datetime.datetime.now().year
+    
+    try:
+        db = get_db()
+        
+        # Calculate current usage
+        usage = calculate_used_quotas(staff_id, quota_year, school_id)
+        
+        # Update leave quotas
+        for leave_type, used_days in usage['leave_usage'].items():
+            db.execute('''
+                UPDATE staff_leave_quotas
+                SET used_days = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE staff_id = ? AND school_id = ? AND quota_year = ? AND leave_type = ?
+            ''', (used_days, staff_id, school_id, quota_year, leave_type))
+        
+        # Update OD quota
+        db.execute('''
+            UPDATE staff_od_quotas
+            SET used_days = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE staff_id = ? AND school_id = ? AND quota_year = ?
+        ''', (usage['od_usage'], staff_id, school_id, quota_year))
+        
+        # Update Permission quota
+        db.execute('''
+            UPDATE staff_permission_quotas
+            SET used_hours = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE staff_id = ? AND school_id = ? AND quota_year = ?
+        ''', (usage['permission_usage'], staff_id, school_id, quota_year))
+        
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': 'Quota usage updated successfully',
+            'usage': usage
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error updating quota usage: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+def set_staff_quotas(staff_id, school_id, quotas, quota_year=None):
+    """
+    Set quotas for a staff member
+    
+    Args:
+        staff_id (int): Staff ID
+        school_id (int): School ID
+        quotas (dict): Quota allocations
+        quota_year (int, optional): Year for quota. Defaults to current year
+    
+    Returns:
+        dict: Success status and message
+    """
+    import datetime
+    
+    if quota_year is None:
+        quota_year = datetime.datetime.now().year
+    
+    try:
+        db = get_db()
+        
+        # Set leave quotas
+        if 'leave' in quotas:
+            for leave_type, allocated_days in quotas['leave'].items():
+                if leave_type in ['CL', 'SL', 'EL', 'ML']:
+                    # Insert or update leave quota
+                    db.execute('''
+                        INSERT OR REPLACE INTO staff_leave_quotas
+                        (staff_id, school_id, quota_year, leave_type, allocated_days, used_days)
+                        VALUES (?, ?, ?, ?, ?, 
+                            COALESCE((SELECT used_days FROM staff_leave_quotas 
+                                     WHERE staff_id = ? AND school_id = ? AND quota_year = ? AND leave_type = ?), 0)
+                        )
+                    ''', (staff_id, school_id, quota_year, leave_type, allocated_days,
+                          staff_id, school_id, quota_year, leave_type))
+        
+        # Set OD quota
+        if 'od' in quotas:
+            allocated_days = quotas['od']
+            db.execute('''
+                INSERT OR REPLACE INTO staff_od_quotas
+                (staff_id, school_id, quota_year, allocated_days, used_days)
+                VALUES (?, ?, ?, ?, 
+                    COALESCE((SELECT used_days FROM staff_od_quotas 
+                             WHERE staff_id = ? AND school_id = ? AND quota_year = ?), 0)
+                )
+            ''', (staff_id, school_id, quota_year, allocated_days,
+                  staff_id, school_id, quota_year))
+        
+        # Set Permission quota
+        if 'permission' in quotas:
+            allocated_hours = quotas['permission']
+            db.execute('''
+                INSERT OR REPLACE INTO staff_permission_quotas
+                (staff_id, school_id, quota_year, allocated_hours, used_hours)
+                VALUES (?, ?, ?, ?, 
+                    COALESCE((SELECT used_hours FROM staff_permission_quotas 
+                             WHERE staff_id = ? AND school_id = ? AND quota_year = ?), 0.0)
+                )
+            ''', (staff_id, school_id, quota_year, allocated_hours,
+                  staff_id, school_id, quota_year))
+        
+        db.commit()
+        
+        # Update usage based on existing applications
+        update_quota_usage(staff_id, school_id, quota_year)
+        
+        return {
+            'success': True,
+            'message': 'Staff quotas set successfully'
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error setting staff quotas: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+def validate_application_against_quota(staff_id, school_id, application_type, application_data):
+    """
+    Validate an application against available quota
+    
+    Args:
+        staff_id (int): Staff ID
+        school_id (int): School ID  
+        application_type (str): 'leave', 'od', or 'permission'
+        application_data (dict): Application details
+    
+    Returns:
+        dict: Validation result with success status and message
+    """
+    import datetime
+    from datetime import datetime as dt
+    
+    try:
+        quota_year = dt.now().year
+        quota_summary = get_staff_quota_summary(staff_id, quota_year, school_id)
+        
+        if 'error' in quota_summary:
+            return {
+                'valid': False,
+                'message': 'Unable to retrieve quota information'
+            }
+        
+        if application_type == 'leave':
+            leave_type = application_data.get('leave_type')
+            start_date = dt.strptime(application_data.get('start_date'), '%Y-%m-%d').date()
+            end_date = dt.strptime(application_data.get('end_date'), '%Y-%m-%d').date()
+            
+            # Calculate days requested
+            days_requested = (end_date - start_date).days + 1
+            
+            # Check quota
+            if leave_type not in quota_summary['leave_quotas']:
+                return {
+                    'valid': False,
+                    'message': f'No quota assigned for {leave_type} leave'
+                }
+            
+            remaining_days = quota_summary['leave_quotas'][leave_type]['remaining_days']
+            
+            if days_requested > remaining_days:
+                return {
+                    'valid': False,
+                    'message': f'Insufficient {leave_type} leave balance. Requested: {days_requested} days, Available: {remaining_days} days'
+                }
+            
+            return {
+                'valid': True,
+                'message': f'Application valid. {remaining_days - days_requested} days will remain after approval'
+            }
+        
+        elif application_type == 'od':
+            start_date = dt.strptime(application_data.get('start_date'), '%Y-%m-%d').date()
+            end_date = dt.strptime(application_data.get('end_date'), '%Y-%m-%d').date()
+            
+            # Calculate days requested
+            days_requested = (end_date - start_date).days + 1
+            
+            remaining_days = quota_summary['od_quota']['remaining_days']
+            
+            if days_requested > remaining_days:
+                return {
+                    'valid': False,
+                    'message': f'Insufficient OD balance. Requested: {days_requested} days, Available: {remaining_days} days'
+                }
+            
+            return {
+                'valid': True,
+                'message': f'Application valid. {remaining_days - days_requested} days will remain after approval'
+            }
+        
+        elif application_type == 'permission':
+            start_time = dt.strptime(application_data.get('start_time'), '%H:%M').time()
+            end_time = dt.strptime(application_data.get('end_time'), '%H:%M').time()
+            
+            # Calculate hours requested
+            start_dt = dt.combine(dt.today(), start_time)
+            end_dt = dt.combine(dt.today(), end_time)
+            
+            if end_dt < start_dt:
+                end_dt += datetime.timedelta(days=1)  # Next day
+            
+            hours_requested = (end_dt - start_dt).total_seconds() / 3600
+            
+            remaining_hours = quota_summary['permission_quota']['remaining_hours']
+            
+            if hours_requested > remaining_hours:
+                return {
+                    'valid': False,
+                    'message': f'Insufficient permission balance. Requested: {hours_requested:.2f} hours, Available: {remaining_hours:.2f} hours'
+                }
+            
+            return {
+                'valid': True,
+                'message': f'Application valid. {remaining_hours - hours_requested:.2f} hours will remain after approval'
+            }
+        
+        else:
+            return {
+                'valid': False,
+                'message': 'Invalid application type'
+            }
+    
+    except Exception as e:
+        print(f"Error validating application: {e}")
+        return {
+            'valid': False,
+            'message': f'Validation error: {str(e)}'
+        }
+
+
+def get_default_quotas(school_id):
+    """
+    Get default quota configurations for a school
+    
+    Args:
+        school_id (int): School ID
+    
+    Returns:
+        dict: Default quotas configuration
+    """
+    try:
+        db = get_db()
+        
+        defaults = db.execute('''
+            SELECT quota_type, leave_type, default_allocation
+            FROM default_quota_config
+            WHERE school_id = ? AND is_active = 1
+        ''', (school_id,)).fetchall()
+        
+        config = {
+            'leave': {},
+            'od': 0,
+            'permission': 0
+        }
+        
+        for default in defaults:
+            if default['quota_type'] == 'leave':
+                config['leave'][default['leave_type']] = default['default_allocation']
+            elif default['quota_type'] == 'od':
+                config['od'] = default['default_allocation']
+            elif default['quota_type'] == 'permission':
+                config['permission'] = default['default_allocation']
+        
+        return config
+        
+    except Exception as e:
+        print(f"Error getting default quotas: {e}")
+        return {
+            'leave': {'CL': 12, 'SL': 7, 'EL': 21, 'ML': 180},
+            'od': 10,
+            'permission': 15
+        }
+
+
+# ===========================
+# QUOTA MANAGEMENT API ENDPOINTS
+# ===========================
+
+@app.route('/api/staff/list')
+def api_staff_list():
+    """Get list of all staff members for quota management"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    school_id = session.get('school_id')
+    if not school_id:
+        return jsonify({'success': False, 'message': 'School ID required'}), 400
+    
+    try:
+        db = get_db()
+        staff = db.execute('''
+            SELECT id, staff_id, full_name, department, position
+            FROM staff
+            WHERE school_id = ?
+            ORDER BY full_name
+        ''', (school_id,)).fetchall()
+        
+        staff_list = []
+        for s in staff:
+            staff_list.append({
+                'id': s['id'],
+                'staff_id': s['staff_id'],
+                'full_name': s['full_name'],
+                'department': s['department'] or 'N/A',
+                'position': s['position'] or 'N/A'
+            })
+        
+        return jsonify({
+            'success': True,
+            'staff': staff_list,
+            'count': len(staff_list)
+        })
+        
+    except Exception as e:
+        print(f"Error getting staff list: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to retrieve staff list'
+        }), 500
+
+
+@app.route('/api/staff/<int:staff_id>/quotas/<int:quota_year>')
+def api_get_staff_quotas(staff_id, quota_year):
+    """Get quota summary for a specific staff member and year"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    school_id = session.get('school_id')
+    if not school_id:
+        return jsonify({'success': False, 'message': 'School ID required'}), 400
+    
+    try:
+        quota_summary = get_staff_quota_summary(staff_id, quota_year, school_id)
+        
+        if 'error' in quota_summary:
+            return jsonify({
+                'success': False,
+                'message': quota_summary['error']
+            }), 500
+        
+        return jsonify({
+            'success': True,
+            'quotas': quota_summary
+        })
+        
+    except Exception as e:
+        print(f"Error getting staff quotas: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to retrieve staff quotas'
+        }), 500
+
+
+@app.route('/api/staff/<int:staff_id>/quotas', methods=['POST'])
+def api_set_staff_quotas(staff_id):
+    """Set quotas for a specific staff member"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    school_id = session.get('school_id')
+    if not school_id:
+        return jsonify({'success': False, 'message': 'School ID required'}), 400
+    
+    try:
+        quotas_json = request.form.get('quotas')
+        quota_year = int(request.form.get('quota_year', datetime.datetime.now().year))
+        
+        if not quotas_json:
+            return jsonify({
+                'success': False,
+                'message': 'Quotas data required'
+            }), 400
+        
+        quotas = json.loads(quotas_json)
+        
+        # Validate quota data
+        if not isinstance(quotas, dict):
+            return jsonify({
+                'success': False,
+                'message': 'Invalid quota data format'
+            }), 400
+        
+        # Set the quotas
+        result = set_staff_quotas(staff_id, school_id, quotas, quota_year)
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'message': result['message']
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': result['error']
+            }), 500
+        
+    except Exception as e:
+        print(f"Error setting staff quotas: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to set staff quotas'
+        }), 500
+
+
+@app.route('/api/default_quotas')
+def api_get_default_quotas():
+    """Get default quota configurations"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    school_id = session.get('school_id')
+    if not school_id:
+        return jsonify({'success': False, 'message': 'School ID required'}), 400
+    
+    try:
+        defaults = get_default_quotas(school_id)
+        
+        return jsonify({
+            'success': True,
+            'defaults': defaults
+        })
+        
+    except Exception as e:
+        print(f"Error getting default quotas: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to retrieve default quotas'
+        }), 500
+
+
+@app.route('/api/staff/<int:staff_id>/quota_validation', methods=['POST'])
+def api_validate_quota(staff_id):
+    """Validate an application against staff quota"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    school_id = session.get('school_id')
+    if not school_id:
+        return jsonify({'success': False, 'message': 'School ID required'}), 400
+    
+    try:
+        application_type = request.form.get('application_type')
+        application_data = {}
+        
+        if application_type == 'leave':
+            application_data = {
+                'leave_type': request.form.get('leave_type'),
+                'start_date': request.form.get('start_date'),
+                'end_date': request.form.get('end_date')
+            }
+        elif application_type == 'od':
+            application_data = {
+                'start_date': request.form.get('start_date'),
+                'end_date': request.form.get('end_date')
+            }
+        elif application_type == 'permission':
+            application_data = {
+                'start_time': request.form.get('start_time'),
+                'end_time': request.form.get('end_time')
+            }
+        
+        validation = validate_application_against_quota(staff_id, school_id, application_type, application_data)
+        
+        return jsonify({
+            'success': True,
+            'validation': validation
+        })
+        
+    except Exception as e:
+        print(f"Error validating quota: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to validate application against quota'
+        }), 500
+
+
 if __name__ == '__main__':
     init_db(app)
     app.run(debug=True, host='0.0.0.0', port=5000)
