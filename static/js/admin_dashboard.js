@@ -1812,8 +1812,17 @@ document.addEventListener('DOMContentLoaded', function () {
                             statusText = 'Absent';
                             break;
                         case 'leave':
+                        case 'On Leave':
                             badgeClass = 'bg-info';
                             statusText = 'On Leave';
+                            break;
+                        case 'On Duty':
+                            badgeClass = 'bg-primary';
+                            statusText = 'On Duty';
+                            break;
+                        case 'On Permission':
+                            badgeClass = 'bg-warning';
+                            statusText = 'On Permission';
                             break;
                     }
 
@@ -1874,6 +1883,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     statValue.textContent = summary.late || 0;
                 } else if (text.includes('leave') && statValue) {
                     statValue.textContent = summary.on_leave || 0;
+                } else if (text.includes('duty') && statValue) {
+                    statValue.textContent = summary.on_duty || 0;
+                } else if (text.includes('permission') && statValue) {
+                    statValue.textContent = summary.on_permission || 0;
                 }
             });
         }

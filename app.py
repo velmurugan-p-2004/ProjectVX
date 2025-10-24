@@ -387,39 +387,17 @@ def get_attendance_summary():
         staff_id = session['user_id']
         today = datetime.date.today()
 
-        # Get current month attendance
-        first_day = today.replace(day=1)
-        last_day = (today.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)
-
-        attendance = db.execute('''
-            SELECT status, COUNT(*) as count
-            FROM attendance
-            WHERE staff_id = ? AND date BETWEEN ? AND ?
-            GROUP BY status
-        ''', (staff_id, first_day, last_day)).fetchall()
-
-        # Initialize counts
-        present = 0
-        absent = 0
-        late = 0
-        leave = 0
-
-        for record in attendance:
-            if record['status'] == 'present':
-                present = record['count']
-            elif record['status'] == 'absent':
-                absent = record['count']
-            elif record['status'] == 'late':
-                late = record['count']
-            elif record['status'] == 'leave':
-                leave = record['count']
+        # Get accurate attendance summary for current month using the new logic
+        attendance_summary = _calculate_accurate_attendance_summary(staff_id, today.year, today.month)
 
         return jsonify({
             'success': True,
-            'present': present,
-            'absent': absent,
-            'late': late,
-            'leave': leave
+            'present': attendance_summary['present_days'],
+            'absent': attendance_summary['absent_days'],
+            'late': attendance_summary['late_days'],
+            'leave': attendance_summary['leave_days'],
+            'on_duty': attendance_summary['on_duty_days'],
+            'working_days': attendance_summary['working_days']
         })
 
     return jsonify({'success': False, 'error': 'Unauthorized'})
@@ -630,6 +608,68 @@ def get_today_attendance_status():
         'available_actions': available_actions
     })
 
+def get_staff_status_for_date(staff_id, date, school_id, db):
+    """
+    Get comprehensive staff status for a given date.
+    Checks approved applications first, then falls back to attendance records.
+    
+    Priority order:
+    1. Approved Leave application -> "On Leave"
+    2. Approved On Duty application -> "On Duty"  
+    3. Approved Permission application -> "On Permission"
+    4. Standard attendance status (Present/Absent/Late)
+    
+    Args:
+        staff_id: Staff database ID
+        date: Date to check (datetime.date)
+        school_id: School ID
+        db: Database connection
+    
+    Returns:
+        str: Status string ("On Leave", "On Duty", "On Permission", "present", "absent", "late")
+    """
+    
+    # Check for approved Leave application
+    leave_app = db.execute('''
+        SELECT id FROM leave_applications 
+        WHERE staff_id = ? AND school_id = ? AND status = 'approved'
+        AND ? BETWEEN start_date AND end_date
+    ''', (staff_id, school_id, date.isoformat())).fetchone()
+    
+    if leave_app:
+        return "On Leave"
+    
+    # Check for approved On Duty application
+    on_duty_app = db.execute('''
+        SELECT id FROM on_duty_applications 
+        WHERE staff_id = ? AND school_id = ? AND status = 'approved'
+        AND ? BETWEEN start_date AND end_date
+    ''', (staff_id, school_id, date.isoformat())).fetchone()
+    
+    if on_duty_app:
+        return "On Duty"
+    
+    # Check for approved Permission application (single day)
+    permission_app = db.execute('''
+        SELECT id FROM permission_applications 
+        WHERE staff_id = ? AND school_id = ? AND status = 'approved'
+        AND permission_date = ?
+    ''', (staff_id, school_id, date.isoformat())).fetchone()
+    
+    if permission_app:
+        return "On Permission"
+    
+    # No approved applications found, check attendance record
+    attendance = db.execute('''
+        SELECT status FROM attendance 
+        WHERE staff_id = ? AND date = ?
+    ''', (staff_id, date.isoformat())).fetchone()
+    
+    if attendance and attendance['status']:
+        return attendance['status']
+    else:
+        return "absent"  # Default status if no attendance record
+
 @app.route('/get_realtime_attendance')
 def get_realtime_attendance():
     """Get real-time attendance data for admin dashboard"""
@@ -641,40 +681,67 @@ def get_realtime_attendance():
 
     db = get_db()
 
-    # Get today's attendance details for all staff
-    today_attendance = db.execute('''
+    # Get all staff for this school
+    staff_list = db.execute('''
         SELECT s.id as staff_id, s.staff_id as staff_number, s.full_name, s.department,
-               a.time_in, a.time_out,
-               COALESCE(a.status, 'absent') as status
+               a.time_in, a.time_out
         FROM staff s
         LEFT JOIN attendance a ON s.id = a.staff_id AND a.date = ?
         WHERE s.school_id = ?
         ORDER BY s.full_name
     ''', (today, school_id)).fetchall()
 
-    # Get attendance summary
-    attendance_summary = db.execute('''
-        SELECT
-            COUNT(*) as total_staff,
-            SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present,
-            SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent,
-            SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late,
-            SUM(CASE WHEN a.status = 'leave' THEN 1 ELSE 0 END) as on_leave
-        FROM (
-            SELECT s.id, COALESCE(a.status, 'absent') as status
-            FROM staff s
-            LEFT JOIN attendance a ON s.id = a.staff_id AND a.date = ?
-            WHERE s.school_id = ?
-        ) a
-    ''', (today, school_id)).fetchone()
-
-    # Format attendance times to 12-hour format
-    formatted_attendance = [format_attendance_times_to_12hr(dict(row)) for row in today_attendance]
+    # Build attendance data with correct status logic
+    attendance_data = []
+    status_counts = {
+        'total_staff': 0,
+        'present': 0,
+        'absent': 0,
+        'late': 0,
+        'on_leave': 0,
+        'on_duty': 0,
+        'on_permission': 0
+    }
+    
+    for staff in staff_list:
+        # Get comprehensive status using the new logic
+        status = get_staff_status_for_date(staff['staff_id'], today, school_id, db)
+        
+        # Build staff record
+        staff_record = {
+            'staff_id': staff['staff_id'],
+            'staff_number': staff['staff_number'],
+            'full_name': staff['full_name'],
+            'department': staff['department'],
+            'time_in': staff['time_in'],
+            'time_out': staff['time_out'],
+            'status': status
+        }
+        
+        # Format times to 12-hour format
+        formatted_staff = format_attendance_times_to_12hr(staff_record)
+        attendance_data.append(formatted_staff)
+        
+        # Count statuses for summary
+        status_counts['total_staff'] += 1
+        
+        if status == 'On Leave':
+            status_counts['on_leave'] += 1
+        elif status == 'On Duty':
+            status_counts['on_duty'] += 1
+        elif status == 'On Permission':
+            status_counts['on_permission'] += 1
+        elif status == 'present':
+            status_counts['present'] += 1
+        elif status == 'late':
+            status_counts['late'] += 1
+        else:  # absent or any other status
+            status_counts['absent'] += 1
 
     return jsonify({
         'success': True,
-        'attendance_data': formatted_attendance,
-        'summary': dict(attendance_summary) if attendance_summary else {},
+        'attendance_data': attendance_data,
+        'summary': status_counts,
         'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')
     })
 
@@ -4327,34 +4394,67 @@ def admin_dashboard():
         ORDER BY p.applied_at
     ''', (school_id,)).fetchall()
 
-    # Get today's attendance summary
+    # Get today's attendance summary using comprehensive status logic
     today = datetime.date.today()
-    attendance_summary = db.execute('''
-        SELECT
-            COUNT(*) as total_staff,
-            SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present,
-            SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent,
-            SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late,
-            SUM(CASE WHEN a.status = 'leave' THEN 1 ELSE 0 END) as on_leave,
-            SUM(CASE WHEN a.status = 'on_duty' THEN 1 ELSE 0 END) as on_duty
-        FROM (
-            SELECT s.id, COALESCE(a.status, 'absent') as status
-            FROM staff s
-            LEFT JOIN attendance a ON s.id = a.staff_id AND a.date = ?
-            WHERE s.school_id = ?
-        ) a
-    ''', (today, school_id)).fetchone()
-
-    # Get today's attendance details for all staff
-    today_attendance = db.execute('''
+    
+    # Get all staff for attendance calculation
+    all_staff = db.execute('''
         SELECT s.id as staff_id, s.staff_id as staff_number, s.full_name, s.department,
-               a.time_in, a.time_out,
-               COALESCE(a.status, 'absent') as status
+               a.time_in, a.time_out
         FROM staff s
         LEFT JOIN attendance a ON s.id = a.staff_id AND a.date = ?
         WHERE s.school_id = ?
         ORDER BY s.full_name
     ''', (today, school_id)).fetchall()
+    
+    # Calculate attendance summary with correct status logic
+    status_counts = {
+        'total_staff': 0,
+        'present': 0,
+        'absent': 0,
+        'late': 0,
+        'on_leave': 0,
+        'on_duty': 0,
+        'on_permission': 0
+    }
+    
+    today_attendance = []
+    
+    for staff in all_staff:
+        # Get comprehensive status using the new logic
+        status = get_staff_status_for_date(staff['staff_id'], today, school_id, db)
+        
+        # Build staff record for today_attendance
+        staff_record = {
+            'staff_id': staff['staff_id'],
+            'staff_number': staff['staff_number'],
+            'full_name': staff['full_name'],
+            'department': staff['department'],
+            'time_in': staff['time_in'],
+            'time_out': staff['time_out'],
+            'status': status
+        }
+        
+        today_attendance.append(staff_record)
+        
+        # Count statuses for summary
+        status_counts['total_staff'] += 1
+        
+        if status == 'On Leave':
+            status_counts['on_leave'] += 1
+        elif status == 'On Duty':
+            status_counts['on_duty'] += 1
+        elif status == 'On Permission':
+            status_counts['on_permission'] += 1
+        elif status == 'present':
+            status_counts['present'] += 1
+        elif status == 'late':
+            status_counts['late'] += 1
+        else:  # absent or any other status
+            status_counts['absent'] += 1
+    
+    # Convert to match expected format
+    attendance_summary = status_counts
 
     # Check if user wants modern UI (can be a session variable or parameter)
     use_modern_ui = request.args.get('modern', 'false').lower() == 'true' or session.get('use_modern_ui', False)
@@ -6680,6 +6780,7 @@ def sync_biometric_attendance():
 
     school_id = session['school_id']
     device_ip = request.form.get('device_ip', '192.168.1.201')
+    auto_create_missing_staff = request.form.get('auto_create_staff', 'true').lower() == 'true'
 
     try:
         zk_device = ZKBiometricDevice(device_ip)
@@ -6694,17 +6795,61 @@ def sync_biometric_attendance():
 
         db = get_db()
         synced_count = 0
+        created_staff_count = 0
+        
+        # Get all device users for auto-creation if needed
+        device_users = {}
+        if auto_create_missing_staff:
+            all_users = zk_device.get_users()
+            for user in all_users:
+                # Handle both dict and object formats
+                if isinstance(user, dict):
+                    user_id = str(user.get('user_id', ''))
+                    name = user.get('name', '')
+                else:
+                    user_id = str(getattr(user, 'user_id', ''))
+                    name = getattr(user, 'name', '')
+                
+                if user_id:
+                    device_users[user_id] = name
 
         for record in attendance_records:
             try:
+                record_user_id = str(record['user_id'])
+                
                 # Get staff database ID from staff_id (biometric user_id)
                 staff_record = db.execute('''
                     SELECT id FROM staff WHERE staff_id = ? AND school_id = ?
-                ''', (str(record['user_id']), school_id)).fetchone()
+                ''', (record_user_id, school_id)).fetchone()
 
                 if not staff_record:
-                    print(f"Staff with ID {record['user_id']} not found in database")
-                    continue
+                    if auto_create_missing_staff and record_user_id in device_users:
+                        # Auto-create staff member
+                        device_name = device_users[record_user_id]
+                        display_name = device_name.strip() if device_name else f"Device User {record_user_id}"
+                        
+                        # Parse name into first/last components
+                        first_name, last_name = parse_full_name(display_name)
+                        
+                        # Create staff record
+                        db.execute('''
+                            INSERT INTO staff 
+                            (school_id, staff_id, password_hash, full_name, first_name, last_name, 
+                             department, position, email, phone)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (school_id, record_user_id, generate_password_hash('password123'), 
+                              display_name, first_name, last_name, 'General', 'Staff Member', '', ''))
+                        
+                        # Get the newly created staff ID
+                        staff_record = db.execute('''
+                            SELECT id FROM staff WHERE staff_id = ? AND school_id = ?
+                        ''', (record_user_id, school_id)).fetchone()
+                        
+                        created_staff_count += 1
+                        print(f"Auto-created staff: {record_user_id} ({display_name})")
+                    else:
+                        print(f"Staff with ID {record_user_id} not found in database - skipping attendance record")
+                        continue
 
                 staff_db_id = staff_record['id']
                 attendance_date = record['timestamp'].date()
@@ -6746,10 +6891,15 @@ def sync_biometric_attendance():
         db.commit()
         zk_device.disconnect()
 
+        message = f'Successfully synced {synced_count} attendance records'
+        if created_staff_count > 0:
+            message += f' and created {created_staff_count} new staff members'
+
         return jsonify({
             'success': True,
-            'message': f'Successfully synced {synced_count} attendance records',
+            'message': message,
             'synced_count': synced_count,
+            'created_staff_count': created_staff_count,
             'total_records': len(attendance_records)
         })
 
@@ -7666,36 +7816,50 @@ def get_comprehensive_staff_profile():
             'error': f'Failed to get staff profile: {str(e)}'
         })
 
-@app.route('/staff/profile')
-def staff_profile_page():
-    """Staff profile page with personal information and attendance history"""
-    if 'user_id' not in session or session['user_type'] != 'staff':
-        return redirect(url_for('index'))
+def _get_working_days_in_month(year: int, month: int) -> int:
+    """Calculate working days in a month (excluding only Sundays)"""
+    from datetime import date, timedelta
+    
+    start_date = date(year, month, 1)
+    if month == 12:
+        end_date = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        end_date = date(year, month + 1, 1) - timedelta(days=1)
+    
+    working_days = 0
+    current_date = start_date
+    
+    while current_date <= end_date:
+        # Monday = 0, Sunday = 6
+        if current_date.weekday() < 6:  # Monday to Saturday
+            working_days += 1
+        current_date += timedelta(days=1)
+    
+    return working_days
 
+def _calculate_accurate_attendance_summary(staff_id: int, year: int, month: int):
+    """Calculate accurate attendance summary with proper absent day calculation"""
     db = get_db()
-    staff_id = session['user_id']
-
-    # Get staff information
-    staff = db.execute('''
-        SELECT * FROM staff WHERE id = ?
-    ''', (staff_id,)).fetchone()
-
-    if not staff:
-        return redirect(url_for('index'))
-
-    # Get attendance summary for current month
-    today = datetime.date.today()
-    first_day = today.replace(day=1)
-    last_day = (today.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)
-
+    
+    # Calculate month boundaries
+    first_day = datetime.date(year, month, 1)
+    if month == 12:
+        last_day = datetime.date(year + 1, 1, 1) - datetime.timedelta(days=1)
+    else:
+        last_day = datetime.date(year, month + 1, 1) - datetime.timedelta(days=1)
+    
+    # Calculate total working days in month (excluding Sundays)
+    working_days = _get_working_days_in_month(year, month)
+    
+    # Get attendance records from attendance table
     attendance_summary = db.execute('''
         SELECT
-            COUNT(*) as total_days,
+            COUNT(*) as total_recorded_days,
             SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days,
-            SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_days,
             SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_days,
             SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) as leave_days,
-            SUM(CASE WHEN status = 'on_duty' THEN 1 ELSE 0 END) as on_duty_days
+            SUM(CASE WHEN status = 'on_duty' THEN 1 ELSE 0 END) as on_duty_days,
+            SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as explicitly_absent_days
         FROM attendance
         WHERE staff_id = ? AND date BETWEEN ? AND ?
     ''', (staff_id, first_day, last_day)).fetchone()
@@ -7711,7 +7875,7 @@ def staff_profile_page():
                OR (start_date <= ? AND end_date >= ?))
     ''', (staff_id, first_day, last_day, first_day, last_day, first_day, last_day)).fetchall()
 
-    # Count leave days from approved leave applications
+    # Count leave days from approved leave applications (avoid double counting)
     leave_days_from_applications = 0
     dates_with_leave = set()
     
@@ -7731,9 +7895,51 @@ def staff_profile_page():
     
     leave_days_from_applications = len(dates_with_leave)
 
-    # Create a modified attendance_summary dict with updated leave count
-    attendance_summary_dict = dict(attendance_summary)
-    attendance_summary_dict['leave_days'] = (attendance_summary['leave_days'] or 0) + leave_days_from_applications
+    # Calculate accurate counts
+    present_days = (attendance_summary['present_days'] or 0)
+    late_days = (attendance_summary['late_days'] or 0)
+    on_duty_days = (attendance_summary['on_duty_days'] or 0)
+    leave_days = (attendance_summary['leave_days'] or 0) + leave_days_from_applications
+    
+    # Total effective present days (present + late + on_duty)
+    total_effective_present = present_days + late_days + on_duty_days
+    
+    # Absent days = Working days - (effective present days + leave days)
+    absent_days = working_days - (total_effective_present + leave_days)
+    
+    # Ensure absent days is never negative
+    absent_days = max(0, absent_days)
+    
+    return {
+        'present_days': present_days,
+        'absent_days': absent_days,
+        'late_days': late_days,
+        'leave_days': leave_days,
+        'on_duty_days': on_duty_days,
+        'working_days': working_days,
+        'total_recorded_days': attendance_summary['total_recorded_days'] or 0
+    }
+
+@app.route('/staff/profile')
+def staff_profile_page():
+    """Staff profile page with personal information and attendance history"""
+    if 'user_id' not in session or session['user_type'] != 'staff':
+        return redirect(url_for('index'))
+
+    db = get_db()
+    staff_id = session['user_id']
+
+    # Get staff information
+    staff = db.execute('''
+        SELECT * FROM staff WHERE id = ?
+    ''', (staff_id,)).fetchone()
+
+    if not staff:
+        return redirect(url_for('index'))
+
+    # Get accurate attendance summary for current month
+    today = datetime.date.today()
+    attendance_summary_dict = _calculate_accurate_attendance_summary(staff_id, today.year, today.month)
 
 
 
@@ -7779,68 +7985,19 @@ def get_staff_attendance_summary():
     staff_id = session['user_id']
     
     try:
-        db = get_db()
-        
-        # Get attendance summary for current month
+        # Get accurate attendance summary for current month
         today = datetime.date.today()
-        first_day = today.replace(day=1)
-        last_day = (today.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)
-
-        # Get attendance records from attendance table
-        attendance_summary = db.execute('''
-            SELECT
-                COUNT(*) as total_days,
-                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days,
-                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_days,
-                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_days,
-                SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) as leave_days,
-                SUM(CASE WHEN status = 'on_duty' THEN 1 ELSE 0 END) as on_duty_days
-            FROM attendance
-            WHERE staff_id = ? AND date BETWEEN ? AND ?
-        ''', (staff_id, first_day, last_day)).fetchone()
-
-        # Get approved leave applications for current month
-        approved_leaves = db.execute('''
-            SELECT start_date, end_date
-            FROM leave_applications
-            WHERE staff_id = ? 
-              AND status = 'approved'
-              AND ((start_date BETWEEN ? AND ?) 
-                   OR (end_date BETWEEN ? AND ?)
-                   OR (start_date <= ? AND end_date >= ?))
-        ''', (staff_id, first_day, last_day, first_day, last_day, first_day, last_day)).fetchall()
-
-        # Count leave days from approved leave applications
-        leave_days_from_applications = 0
-        dates_with_leave = set()
-        
-        for leave in approved_leaves:
-            start_date = datetime.datetime.strptime(leave['start_date'], '%Y-%m-%d').date()
-            end_date = datetime.datetime.strptime(leave['end_date'], '%Y-%m-%d').date()
-            
-            # Iterate through each day in the leave period
-            current_date = max(start_date, first_day)
-            end_date_capped = min(end_date, last_day)
-            
-            while current_date <= end_date_capped:
-                # Only count weekdays (Monday-Saturday), skip Sundays
-                if current_date.weekday() < 6:  # 0=Monday, 6=Sunday
-                    dates_with_leave.add(current_date)
-                current_date += datetime.timedelta(days=1)
-        
-        leave_days_from_applications = len(dates_with_leave)
-
-        # Combine leave days (avoid double counting if already in attendance table)
-        total_leave_days = (attendance_summary['leave_days'] or 0) + leave_days_from_applications
+        attendance_summary = _calculate_accurate_attendance_summary(staff_id, today.year, today.month)
 
         return jsonify({
             'success': True,
-            'present_days': attendance_summary['present_days'] or 0,
-            'absent_days': attendance_summary['absent_days'] or 0,
-            'late_days': attendance_summary['late_days'] or 0,
-            'leave_days': total_leave_days,
-            'on_duty_days': attendance_summary['on_duty_days'] or 0,
-            'total_days': attendance_summary['total_days'] or 0,
+            'present_days': attendance_summary['present_days'],
+            'absent_days': attendance_summary['absent_days'],
+            'late_days': attendance_summary['late_days'],
+            'leave_days': attendance_summary['leave_days'],
+            'on_duty_days': attendance_summary['on_duty_days'],
+            'working_days': attendance_summary['working_days'],
+            'total_recorded_days': attendance_summary['total_recorded_days'],
             'current_month': today.strftime('%B %Y')
         })
     except Exception as e:
@@ -8017,6 +8174,109 @@ def staff_attendance_calendar():
         'leaves': [dict(l) for l in leaves]
     })
 
+@app.route('/fix_staff_names', methods=['POST'])
+def fix_staff_names():
+    """
+    Fix existing staff records that have full_name but missing first_name/last_name.
+    This resolves the 'None None' display issue in Staff Directory.
+    """
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    school_id = session['school_id']
+    
+    try:
+        db = get_db()
+        
+        # Find staff records with full_name but NULL first_name or last_name
+        problematic_staff = db.execute('''
+            SELECT id, staff_id, full_name, first_name, last_name 
+            FROM staff 
+            WHERE school_id = ? 
+            AND full_name IS NOT NULL 
+            AND full_name != ''
+            AND (first_name IS NULL OR last_name IS NULL OR first_name = '' OR last_name = '')
+        ''', (school_id,)).fetchall()
+        
+        if not problematic_staff:
+            return jsonify({
+                'success': True,
+                'message': 'No staff records need fixing. All names are properly set.',
+                'fixed_count': 0
+            })
+        
+        fixed_count = 0
+        errors = []
+        
+        for staff in problematic_staff:
+            try:
+                # Parse the full name
+                first_name, last_name = parse_full_name(staff['full_name'])
+                
+                # Update the record
+                db.execute('''
+                    UPDATE staff 
+                    SET first_name = ?, last_name = ? 
+                    WHERE id = ? AND school_id = ?
+                ''', (first_name, last_name, staff['id'], school_id))
+                
+                fixed_count += 1
+                print(f"Fixed staff {staff['staff_id']}: '{staff['full_name']}' -> '{first_name}' '{last_name}'")
+                
+            except Exception as e:
+                error_msg = f"Failed to fix staff {staff['staff_id']}: {str(e)}"
+                errors.append(error_msg)
+                print(error_msg)
+        
+        db.commit()
+        
+        message = f"Successfully fixed {fixed_count} staff records"
+        if errors:
+            message += f". {len(errors)} errors occurred."
+        
+        return jsonify({
+            'success': True,
+            'message': message,
+            'fixed_count': fixed_count,
+            'total_found': len(problematic_staff),
+            'errors': errors
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Database error: {str(e)}'})
+
+def parse_full_name(full_name):
+    """
+    Parse a full name into first_name and last_name components.
+    Handles various name formats and provides fallbacks.
+    
+    Args:
+        full_name (str): The full name to parse
+    
+    Returns:
+        tuple: (first_name, last_name)
+    """
+    if not full_name or not full_name.strip():
+        return 'Unknown', 'User'
+    
+    # Clean the input
+    full_name = full_name.strip()
+    
+    # Split by spaces
+    name_parts = [part.strip() for part in full_name.split() if part.strip()]
+    
+    if not name_parts:
+        return 'Unknown', 'User'
+    elif len(name_parts) == 1:
+        # Single name - use as first name, generate last name
+        return name_parts[0], 'User'
+    elif len(name_parts) == 2:
+        # Two parts - first and last
+        return name_parts[0], name_parts[1]
+    else:
+        # Multiple parts - first is first_name, rest combine to last_name
+        return name_parts[0], ' '.join(name_parts[1:])
+
 @app.route('/create_staff_from_device_user', methods=['POST'])
 def create_staff_from_device_user():
     """Create staff account for user who already exists on biometric device"""
@@ -8075,18 +8335,27 @@ def create_staff_from_device_user():
         if existing_staff:
             return jsonify({'success': False, 'error': f'Staff with ID {device_user_id} already exists in database'})
 
-        # Create staff account
+        # Parse full name into first and last names
+        first_name, last_name = parse_full_name(full_name)
+        
+        # Create staff account with proper name fields
         db.execute('''
             INSERT INTO staff
-            (school_id, staff_id, password_hash, full_name, email, phone, department, position)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (school_id, device_user_id, password_hash, full_name, email, phone, department, position))
+            (school_id, staff_id, password_hash, full_name, first_name, last_name, email, phone, department, position)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (school_id, device_user_id, password_hash, full_name, first_name, last_name, email, phone, department, position))
 
         db.commit()
 
         return jsonify({
             'success': True,
-            'message': f'Staff account created successfully for biometric user {device_user_id} ({full_name})'
+            'message': f'Staff account created successfully for biometric user {device_user_id} ({full_name})',
+            'details': {
+                'full_name': full_name,
+                'first_name': first_name,
+                'last_name': last_name,
+                'staff_id': device_user_id
+            }
         })
 
     except sqlite3.IntegrityError:

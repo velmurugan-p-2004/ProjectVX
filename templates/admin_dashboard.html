@@ -275,6 +275,16 @@
                                     <span class="stat-value">{{ attendance_summary.on_leave }}</span>
                                     <span>On Leave</span>
                                 </div>
+                                <div class="stat-item">
+                                    <i class="bi bi-briefcase text-primary"></i>
+                                    <span class="stat-value">{{ attendance_summary.on_duty }}</span>
+                                    <span>On Duty</span>
+                                </div>
+                                <div class="stat-item">
+                                    <i class="bi bi-shield-check text-secondary"></i>
+                                    <span class="stat-value">{{ attendance_summary.on_permission }}</span>
+                                    <span>On Permission</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -339,8 +349,12 @@
                                                 <span class="deductions-badge">Late</span>
                                             {% elif attendance.status == 'absent' %}
                                                 <span class="badge bg-danger">Absent</span>
-                                            {% elif attendance.status == 'leave' %}
+                                            {% elif attendance.status == 'leave' or attendance.status == 'On Leave' %}
                                                 <span class="net-salary-badge">On Leave</span>
+                                            {% elif attendance.status == 'On Duty' %}
+                                                <span class="badge bg-info">On Duty</span>
+                                            {% elif attendance.status == 'On Permission' %}
+                                                <span class="badge bg-warning">On Permission</span>
                                             {% else %}
                                                 <span class="badge bg-secondary">Not Marked</span>
                                             {% endif %}
