@@ -691,7 +691,21 @@ def get_staff_status_for_date(staff_id, date, school_id, db):
                 shift_type, check_in_time, check_out_time
             )
             
-            return status_result['status']
+            # Map ShiftManager status to valid admin dashboard status
+            calculated_status = status_result['status']
+            
+            # Ensure only valid statuses are returned for admin dashboard
+            valid_statuses = ['present', 'late', 'absent']
+            
+            if calculated_status in valid_statuses:
+                return calculated_status
+            elif calculated_status == 'left_soon':
+                # Early departure still counts as present for dashboard purposes
+                return 'present'
+            else:
+                # Any other unexpected status defaults to present if they checked in
+                print(f"Warning: Unexpected status '{calculated_status}' for staff {staff_id}, defaulting to 'present'")
+                return 'present'
             
         except Exception as e:
             # Fall back to stored status if calculation fails
@@ -10293,6 +10307,144 @@ def set_staff_quotas(staff_id, school_id, quotas, quota_year=None):
             'success': False,
             'error': str(e)
         }
+
+
+@app.route('/api/department_staff_count', methods=['GET'])
+def get_department_staff_count():
+    """Get the count of staff in a specific department"""
+    try:
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({'success': False, 'message': 'Unauthorized access'}), 403
+
+        school_id = session.get('school_id')
+        if not school_id:
+            return jsonify({'success': False, 'message': 'School ID not found in session'}), 400
+
+        department = request.args.get('department')
+        if not department:
+            return jsonify({'success': False, 'message': 'Department parameter is required'}), 400
+
+        db = get_db()
+        count_result = db.execute('''
+            SELECT COUNT(*) as count FROM staff WHERE school_id = ? AND department = ?
+        ''', (school_id, department)).fetchone()
+
+        count = count_result['count'] if count_result else 0
+
+        return jsonify({
+            'success': True,
+            'count': count,
+            'department': department
+        })
+
+    except Exception as e:
+        print(f"Error in get_department_staff_count: {e}")
+        return jsonify({'success': False, 'error': str(e), 'message': 'Failed to get staff count'}), 500
+
+
+@app.route('/admin/bulk_quota_assignment', methods=['POST'])
+def bulk_quota_assignment():
+    """Bulk assign leave/OD/permission quotas to all staff in a department for a given year."""
+    try:
+        if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+            return jsonify({'success': False, 'message': 'Unauthorized access'}), 403
+
+        school_id = session.get('school_id')
+        if not school_id:
+            return jsonify({'success': False, 'message': 'School ID not found in session'}), 400
+
+        # Accept form-encoded or JSON
+        data = request.form if request.form else request.get_json(force=True, silent=True) or {}
+
+        department = data.get('department')
+        quota_year = data.get('quota_year') or data.get('year')
+
+        # Leave quotas
+        try:
+            cl = int(data.get('cl') or data.get('clQuota') or 0)
+        except:
+            cl = 0
+        try:
+            sl = int(data.get('sl') or data.get('slQuota') or 0)
+        except:
+            sl = 0
+        try:
+            el = int(data.get('el') or data.get('elQuota') or 0)
+        except:
+            el = 0
+        try:
+            ml = int(data.get('ml') or data.get('mlQuota') or 0)
+        except:
+            ml = 0
+
+        # OD and Permission
+        try:
+            od_days = int(data.get('od') or data.get('odQuota') or 0)
+        except:
+            od_days = 0
+        try:
+            permission_hours = float(data.get('permission') or data.get('permissionQuota') or 0.0)
+        except:
+            permission_hours = 0.0
+
+        if not department:
+            return jsonify({'success': False, 'message': 'Department is required'}), 400
+
+        if not quota_year:
+            import datetime
+            quota_year = datetime.datetime.now().year
+        else:
+            try:
+                quota_year = int(quota_year)
+            except:
+                quota_year = int(str(quota_year))
+
+        db = get_db()
+
+        # Find staff in department
+        staff_rows = db.execute('''
+            SELECT id FROM staff WHERE school_id = ? AND department = ?
+        ''', (school_id, department)).fetchall()
+
+        staff_ids = [r['id'] for r in staff_rows] if staff_rows else []
+
+        if len(staff_ids) == 0:
+            return jsonify({'success': True, 'message': 'No staff found in department', 'updated': 0}), 200
+
+        quotas = {
+            'leave': {
+                'CL': cl,
+                'SL': sl,
+                'EL': el,
+                'ML': ml
+            },
+            'od': od_days,
+            'permission': permission_hours
+        }
+
+        updated = 0
+        failed = []
+
+        for sid in staff_ids:
+            try:
+                res = set_staff_quotas(sid, school_id, quotas, quota_year)
+                if res.get('success'):
+                    updated += 1
+                else:
+                    failed.append({'staff_id': sid, 'error': res.get('error')})
+            except Exception as e:
+                failed.append({'staff_id': sid, 'error': str(e)})
+
+        return jsonify({
+            'success': True,
+            'message': f'Bulk quota assignment completed. Updated {updated} staff.',
+            'updated': updated,
+            'failed': failed
+        })
+
+    except Exception as e:
+        print(f"Error in bulk_quota_assignment: {e}")
+        return jsonify({'success': False, 'error': str(e), 'message': 'Bulk quota assignment failed'}), 500
 
 
 def validate_application_against_quota(staff_id, school_id, application_type, application_data):

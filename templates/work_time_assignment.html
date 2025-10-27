@@ -1104,6 +1104,64 @@
                         </div>
                     </div>
                     <div class="card-body">
+
+                        <!-- Bulk Quota Configuration (by Department) -->
+                        <div class="bulk-quota-section mb-4">
+                            <h6 class="section-title mb-2">
+                                <i class="bi bi-people-fill text-warning"></i> Bulk Quota Configuration (by Department)
+                            </h6>
+                            <div class="row align-items-end">
+                                <div class="col-md-4">
+                                    <label for="bulkDeptSelect" class="form-label">Department *</label>
+                                    <select class="form-select" id="bulkDeptSelect">
+                                        <option value="">Select department...</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label for="bulkQuotaYear" class="form-label">Year</label>
+                                    <input type="number" id="bulkQuotaYear" class="form-control" value="2025">
+                                </div>
+                                <div class="col-md-6 text-end">
+                                    <button type="button" class="btn btn-outline-secondary" id="loadDeptCountBtn">Load Dept Count</button>
+                                    <span id="bulkDeptCount" class="ms-3 text-muted"></span>
+                                </div>
+                            </div>
+
+                            <div class="row mt-3">
+                                <div class="col-md-2">
+                                    <label class="form-label">Casual Leave (CL)</label>
+                                    <input type="number" id="bulkClQuota" class="form-control" min="0" value="0">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Sick Leave (SL)</label>
+                                    <input type="number" id="bulkSlQuota" class="form-control" min="0" value="0">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Earned Leave (EL)</label>
+                                    <input type="number" id="bulkElQuota" class="form-control" min="0" value="0">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Maternity Leave (ML)</label>
+                                    <input type="number" id="bulkMlQuota" class="form-control" min="0" value="0">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">OD Days</label>
+                                    <input type="number" id="bulkOdQuota" class="form-control" min="0" value="0">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Permission Hours</label>
+                                    <input type="number" id="bulkPermissionQuota" class="form-control" min="0" step="0.5" value="0">
+                                </div>
+                            </div>
+
+                            <div class="mt-3">
+                                <button type="button" class="btn btn-warning" id="applyBulkQuotaBtn">
+                                    <i class="bi bi-upload"></i> Apply to Department
+                                </button>
+                                <small class="text-muted ms-3">This will overwrite quotas for all staff in the selected department for the chosen year.</small>
+                            </div>
+                        </div>
+
                         <!-- Quota Assignment Controls -->
                         <div class="row mb-4">
                             <div class="col-md-6">
@@ -2153,6 +2211,14 @@
                             `<option value="${dept}">${dept}</option>`
                         ).join('');
                     }
+                    // Also populate bulk quota department selector
+                    const bulkDeptSelect = document.getElementById('bulkDeptSelect');
+                    if (bulkDeptSelect) {
+                        bulkDeptSelect.innerHTML = '<option value="">Select department...</option>' +
+                            data.departments.map(dept =>
+                                `<option value="${dept}">${dept}</option>`
+                            ).join('');
+                    }
                 }
             })
             .catch(error => {
@@ -2706,6 +2772,71 @@
             const usageBtn = document.getElementById('viewUsageBtn');
             if (usageBtn) {
                 usageBtn.addEventListener('click', viewUsageSummary);
+            }
+
+            // Bulk quota buttons
+            const loadDeptCountBtn = document.getElementById('loadDeptCountBtn');
+            if (loadDeptCountBtn) {
+                loadDeptCountBtn.addEventListener('click', async function() {
+                    const dept = document.getElementById('bulkDeptSelect').value;
+                    if (!dept) {
+                        alert('Please select a department first');
+                        return;
+                    }
+                    try {
+                        const res = await fetch(`/api/department_staff_count?department=${encodeURIComponent(dept)}`, {credentials: 'same-origin'});
+                        if (res.ok) {
+                            const d = await res.json();
+                            if (d.success) {
+                                document.getElementById('bulkDeptCount').textContent = `${d.count} staff found`;
+                            } else {
+                                document.getElementById('bulkDeptCount').textContent = 'Error retrieving count';
+                            }
+                        }
+                    } catch (err) {
+                        console.error('Error loading dept count', err);
+                        document.getElementById('bulkDeptCount').textContent = 'Error';
+                    }
+                });
+            }
+
+            const applyBulkBtn = document.getElementById('applyBulkQuotaBtn');
+            if (applyBulkBtn) {
+                applyBulkBtn.addEventListener('click', async function() {
+                    const dept = document.getElementById('bulkDeptSelect').value;
+                    const year = document.getElementById('bulkQuotaYear').value;
+                    if (!dept) { alert('Please select a department'); return; }
+
+                    const cl = parseInt(document.getElementById('bulkClQuota').value) || 0;
+                    const sl = parseInt(document.getElementById('bulkSlQuota').value) || 0;
+                    const el = parseInt(document.getElementById('bulkElQuota').value) || 0;
+                    const ml = parseInt(document.getElementById('bulkMlQuota').value) || 0;
+                    const od = parseInt(document.getElementById('bulkOdQuota').value) || 0;
+                    const permission = parseFloat(document.getElementById('bulkPermissionQuota').value) || 0.0;
+
+                    if (!confirm(`This will overwrite quotas for all staff in '${dept}' for year ${year}. Are you sure?`)) return;
+
+                    const body = `department=${encodeURIComponent(dept)}&quota_year=${encodeURIComponent(year)}&cl=${encodeURIComponent(cl)}&sl=${encodeURIComponent(sl)}&el=${encodeURIComponent(el)}&ml=${encodeURIComponent(ml)}&od=${encodeURIComponent(od)}&permission=${encodeURIComponent(permission)}&csrf_token=${encodeURIComponent(getCSRFToken())}`;
+
+                    try {
+                        const response = await fetch('/admin/bulk_quota_assignment', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: body,
+                            credentials: 'same-origin'
+                        });
+
+                        const data = await response.json();
+                        if (data.success) {
+                            showQuotaMessage(data.message || 'Bulk quotas applied successfully', 'success');
+                        } else {
+                            showQuotaMessage(data.message || data.error || 'Bulk quota assignment failed', 'error');
+                        }
+                    } catch (err) {
+                        console.error('Bulk quota error', err);
+                        showQuotaMessage('Bulk quota assignment failed', 'error');
+                    }
+                });
             }
         }
 
