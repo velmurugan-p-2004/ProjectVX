@@ -477,7 +477,8 @@ class SalaryCalculator:
         )
         
         present_days = attendance_summary['present_days']
-        absent_days = attendance_summary['absent_days']
+        # absent_days from records is just explicitly marked absent days
+        marked_absent_days = attendance_summary['absent_days']
         on_duty_days = attendance_summary['on_duty_days']
         early_arrival_bonus = attendance_summary['early_arrival_bonus']
         early_departure_penalty = attendance_summary['early_departure_penalty']
@@ -488,6 +489,10 @@ class SalaryCalculator:
         leave_summary = self._process_leave_data(leave_data, per_day_salary, year, month)
         leave_days = leave_summary['total_leave_days']
         leave_pay = leave_summary['leave_pay']
+        
+        # Calculate actual absent days: total working days minus accounted days
+        # This includes both explicitly marked absent days and days with no attendance records
+        absent_days = working_days - present_days - on_duty_days - leave_days
         
         # Calculate final amounts
         present_pay = present_days * per_day_salary
@@ -583,6 +588,11 @@ class SalaryCalculator:
         shift_info = self._get_staff_shift_info(staff_info['id'])
         
         for record in attendance_data:
+            # Only process working days (exclude Sundays) for salary calculations
+            record_date = datetime.strptime(record['date'], '%Y-%m-%d')
+            if record_date.weekday() == 6:  # Skip Sunday records
+                continue
+                
             if record['status'] == 'present':
                 present_days += 1
                 

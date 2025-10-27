@@ -661,12 +661,42 @@ def get_staff_status_for_date(staff_id, date, school_id, db):
     
     # No approved applications found, check attendance record
     attendance = db.execute('''
-        SELECT status FROM attendance 
+        SELECT time_in, time_out, status FROM attendance 
         WHERE staff_id = ? AND date = ?
     ''', (staff_id, date.isoformat())).fetchone()
     
-    if attendance and attendance['status']:
-        return attendance['status']
+    if attendance and attendance['time_in']:
+        # Get staff shift type for accurate status calculation
+        staff_info = db.execute('''
+            SELECT COALESCE(shift_type, 'general') as shift_type
+            FROM staff WHERE id = ?
+        ''', (staff_id,)).fetchone()
+        
+        shift_type = staff_info['shift_type'] if staff_info else 'general'
+        
+        # Parse check-in time and calculate real-time status
+        try:
+            time_in_str = attendance['time_in']
+            check_in_time = datetime.datetime.strptime(time_in_str, '%H:%M:%S').time()
+            
+            # Calculate real-time status using ShiftManager
+            from shift_management import ShiftManager
+            shift_manager = ShiftManager()
+            
+            check_out_time = None
+            if attendance['time_out']:
+                check_out_time = datetime.datetime.strptime(attendance['time_out'], '%H:%M:%S').time()
+            
+            status_result = shift_manager.calculate_attendance_status(
+                shift_type, check_in_time, check_out_time
+            )
+            
+            return status_result['status']
+            
+        except Exception as e:
+            # Fall back to stored status if calculation fails
+            print(f"Status calculation error for staff {staff_id}: {e}")
+            return attendance['status'] if attendance['status'] else "present"
     else:
         return "absent"  # Default status if no attendance record
 
