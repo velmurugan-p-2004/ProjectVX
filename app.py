@@ -4173,6 +4173,12 @@ def staff_management():
     # Get all available departments and positions for dropdowns
     departments = get_all_departments(school_id)
     positions = get_all_positions(school_id)
+    
+    # Auto-fix any staff records with 'User' suffix (run once when page loads)
+    try:
+        fix_user_suffix_in_staff_names()
+    except Exception as e:
+        print(f"Warning: Could not auto-fix user suffix: {e}")
 
     return render_template('staff_management.html', staff=staff, dept_shift_map=dept_shift_map, departments=departments, positions=positions)
 
@@ -8257,7 +8263,7 @@ def parse_full_name(full_name):
         tuple: (first_name, last_name)
     """
     if not full_name or not full_name.strip():
-        return 'Unknown', 'User'
+        return 'Unknown', ''
     
     # Clean the input
     full_name = full_name.strip()
@@ -8266,16 +8272,68 @@ def parse_full_name(full_name):
     name_parts = [part.strip() for part in full_name.split() if part.strip()]
     
     if not name_parts:
-        return 'Unknown', 'User'
+        return 'Unknown', ''
     elif len(name_parts) == 1:
-        # Single name - use as first name, generate last name
-        return name_parts[0], 'User'
+        # Single name - use as first name, leave last name empty
+        return name_parts[0], ''
     elif len(name_parts) == 2:
         # Two parts - first and last
         return name_parts[0], name_parts[1]
     else:
         # Multiple parts - first is first_name, rest combine to last_name
         return name_parts[0], ' '.join(name_parts[1:])
+
+def fix_user_suffix_in_staff_names():
+    """
+    Fix existing staff records that have 'User' as their last_name.
+    This addresses the bug where biometric imported staff show ' user' suffix.
+    """
+    try:
+        db = get_db()
+        
+        # Find staff records with 'User' as last_name (case-insensitive)
+        staff_with_user_suffix = db.execute('''
+            SELECT id, staff_id, full_name, first_name, last_name 
+            FROM staff 
+            WHERE LOWER(last_name) = 'user'
+        ''').fetchall()
+        
+        fixed_count = 0
+        for staff in staff_with_user_suffix:
+            # Update the record to remove 'User' from last_name
+            db.execute('''
+                UPDATE staff 
+                SET last_name = '', 
+                    full_name = ?
+                WHERE id = ?
+            ''', (staff['first_name'], staff['id']))
+            
+            fixed_count += 1
+            print(f"Fixed staff record: {staff['staff_id']} - '{staff['first_name']} User' → '{staff['first_name']}'")
+        
+        db.commit()
+        print(f"✅ Fixed {fixed_count} staff records with 'User' suffix")
+        return fixed_count
+        
+    except Exception as e:
+        print(f"❌ Error fixing user suffix in staff names: {e}")
+        return 0
+
+@app.route('/admin/fix_staff_user_suffix', methods=['POST'])
+def fix_staff_user_suffix_route():
+    """Admin route to manually fix staff names with 'User' suffix"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        fixed_count = fix_user_suffix_in_staff_names()
+        return jsonify({
+            'success': True, 
+            'message': f'Successfully fixed {fixed_count} staff records with "User" suffix',
+            'fixed_count': fixed_count
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/create_staff_from_device_user', methods=['POST'])
 def create_staff_from_device_user():

@@ -524,7 +524,7 @@
                                                         <i class="bi bi-person-circle"></i>
                                                     </div>
                                                     <div>
-                                                        <div class="fw-bold">{{ staff_member.first_name }} {{ staff_member.last_name }}</div>
+                                                        <div class="fw-bold">{{ staff_member.first_name }}{% if staff_member.last_name %} {{ staff_member.last_name }}{% endif %}</div>
                                                         <small class="text-muted">{{ staff_member.destination or 'N/A' }}</small>
                                                     </div>
                                                 </div>

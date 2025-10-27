@@ -375,6 +375,12 @@ class ZKBiometricDevice:
         from shift_management import ShiftManager
 
         if verification_type == 'check-in':
+            # DUPLICATE CHECK-IN PREVENTION: Only allow first check-in of the day
+            if existing_attendance and existing_attendance['time_in']:
+                logger.warning(f"Duplicate check-in attempt blocked for staff {staff_db_id} on {today}. Original check-in: {existing_attendance['time_in']}, attempted: {current_time}")
+                print(f"🚫 DUPLICATE CHECK-IN BLOCKED: Staff {staff_db_id} already checked in at {existing_attendance['time_in']}, attempted again at {current_time}")
+                return  # Skip this duplicate check-in
+            
             # Get staff department and shift for accurate status calculation
             staff_info = db.execute('''
                 SELECT department, COALESCE(shift_type, 'general') AS shift_type
@@ -398,17 +404,18 @@ class ZKBiometricDevice:
             print(f"🔍 BIOMETRIC DEBUG: Status = {status}, Late minutes = {late_minutes}")
 
             if existing_attendance:
-                # Update existing record with strict status and late minutes
-                db.execute('''
-                    UPDATE attendance SET time_in = ?, status = ?, late_duration_minutes = ?,
-                        shift_start_time = ?, shift_end_time = ?
-                    WHERE staff_id = ? AND date = ?
-                ''', (
-                    current_time, status, late_minutes,
-                    shift_start.strftime('%H:%M:%S') if shift_start else None,
-                    shift_end.strftime('%H:%M:%S') if shift_end else None,
-                    staff_db_id, today
-                ))
+                # Only update if there's no existing check-in time (this shouldn't happen due to check above, but safety net)
+                if not existing_attendance['time_in']:
+                    db.execute('''
+                        UPDATE attendance SET time_in = ?, status = ?, late_duration_minutes = ?,
+                            shift_start_time = ?, shift_end_time = ?
+                        WHERE staff_id = ? AND date = ?
+                    ''', (
+                        current_time, status, late_minutes,
+                        shift_start.strftime('%H:%M:%S') if shift_start else None,
+                        shift_end.strftime('%H:%M:%S') if shift_end else None,
+                        staff_db_id, today
+                    ))
             else:
                 # Create new record including late minutes and shift bounds
                 db.execute('''
@@ -423,6 +430,12 @@ class ZKBiometricDevice:
                 ))
 
         elif verification_type == 'check-out':
+            # DUPLICATE CHECK-OUT PREVENTION: Only allow first check-out of the day
+            if existing_attendance and existing_attendance['time_out']:
+                logger.warning(f"Duplicate check-out attempt blocked for staff {staff_db_id} on {today}. Original check-out: {existing_attendance['time_out']}, attempted: {current_time}")
+                print(f"🚫 DUPLICATE CHECK-OUT BLOCKED: Staff {staff_db_id} already checked out at {existing_attendance['time_out']}, attempted again at {current_time}")
+                return  # Skip this duplicate check-out
+            
             # Check-out verification with early departure detection
             if existing_attendance:
                 # Use ShiftManager for check-out status calculation
@@ -451,6 +464,9 @@ class ZKBiometricDevice:
                         UPDATE attendance SET time_out = ?
                         WHERE staff_id = ? AND date = ?
                     ''', (current_time, staff_db_id, today))
+            else:
+                logger.warning(f"Check-out attempt without check-in for staff {staff_db_id} on {today}")
+                print(f"⚠️ CHECK-OUT WITHOUT CHECK-IN: Staff {staff_db_id} attempted check-out at {current_time} without checking in first")
 
         elif verification_type == 'overtime-in':
             # Overtime-in verification
