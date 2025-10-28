@@ -9417,7 +9417,7 @@ def update_institution_timings():
                 VALUES (?, ?, CURRENT_TIMESTAMP)
             """, (setting_name, setting_value))
 
-        # Sync with shift definitions - update 'general' shift to match institution timings
+        # Sync with shift definitions - update ALL active shifts to match institution timings
         try:
             # Check if shift_definitions table exists
             cursor = db.execute("""
@@ -9426,14 +9426,37 @@ def update_institution_timings():
             """)
 
             if cursor.fetchone():
-                # Update or insert general shift to match institution timings with strict rules
-                db.execute("""
-                    INSERT OR REPLACE INTO shift_definitions
-                    (shift_type, start_time, end_time, grace_period_minutes, description, is_active)
-                    VALUES ('general', ?, ?, 0, 'Institution Default Shift (Strict Timing)', 1)
-                """, (checkin_time + ':00', checkout_time + ':00'))
-
-                print(f"✅ Synced general shift: {checkin_time} - {checkout_time}")
+                # Get all active shift types
+                cursor = db.execute("""
+                    SELECT shift_type, description FROM shift_definitions 
+                    WHERE is_active = 1
+                """)
+                active_shifts = cursor.fetchall()
+                
+                if active_shifts:
+                    # Update all active shifts to match institution timings
+                    for shift_type, description in active_shifts:
+                        # Preserve original description if it exists
+                        updated_description = description if description else f"{shift_type.title()} Shift (Institution Timing)"
+                        
+                        db.execute("""
+                            UPDATE shift_definitions 
+                            SET start_time = ?, end_time = ?, grace_period_minutes = 0,
+                                description = ?
+                            WHERE shift_type = ? AND is_active = 1
+                        """, (checkin_time + ':00', checkout_time + ':00', updated_description, shift_type))
+                    
+                    print(f"✅ Synced {len(active_shifts)} active shifts to institution timing: {checkin_time} - {checkout_time}")
+                    for shift_type, _ in active_shifts:
+                        print(f"   - {shift_type} shift updated")
+                else:
+                    # No active shifts found, create general shift
+                    db.execute("""
+                        INSERT OR REPLACE INTO shift_definitions
+                        (shift_type, start_time, end_time, grace_period_minutes, description, is_active)
+                        VALUES ('general', ?, ?, 0, 'Institution Default Shift (Strict Timing)', 1)
+                    """, (checkin_time + ':00', checkout_time + ':00'))
+                    print(f"✅ Created default general shift: {checkin_time} - {checkout_time}")
             else:
                 # Create shift_definitions table and insert general shift
                 db.execute("""
