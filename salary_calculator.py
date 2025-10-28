@@ -698,15 +698,34 @@ class SalaryCalculator:
             ''', (staff_id,)).fetchone()
 
             if staff and staff['shift_type']:
-                # Return default shift info based on shift type
-                return {
-                    'shift_type': staff['shift_type'],
-                    'start_time': '09:00:00',
-                    'end_time': '17:00:00',
-                    'grace_period_minutes': 10
-                }
-        except:
-            pass
+                shift_type = staff['shift_type']
+                
+                # Get actual shift definition from database
+                shift_def = db.execute('''
+                    SELECT start_time, end_time, grace_period_minutes
+                    FROM shift_definitions
+                    WHERE shift_type = ? AND is_active = 1
+                    ORDER BY id DESC
+                    LIMIT 1
+                ''', (shift_type,)).fetchone()
+                
+                if shift_def:
+                    return {
+                        'shift_type': shift_type,
+                        'start_time': shift_def['start_time'],
+                        'end_time': shift_def['end_time'],
+                        'grace_period_minutes': shift_def['grace_period_minutes']
+                    }
+                else:
+                    # Fallback to default values if shift definition not found
+                    return {
+                        'shift_type': shift_type,
+                        'start_time': '09:00:00',
+                        'end_time': '17:00:00',
+                        'grace_period_minutes': 10
+                    }
+        except Exception as e:
+            print(f"Error getting staff shift info: {e}")
 
         # Default shift if not found or error
         return {
