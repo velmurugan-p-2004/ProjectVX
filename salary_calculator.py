@@ -491,7 +491,7 @@ class SalaryCalculator:
         leave_pay = leave_summary['leave_pay']
         
         # Calculate actual absent days: total working days minus accounted days
-        # This includes both explicitly marked absent days and days with no attendance records
+        # Since late days are counted as present days, this formula works correctly
         absent_days = working_days - present_days - on_duty_days - leave_days
         
         # Calculate final amounts
@@ -593,7 +593,7 @@ class SalaryCalculator:
             if record_date.weekday() == 6:  # Skip Sunday records
                 continue
                 
-            if record['status'] == 'present':
+            if record['status'] in ['present', 'late']:  # Count both present and late as present days
                 present_days += 1
                 
                 # Calculate early arrival bonus
