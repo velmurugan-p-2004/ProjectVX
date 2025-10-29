@@ -387,6 +387,93 @@
         .quota-status-card.od-card { border-left-color: #007bff; }
         .quota-status-card.permission-card { border-left-color: #6c757d; }
 
+        /* Quota Status Container Scrolling */
+        .quota-status-container {
+            max-height: 300px !important;
+            min-height: 100px;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            padding-right: 10px;
+            margin-right: -10px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            padding: 15px;
+            position: relative;
+            display: block !important;
+        }
+
+        /* More specific selector to override any conflicting styles */
+        #currentQuotaDisplay .quota-status-container {
+            overflow-y: scroll !important;
+            scrollbar-width: thin;
+            scrollbar-color: #c1c1c1 #f1f1f1;
+        }
+
+        /* Override Bootstrap row behavior inside quota container */
+        .quota-status-container .row {
+            margin-right: 0 !important;
+            margin-left: 0 !important;
+            flex-wrap: wrap !important;
+        }
+
+        /* Force scrollbar to always show for testing */
+        .quota-status-container::-webkit-scrollbar {
+            width: 12px !important;
+            display: block !important;
+        }
+
+
+
+        /* Scroll indicator gradient */
+        .quota-status-container::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 20px;
+            background: linear-gradient(transparent, rgba(248, 249, 250, 0.8));
+            pointer-events: none;
+            border-radius: 0 0 8px 8px;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .quota-status-container {
+                max-height: 250px;
+                min-height: 80px;
+                padding: 10px;
+                padding-right: 15px;
+                margin-right: -15px;
+            }
+        }
+
+        /* Custom scrollbar for quota status container */
+        .quota-status-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .quota-status-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        .quota-status-container::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 10px;
+            transition: background-color 0.3s ease;
+        }
+
+        .quota-status-container::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
+
+        /* Smooth scrolling */
+        .quota-status-container {
+            scroll-behavior: smooth;
+        }
+
         /* Holiday Calendar Styles */
         .holiday-calendar-section {
             background: white;
@@ -1280,8 +1367,10 @@
                             <h6 class="section-title mb-3">
                                 <i class="bi bi-list-check text-success"></i> Current Quota Status
                             </h6>
-                            <div class="row" id="quotaStatusCards">
-                                <!-- Quota status cards will be populated here -->
+                            <div class="quota-status-container">
+                                <div class="row" id="quotaStatusCards">
+                                    <!-- Quota status cards will be populated here -->
+                                </div>
                             </div>
                         </div>
 
@@ -3145,6 +3234,26 @@
                 messageElement.style.display = 'none';
             }
         }
+
+        // Test function to create sample quota cards for scrolling test
+        function testQuotaScrolling() {
+            const sampleQuotas = {
+                leave_quotas: {
+                    CL: { allocated_days: 12, used_days: 3, remaining_days: 9 },
+                    SL: { allocated_days: 10, used_days: 7, remaining_days: 3 },
+                    EL: { allocated_days: 21, used_days: 5, remaining_days: 16 },
+                    ML: { allocated_days: 90, used_days: 0, remaining_days: 90 }
+                },
+                od_quota: { allocated_days: 20, used_days: 8, remaining_days: 12 },
+                permission_quota: { allocated_hours: 40, used_hours: 15, remaining_hours: 25 }
+            };
+            
+            displayQuotaStatus(sampleQuotas);
+            document.getElementById('currentQuotaDisplay').style.display = 'block';
+        }
+
+        // Auto-test on page load (remove this line in production)
+        // document.addEventListener('DOMContentLoaded', testQuotaScrolling);
 
 
     </script>
