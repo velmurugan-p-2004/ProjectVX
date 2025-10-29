@@ -9463,7 +9463,8 @@ def generate_individual_salary_slip_pdf(salary_data, year, month):
             ['Present Days:', str(attendance['present_days'])],
             ['Absent Days:', str(attendance['absent_days'])],
             ['On Duty Days:', str(attendance['on_duty_days'])],
-            ['Leave Days:', str(attendance['leave_days'])]
+            ['Leave Days:', str(attendance['leave_days'])],
+            ['Admin Assigned Holidays:', str(attendance.get('holiday_days', 0))]
         ]
 
         attendance_table = Table(attendance_data, colWidths=[2*inch, 3*inch])
@@ -9480,6 +9481,30 @@ def generate_individual_salary_slip_pdf(salary_data, year, month):
 
         elements.append(attendance_table)
         elements.append(Spacer(1, 20))
+
+        # Holiday Details Section (if holidays exist)
+        if attendance.get('holiday_days', 0) > 0 and attendance.get('holiday_list'):
+            holiday_detail_data = [['Holiday Details', '']]
+            
+            for holiday in attendance['holiday_list']:
+                holiday_name = holiday['name'][:30] + ('...' if len(holiday['name']) > 30 else '')  # Truncate long names
+                holiday_type = holiday['type']
+                holiday_detail_data.append([f"• {holiday_name}", holiday_type])
+            
+            holiday_table = Table(holiday_detail_data, colWidths=[3*inch, 2*inch])
+            holiday_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTNAME', (0, 1), (0, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            
+            elements.append(holiday_table)
+            elements.append(Spacer(1, 20))
 
         # Earnings and Deductions Table
         salary_data = [

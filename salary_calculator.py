@@ -478,6 +478,130 @@ class SalaryCalculator:
         
         return working_days
     
+    def _get_holiday_details(self, year: int, month: int, department: Optional[str] = None) -> Dict:
+        """
+        Get detailed holiday information for the month.
+        
+        Args:
+            year (int): Year
+            month (int): Month
+            department (str, optional): Department name for department-specific holidays
+            
+        Returns:
+            Dict: Holiday details including count and list
+        """
+        import json
+        
+        total_days = calendar.monthrange(year, month)[1]
+        start_date = f"{year}-{month:02d}-01"
+        end_date = f"{year}-{month:02d}-{total_days:02d}"
+        
+        db = self._get_db_connection()
+        
+        # Get institution-wide holidays
+        institution_holidays = db.execute('''
+            SELECT holiday_name, start_date, end_date, holiday_type
+            FROM holidays
+            WHERE school_id = ?
+            AND holiday_type = 'institution_wide'
+            AND is_active = 1
+            AND (
+                (start_date <= ? AND end_date >= ?) OR
+                (start_date >= ? AND start_date <= ?) OR
+                (end_date >= ? AND end_date <= ?)
+            )
+            ORDER BY start_date
+        ''', (self.school_id, start_date, start_date, start_date, end_date, start_date, end_date)).fetchall()
+        
+        # Get department-specific holidays if department is provided
+        dept_holidays = []
+        if department:
+            dept_holiday_records = db.execute('''
+                SELECT holiday_name, start_date, end_date, holiday_type, departments
+                FROM holidays
+                WHERE school_id = ?
+                AND holiday_type = 'department_specific'
+                AND is_active = 1
+                AND (
+                    (start_date <= ? AND end_date >= ?) OR
+                    (start_date >= ? AND start_date <= ?) OR
+                    (end_date >= ? AND end_date <= ?)
+                )
+                ORDER BY start_date
+            ''', (self.school_id, start_date, start_date, start_date, end_date, start_date, end_date)).fetchall()
+            
+            for holiday in dept_holiday_records:
+                if holiday['departments']:
+                    try:
+                        departments = json.loads(holiday['departments'])
+                        if department in departments:
+                            dept_holidays.append(holiday)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+        
+        # Count total holiday days in the month
+        holiday_days = 0
+        holiday_list = []
+        
+        for holiday in institution_holidays:
+            h_start = datetime.strptime(holiday['start_date'], '%Y-%m-%d').date()
+            h_end = datetime.strptime(holiday['end_date'], '%Y-%m-%d').date()
+            
+            # Count days within the month
+            month_start = datetime(year, month, 1).date()
+            month_end = datetime(year, month, total_days).date()
+            
+            actual_start = max(h_start, month_start)
+            actual_end = min(h_end, month_end)
+            
+            if actual_start <= actual_end:
+                days_in_month = (actual_end - actual_start).days + 1
+                # Exclude Sundays from holiday count
+                for day_offset in range(days_in_month):
+                    check_date = actual_start + timedelta(days=day_offset)
+                    if check_date.weekday() != 6:  # Not Sunday
+                        holiday_days += 1
+                
+                holiday_list.append({
+                    'name': holiday['holiday_name'],
+                    'type': 'Institution-wide',
+                    'start_date': holiday['start_date'],
+                    'end_date': holiday['end_date']
+                })
+        
+        for holiday in dept_holidays:
+            h_start = datetime.strptime(holiday['start_date'], '%Y-%m-%d').date()
+            h_end = datetime.strptime(holiday['end_date'], '%Y-%m-%d').date()
+            
+            # Count days within the month
+            month_start = datetime(year, month, 1).date()
+            month_end = datetime(year, month, total_days).date()
+            
+            actual_start = max(h_start, month_start)
+            actual_end = min(h_end, month_end)
+            
+            if actual_start <= actual_end:
+                days_in_month = (actual_end - actual_start).days + 1
+                # Exclude Sundays from holiday count
+                for day_offset in range(days_in_month):
+                    check_date = actual_start + timedelta(days=day_offset)
+                    if check_date.weekday() != 6:  # Not Sunday
+                        holiday_days += 1
+                
+                holiday_list.append({
+                    'name': holiday['holiday_name'],
+                    'type': f'Department ({department})',
+                    'start_date': holiday['start_date'],
+                    'end_date': holiday['end_date']
+                })
+        
+        return {
+            'holiday_days': holiday_days,
+            'holiday_list': holiday_list,
+            'institution_holidays': len(institution_holidays),
+            'department_holidays': len(dept_holidays)
+        }
+    
     def _calculate_salary_breakdown(self, staff_info: Dict, attendance_data: List[Dict], 
                                   leave_data: List[Dict], working_days: int, 
                                   year: int, month: int) -> Dict:
@@ -525,6 +649,9 @@ class SalaryCalculator:
         leave_summary = self._process_leave_data(leave_data, per_day_salary, year, month)
         leave_days = leave_summary['total_leave_days']
         leave_pay = leave_summary['leave_pay']
+        
+        # Get holiday information
+        holiday_details = self._get_holiday_details(year, month, staff_info.get('department'))
         
         # Calculate actual absent days: total working days minus accounted days
         # Since late days are counted as present days, this formula works correctly
@@ -576,7 +703,11 @@ class SalaryCalculator:
                 'absent_days': absent_days,
                 'on_duty_days': on_duty_days,
                 'leave_days': leave_days,
-                'half_days': half_days
+                'half_days': half_days,
+                'holiday_days': holiday_details['holiday_days'],
+                'holiday_list': holiday_details['holiday_list'],
+                'institution_holidays': holiday_details['institution_holidays'],
+                'department_holidays': holiday_details['department_holidays']
             },
             
             # Earnings breakdown
