@@ -11177,7 +11177,69 @@ def get_leave_usage_summary():
         
         staff_name = staff_result[0]
         
-        # Get current quotas
+        # First, let's recalculate and update the actual usage from applications
+        # Get all quota types for this school
+        cursor.execute("SELECT id, name, unit, default_value FROM quota_types WHERE school_id = ?", (school_id,))
+        quota_type_details = cursor.fetchall()
+        
+        for qt_id, qt_name, qt_unit, qt_default in quota_type_details:
+            actual_used = 0
+            
+            if qt_unit.lower() == 'days':
+                if qt_name == 'On Duty':
+                    # Calculate OD usage
+                    cursor.execute("""
+                        SELECT SUM(
+                            CASE 
+                                WHEN start_date = end_date THEN 1
+                                ELSE julianday(end_date) - julianday(start_date) + 1
+                            END
+                        ) FROM on_duty_applications 
+                        WHERE staff_id = ? AND school_id = ? 
+                        AND strftime('%Y', start_date) = ?
+                        AND status = 'approved'
+                    """, (staff_id, school_id, str(year)))
+                else:
+                    # Calculate leave usage for this specific type
+                    cursor.execute("""
+                        SELECT SUM(
+                            CASE 
+                                WHEN start_date = end_date THEN 1
+                                ELSE julianday(end_date) - julianday(start_date) + 1
+                            END
+                        ) FROM leave_applications 
+                        WHERE staff_id = ? AND school_id = ? 
+                        AND leave_type = ?
+                        AND strftime('%Y', start_date) = ?
+                        AND status = 'approved'
+                    """, (staff_id, school_id, qt_name, str(year)))
+                    
+                result = cursor.fetchone()[0]
+                actual_used = result if result else 0
+                
+            elif qt_unit.lower() == 'hours' and qt_name == 'Permission':
+                # Calculate permission usage
+                cursor.execute("""
+                    SELECT SUM(duration_hours) 
+                    FROM permission_applications 
+                    WHERE staff_id = ? AND school_id = ? 
+                    AND strftime('%Y', permission_date) = ?
+                    AND status = 'approved'
+                """, (staff_id, school_id, str(year)))
+                
+                result = cursor.fetchone()[0]
+                actual_used = result if result else 0
+            
+            # Update or insert the staff quota with actual usage
+            cursor.execute("""
+                INSERT OR REPLACE INTO staff_quotas 
+                (staff_id, quota_type_id, year, allocated_quota, used_quota)
+                VALUES (?, ?, ?, ?, ?)
+            """, (staff_id, qt_id, year, qt_default, actual_used))
+        
+        db.commit()
+        
+        # Now get the updated quotas
         cursor.execute("""
             SELECT qt.name, qt.unit, 
                    COALESCE(sq.allocated_quota, qt.default_value) as allocated,
@@ -11190,8 +11252,10 @@ def get_leave_usage_summary():
         """, (staff_id, year, school_id))
         
         quota_types = []
-        total_used = 0
-        total_remaining = 0
+        total_used_days = 0
+        total_remaining_days = 0
+        total_used_hours = 0
+        total_remaining_hours = 0
         
         for row in cursor.fetchall():
             quota_data = {
@@ -11202,8 +11266,14 @@ def get_leave_usage_summary():
                 'remaining': row[4]
             }
             quota_types.append(quota_data)
-            total_used += row[3]
-            total_remaining += row[4]
+            
+            # Separate days and hours for proper totaling
+            if row[1].lower() == 'days':
+                total_used_days += row[3]
+                total_remaining_days += row[4]
+            elif row[1].lower() == 'hours':
+                total_used_hours += row[3]
+                total_remaining_hours += row[4]
         
         # Get usage records for the year
         cursor.execute("""
@@ -11261,9 +11331,62 @@ def get_leave_usage_summary():
         # Sort all records by start date (most recent first)
         usage_records.sort(key=lambda x: x['start_date'], reverse=True)
         
+        # Calculate actual usage from approved applications for better accuracy
+        actual_used_days = 0
+        actual_used_hours = 0
+        
+        # Calculate from leave applications
+        cursor.execute("""
+            SELECT SUM(
+                CASE 
+                    WHEN la.start_date = la.end_date THEN 1
+                    ELSE julianday(la.end_date) - julianday(la.start_date) + 1
+                END
+            ) FROM leave_applications la
+            WHERE la.staff_id = ? AND la.school_id = ? 
+            AND strftime('%Y', la.start_date) = ?
+            AND la.status = 'approved'
+        """, (staff_id, school_id, str(year)))
+        
+        leave_days_used = cursor.fetchone()[0] or 0
+        actual_used_days += leave_days_used
+        
+        # Calculate from OD applications
+        cursor.execute("""
+            SELECT SUM(
+                CASE 
+                    WHEN oda.start_date = oda.end_date THEN 1
+                    ELSE julianday(oda.end_date) - julianday(oda.start_date) + 1
+                END
+            ) FROM on_duty_applications oda
+            WHERE oda.staff_id = ? AND oda.school_id = ? 
+            AND strftime('%Y', oda.start_date) = ?
+            AND oda.status = 'approved'
+        """, (staff_id, school_id, str(year)))
+        
+        od_days_used = cursor.fetchone()[0] or 0
+        actual_used_days += od_days_used
+        
+        # Calculate from permission applications (hours)
+        cursor.execute("""
+            SELECT SUM(pa.duration_hours) 
+            FROM permission_applications pa
+            WHERE pa.staff_id = ? AND pa.school_id = ? 
+            AND strftime('%Y', pa.permission_date) = ?
+            AND pa.status = 'approved'
+        """, (staff_id, school_id, str(year)))
+        
+        permission_hours_used = cursor.fetchone()[0] or 0
+        actual_used_hours += permission_hours_used
+        
+        # Create better summary with separate units
         summary_stats = {
-            'total_used': total_used,
-            'total_remaining': total_remaining
+            'total_used': f"{int(actual_used_days)} days" + (f", {int(actual_used_hours)} hours" if actual_used_hours > 0 else ""),
+            'total_remaining': f"{int(total_remaining_days)} days" + (f", {int(total_remaining_hours)} hours" if total_remaining_hours > 0 else ""),
+            'used_days': int(actual_used_days),
+            'remaining_days': int(total_remaining_days),
+            'used_hours': int(actual_used_hours),
+            'remaining_hours': int(total_remaining_hours)
         }
         
         usage_data = {
@@ -11318,7 +11441,64 @@ def generate_usage_report():
         # Use Excel report generator
         excel_generator = ExcelReportGenerator()
         
-        # Get the usage data similar to the summary function
+        # Recalculate and update quotas first (same logic as summary function)
+        cursor.execute("SELECT id, name, unit, default_value FROM quota_types WHERE school_id = ?", (school_id,))
+        quota_type_details = cursor.fetchall()
+        
+        for qt_id, qt_name, qt_unit, qt_default in quota_type_details:
+            actual_used = 0
+            
+            if qt_unit.lower() == 'days':
+                if qt_name == 'On Duty':
+                    cursor.execute("""
+                        SELECT SUM(
+                            CASE 
+                                WHEN start_date = end_date THEN 1
+                                ELSE julianday(end_date) - julianday(start_date) + 1
+                            END
+                        ) FROM on_duty_applications 
+                        WHERE staff_id = ? AND school_id = ? 
+                        AND strftime('%Y', start_date) = ?
+                        AND status = 'approved'
+                    """, (staff_id, school_id, str(year)))
+                else:
+                    cursor.execute("""
+                        SELECT SUM(
+                            CASE 
+                                WHEN start_date = end_date THEN 1
+                                ELSE julianday(end_date) - julianday(start_date) + 1
+                            END
+                        ) FROM leave_applications 
+                        WHERE staff_id = ? AND school_id = ? 
+                        AND leave_type = ?
+                        AND strftime('%Y', start_date) = ?
+                        AND status = 'approved'
+                    """, (staff_id, school_id, qt_name, str(year)))
+                    
+                result = cursor.fetchone()[0]
+                actual_used = result if result else 0
+                
+            elif qt_unit.lower() == 'hours' and qt_name == 'Permission':
+                cursor.execute("""
+                    SELECT SUM(duration_hours) 
+                    FROM permission_applications 
+                    WHERE staff_id = ? AND school_id = ? 
+                    AND strftime('%Y', permission_date) = ?
+                    AND status = 'approved'
+                """, (staff_id, school_id, str(year)))
+                
+                result = cursor.fetchone()[0]
+                actual_used = result if result else 0
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO staff_quotas 
+                (staff_id, quota_type_id, year, allocated_quota, used_quota)
+                VALUES (?, ?, ?, ?, ?)
+            """, (staff_id, qt_id, year, qt_default, actual_used))
+        
+        db.commit()
+        
+        # Get the updated usage data
         cursor.execute("""
             SELECT qt.name, qt.unit, 
                    COALESCE(sq.allocated_quota, qt.default_value) as allocated,

@@ -1585,24 +1585,44 @@ class ExcelReportGenerator:
         ws[f'A{stats_row}'] = "Summary Statistics"
         ws[f'A{stats_row}'].font = Font(bold=True, size=12)
         
-        # Calculate totals
-        total_allocated = sum(quota[2] for quota in quota_data)  # allocated
-        total_used = sum(quota[3] for quota in quota_data)       # used
-        total_remaining = sum(quota[4] for quota in quota_data)  # remaining
-        overall_usage_pct = (total_used / max(total_allocated, 1)) * 100 if total_allocated > 0 else 0
+        # Calculate totals separately for days and hours
+        total_allocated_days = sum(quota[2] for quota in quota_data if quota[1].lower() == 'days')
+        total_used_days = sum(quota[3] for quota in quota_data if quota[1].lower() == 'days')
+        total_remaining_days = sum(quota[4] for quota in quota_data if quota[1].lower() == 'days')
+        
+        total_allocated_hours = sum(quota[2] for quota in quota_data if quota[1].lower() == 'hours')
+        total_used_hours = sum(quota[3] for quota in quota_data if quota[1].lower() == 'hours')
+        total_remaining_hours = sum(quota[4] for quota in quota_data if quota[1].lower() == 'hours')
+        
+        # Calculate overall usage percentage for days
+        overall_usage_pct_days = (total_used_days / max(total_allocated_days, 1)) * 100 if total_allocated_days > 0 else 0
+        overall_usage_pct_hours = (total_used_hours / max(total_allocated_hours, 1)) * 100 if total_allocated_hours > 0 else 0
         
         stats_data = [
-            ("Total Allocated:", total_allocated),
-            ("Total Used:", total_used),
-            ("Total Remaining:", total_remaining),
-            ("Overall Usage:", f"{overall_usage_pct:.1f}%")
+            ("Days - Allocated:", f"{total_allocated_days} days"),
+            ("Days - Used:", f"{total_used_days} days"),
+            ("Days - Remaining:", f"{total_remaining_days} days"),
+            ("Days - Usage %:", f"{overall_usage_pct_days:.1f}%")
         ]
+        
+        # Add hours statistics if there are any hour-based quotas
+        if total_allocated_hours > 0:
+            stats_data.extend([
+                ("Hours - Allocated:", f"{total_allocated_hours} hours"),
+                ("Hours - Used:", f"{total_used_hours} hours"),
+                ("Hours - Remaining:", f"{total_remaining_hours} hours"),
+                ("Hours - Usage %:", f"{overall_usage_pct_hours:.1f}%")
+            ])
         
         for i, (label, value) in enumerate(stats_data, stats_row+1):
             ws[f'A{i}'] = label
             ws[f'A{i}'].font = Font(bold=True)
             ws[f'B{i}'] = value
-            if 'Usage:' in label and overall_usage_pct >= 80:
-                ws[f'B{i}'].fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+            if 'Usage %:' in label:
+                usage_val = float(str(value).replace('%', ''))
+                if usage_val >= 80:
+                    ws[f'B{i}'].fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+                elif usage_val >= 60:
+                    ws[f'B{i}'].fill = PatternFill(start_color='FFFFCC', end_color='FFFFCC', fill_type='solid')
         
         return self._save_workbook_to_response(wb, filename)
