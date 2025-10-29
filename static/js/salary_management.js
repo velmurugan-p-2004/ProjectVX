@@ -233,6 +233,25 @@ function initializeSalaryManagement() {
     document.getElementById('updateSalaryRulesBtn').addEventListener('click', updateSalaryRules);
     document.getElementById('refreshDataBtn').addEventListener('click', refreshData);
     
+    // Download salary slip button (will be added when modal is shown)
+    document.addEventListener('click', function(e) {
+        if (e.target && e.target.id === 'downloadSalarySlipBtn') {
+            if (window.currentSalaryDetail && window.currentSalaryDetail.staff_info) {
+                const staff = window.currentSalaryDetail.staff_info;
+                const breakdown = window.currentSalaryDetail.salary_breakdown;
+                
+                // Extract year and month from calculation period
+                const year = document.getElementById('calculationYear').value;
+                const month = document.getElementById('calculationMonth').value;
+                
+                // Use staff.id (integer primary key) for the backend
+                downloadSalarySlip(staff.id, year, month);
+            } else {
+                showAlert('<i class="bi bi-exclamation-triangle me-2"></i>No salary data available for download', 'warning');
+            }
+        }
+    });
+    
     // Set current month and year
     const now = new Date();
     document.getElementById('calculationYear').value = now.getFullYear();
@@ -531,6 +550,8 @@ function viewSalaryDetails(staffId) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            // Store current salary detail data for download functionality
+            window.currentSalaryDetail = data;
             displayDetailedSalaryBreakdown(data);
             const modal = new bootstrap.Modal(document.getElementById('salaryDetailModal'));
             modal.show();
@@ -792,6 +813,57 @@ function showAlert(message, type) {
             alertDiv.remove();
         }
     }, 5000);
+}
+
+// Download salary slip function
+function downloadSalarySlip(staffId, year, month) {
+    // Validate required parameters
+    if (!staffId || !year || !month) {
+        showAlert('<i class="bi bi-exclamation-triangle me-2"></i>Missing required parameters for salary slip download', 'warning');
+        return;
+    }
+
+    // Show loading state
+    showAlert('<i class="bi bi-download me-2"></i>Generating salary slip PDF...', 'info');
+
+    // Create form data
+    const formData = new FormData();
+    formData.append('staff_id', staffId);
+    formData.append('year', year);
+    formData.append('month', month);
+
+    // Send request to download salary slip
+    fetch('/download_salary_slip', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': document.querySelector('input[name="csrf_token"]')?.value || ''
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.blob();
+    })
+    .then(blob => {
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `salary_slip_${staffId}_${year}_${month.toString().padStart(2, '0')}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        showAlert('<i class="bi bi-check-circle me-2"></i>Salary slip downloaded successfully', 'success');
+    })
+    .catch(error => {
+        console.error('Error downloading salary slip:', error);
+        showAlert('<i class="bi bi-exclamation-triangle me-2"></i>Error downloading salary slip. Please try again.', 'danger');
+    });
 }
 
 // Enhanced UI functionality

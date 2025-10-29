@@ -8748,6 +8748,36 @@ def generate_salary_report():
 
     return jsonify(result)
 
+@app.route('/download_salary_slip', methods=['POST'])
+def download_salary_slip():
+    """Generate and download individual salary slip PDF"""
+    if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    staff_id = request.form.get('staff_id', type=int)
+    year = request.form.get('year', type=int)
+    month = request.form.get('month', type=int)
+
+    if not all([staff_id, year, month]):
+        return jsonify({'success': False, 'error': 'Staff ID, year, and month are required'})
+
+    try:
+        school_id = session.get('school_id')
+        salary_calculator = SalaryCalculator(school_id=school_id)
+        
+        # Get salary data
+        result = salary_calculator.generate_salary_report(staff_id, year, month)
+        
+        if not result['success']:
+            return jsonify({'success': False, 'error': result.get('error', 'Failed to generate salary data')})
+        
+        # Generate PDF salary slip
+        pdf_response = generate_individual_salary_slip_pdf(result, year, month)
+        return pdf_response
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to generate salary slip: {str(e)}'})
+
 @app.route('/bulk_salary_calculation', methods=['POST'])
 def bulk_salary_calculation():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
@@ -9340,6 +9370,202 @@ def generate_salary_calculation_pdf(salary_results, year, month, department=None
         })
     except Exception as e:
         return jsonify({'success': False, 'error': f'PDF generation failed: {str(e)}'})
+
+def generate_individual_salary_slip_pdf(salary_data, year, month):
+    """Generate PDF salary slip for an individual employee"""
+    try:
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        from reportlab.lib.units import inch
+        import io
+        import calendar
+
+        # Extract data
+        staff_info = salary_data['staff_info']
+        breakdown = salary_data['salary_breakdown']
+        attendance = breakdown['attendance_summary']
+        earnings = breakdown['earnings']
+        deductions = breakdown['deductions']
+
+        # Create PDF buffer
+        buffer = io.BytesIO()
+
+        # Create PDF document
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+
+        # Container for the 'Flowable' objects
+        elements = []
+
+        # Define styles
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'Title',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=20,
+            alignment=1,  # Center alignment
+            textColor=colors.darkblue
+        )
+        
+        header_style = ParagraphStyle(
+            'Header',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceAfter=10,
+            textColor=colors.darkblue
+        )
+        
+        normal_style = ParagraphStyle(
+            'Normal',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=6
+        )
+
+        # Title
+        month_name = calendar.month_name[month]
+        title = f"SALARY SLIP<br/>{month_name} {year}"
+        title_para = Paragraph(title, title_style)
+        elements.append(title_para)
+        elements.append(Spacer(1, 20))
+
+        # Employee Information Section
+        emp_info_data = [
+            ['Employee Information', ''],
+            ['Name:', staff_info['full_name']],
+            ['Staff ID:', staff_info['staff_id']],
+            ['Department:', staff_info['department']],
+            ['Position:', staff_info.get('position', 'N/A')],
+            ['Calculation Period:', breakdown['calculation_period']]
+        ]
+
+        emp_table = Table(emp_info_data, colWidths=[2*inch, 3*inch])
+        emp_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+
+        elements.append(emp_table)
+        elements.append(Spacer(1, 20))
+
+        # Attendance Summary
+        attendance_data = [
+            ['Attendance Summary', ''],
+            ['Working Days:', str(breakdown['working_days'])],
+            ['Present Days:', str(attendance['present_days'])],
+            ['Absent Days:', str(attendance['absent_days'])],
+            ['On Duty Days:', str(attendance['on_duty_days'])],
+            ['Leave Days:', str(attendance['leave_days'])]
+        ]
+
+        attendance_table = Table(attendance_data, colWidths=[2*inch, 3*inch])
+        attendance_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgreen),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+
+        elements.append(attendance_table)
+        elements.append(Spacer(1, 20))
+
+        # Earnings and Deductions Table
+        salary_data = [
+            ['EARNINGS', 'Amount (₹)', 'DEDUCTIONS', 'Amount (₹)'],
+            ['Basic Salary', f'{earnings["basic_salary"]:,.2f}', 'Absent Days Deduction', f'{deductions["absent_deduction"]:,.2f}'],
+            ['HRA', f'{earnings["hra"]:,.2f}', 'PF Deduction', f'{deductions["pf_deduction"]:,.2f}'],
+            ['Transport Allowance', f'{earnings["transport_allowance"]:,.2f}', 'ESI Deduction', f'{deductions["esi_deduction"]:,.2f}'],
+            ['Other Allowances', f'{earnings["other_allowances"]:,.2f}', 'Professional Tax', f'{deductions["professional_tax"]:,.2f}'],
+            ['Present Days Pay', f'{earnings["present_pay"]:,.2f}', 'Early Departure Penalty', f'{deductions["early_departure_penalty"]:,.2f}'],
+            ['On Duty Pay', f'{earnings["on_duty_pay"]:,.2f}', 'Late Arrival Penalty', f'{deductions["late_arrival_penalty"]:,.2f}'],
+            ['Leave Pay', f'{earnings["leave_pay"]:,.2f}', 'Other Deductions', f'{deductions["other_deductions"]:,.2f}']
+        ]
+
+        # Add bonuses if they exist
+        if earnings.get("early_arrival_bonus", 0) > 0:
+            salary_data.append(['Early Arrival Bonus', f'{earnings["early_arrival_bonus"]:,.2f}', '', ''])
+        if earnings.get("overtime_pay", 0) > 0:
+            salary_data.append(['Overtime Pay', f'{earnings["overtime_pay"]:,.2f}', '', ''])
+
+        # Add totals
+        salary_data.extend([
+            ['', '', '', ''],
+            ['TOTAL EARNINGS', f'{earnings["total_earnings"]:,.2f}', 'TOTAL DEDUCTIONS', f'{deductions["total_deductions"]:,.2f}'],
+            ['', '', '', ''],
+            ['NET SALARY', f'{breakdown["net_salary"]:,.2f}', '', '']
+        ])
+
+        salary_table = Table(salary_data, colWidths=[2.5*inch, 1*inch, 2.5*inch, 1*inch])
+        salary_table.setStyle(TableStyle([
+            # Header row
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            
+            # Total rows
+            ('BACKGROUND', (0, -4), (-1, -4), colors.lightgrey),
+            ('FONTNAME', (0, -4), (-1, -4), 'Helvetica-Bold'),
+            
+            # Net salary row
+            ('BACKGROUND', (0, -1), (1, -1), colors.darkgreen),
+            ('TEXTCOLOR', (0, -1), (1, -1), colors.white),
+            ('FONTNAME', (0, -1), (1, -1), 'Helvetica-Bold'),
+            ('SPAN', (0, -1), (1, -1)),
+            ('SPAN', (2, -1), (3, -1)),
+        ]))
+
+        elements.append(salary_table)
+        elements.append(Spacer(1, 30))
+
+        # Footer
+        footer_text = f"Generated on: {datetime.datetime.now().strftime('%d/%m/%Y at %I:%M %p')}<br/>This is a computer-generated salary slip and does not require a signature."
+        footer_para = Paragraph(footer_text, normal_style)
+        elements.append(footer_para)
+
+        # Build PDF
+        doc.build(elements)
+
+        # Get PDF content
+        pdf_content = buffer.getvalue()
+        buffer.close()
+
+        # Create response
+        response = make_response(pdf_content)
+        
+        # Generate filename
+        staff_name = staff_info['full_name'].replace(' ', '_')
+        filename = f'SalarySlip_{staff_name}_{month_name}{year}.pdf'
+
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+
+        return response
+
+    except ImportError:
+        return jsonify({
+            'success': False,
+            'error': 'PDF generation requires reportlab library. Please install it with: pip install reportlab'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Salary slip generation failed: {str(e)}'})
 
 @app.route('/get_staff_count')
 def get_staff_count():
