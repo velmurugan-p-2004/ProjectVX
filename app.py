@@ -3879,14 +3879,31 @@ def process_leave_with_notifications():
         db = get_db()
         admin_id = session['user_id']
 
-        # Update leave status
+        # Get leave application details before updating
         status = 'approved' if action == 'approve' else 'rejected'
+        if status == 'approved':
+            leave_details = db.execute('''
+                SELECT staff_id, school_id, start_date
+                FROM leave_applications
+                WHERE id = ?
+            ''', (leave_id,)).fetchone()
+
+        # Update leave status
         db.execute('''
             UPDATE leave_applications
             SET status = ?, processed_by = ?, processed_at = ?
             WHERE id = ?
         ''', (status, admin_id, datetime.datetime.now(), leave_id))
         db.commit()
+
+        # Update quota usage if leave is approved
+        if status == 'approved' and leave_details:
+            try:
+                quota_year = datetime.datetime.strptime(leave_details['start_date'], '%Y-%m-%d').year
+                update_result = update_quota_usage(leave_details['staff_id'], leave_details['school_id'], quota_year)
+                print(f"Quota updated for staff {leave_details['staff_id']}: {update_result}")
+            except Exception as e:
+                print(f"Error updating quota usage: {e}")
 
         # Send notification
         notification_manager = NotificationManager()
@@ -5200,12 +5217,29 @@ def process_leave():
 
     status = 'approved' if decision == 'approve' else 'rejected'
 
+    # Get leave application details before updating
+    if status == 'approved':
+        leave_details = db.execute('''
+            SELECT staff_id, school_id, start_date
+            FROM leave_applications
+            WHERE id = ?
+        ''', (leave_id,)).fetchone()
+
     db.execute('''
         UPDATE leave_applications
         SET status = ?, processed_by = ?, processed_at = ?
         WHERE id = ?
     ''', (status, admin_id, processed_at, leave_id))
     db.commit()
+
+    # Update quota usage if leave is approved
+    if status == 'approved' and leave_details:
+        try:
+            quota_year = datetime.datetime.strptime(leave_details['start_date'], '%Y-%m-%d').year
+            update_result = update_quota_usage(leave_details['staff_id'], leave_details['school_id'], quota_year)
+            print(f"Quota updated for staff {leave_details['staff_id']}: {update_result}")
+        except Exception as e:
+            print(f"Error updating quota usage: {e}")
 
     return jsonify({'success': True})
 
@@ -5285,6 +5319,15 @@ def process_on_duty():
 
                 current_date += datetime.timedelta(days=1)
 
+        # Update quota usage if on-duty is approved
+        if status == 'approved':
+            try:
+                quota_year = start_date.year
+                update_result = update_quota_usage(staff_id, school_id, quota_year)
+                print(f"OD Quota updated for staff {staff_id}: {update_result}")
+            except Exception as e:
+                print(f"Error updating OD quota usage: {e}")
+
         db.commit()
 
         return jsonify({'success': True, 'message': f'On-duty application {status} successfully'})
@@ -5310,11 +5353,29 @@ def process_permission():
     status = 'approved' if decision == 'approve' else 'rejected'
 
     try:
+        # Get permission application details before updating
+        if status == 'approved':
+            permission_details = db.execute('''
+                SELECT staff_id, school_id, permission_date
+                FROM permission_applications
+                WHERE id = ?
+            ''', (application_id,)).fetchone()
+
         db.execute('''
             UPDATE permission_applications
             SET status = ?, processed_by = ?, processed_at = ?, admin_remarks = ?
             WHERE id = ?
         ''', (status, admin_id, processed_at, admin_remarks, application_id))
+
+        # Update quota usage if permission is approved
+        if status == 'approved' and permission_details:
+            try:
+                quota_year = datetime.datetime.strptime(permission_details['permission_date'], '%Y-%m-%d').year
+                update_result = update_quota_usage(permission_details['staff_id'], permission_details['school_id'], quota_year)
+                print(f"Permission Quota updated for staff {permission_details['staff_id']}: {update_result}")
+            except Exception as e:
+                print(f"Error updating permission quota usage: {e}")
+
         db.commit()
 
         return jsonify({'success': True, 'message': f'Permission application {status} successfully'})
@@ -8018,13 +8079,19 @@ def staff_profile_page():
         LIMIT 20
     ''', (staff_id,)).fetchall()
 
+    # Get quota summary for current year
+    quota_year = today.year
+    quota_summary = get_staff_quota_summary(staff_id, quota_year)
+
     return render_template('staff_my_profile.html',
                          staff=staff,
                          attendance_summary=attendance_summary_dict,
                          leave_applications=leave_applications,
                          recent_verifications=recent_verifications,
                          today=today,
-                         current_month=today.strftime('%B %Y'))
+                         current_month=today.strftime('%B %Y'),
+                         quota_summary=quota_summary,
+                         quota_year=quota_year)
 
 @app.route('/staff/get_attendance_summary')
 def get_staff_attendance_summary():

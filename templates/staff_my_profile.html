@@ -753,8 +753,118 @@
 
                     <!-- Right Column - Attendance Details -->
                     <div class="col-md-8">
-                        <!-- Weekly Attendance Calendar -->
+                        <!-- Leave Quota Balance Section -->
                         <div class="salary-results-card">
+                            <div class="card-header">
+                                <div class="header-icon">
+                                    <i class="bi bi-calendar-check"></i>
+                                </div>
+                                <div class="header-content">
+                                    <h5 class="card-title">My Quota Balance (for {{ quota_year }})</h5>
+                                    <p class="card-subtitle">Your leave entitlements and remaining balances</p>
+                                </div>
+                                <button id="refreshQuotaBalance" class="btn btn-sm btn-outline-primary ms-auto" title="Refresh quota data">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                {% if quota_summary %}
+                                <div class="quota-grid">
+                                    <!-- Leave Quotas -->
+                                    {% for leave_type, quota in quota_summary.leave_quotas.items() %}
+                                    <div class="quota-item leave-quota">
+                                        <div class="quota-icon">
+                                            <i class="bi bi-calendar-x text-info"></i>
+                                        </div>
+                                        <div class="quota-content">
+                                            <div class="quota-type">{{ leave_type.replace('_', ' ').title() }}</div>
+                                            <div class="quota-balance">
+                                                <span class="remaining">{{ quota.remaining_days }}</span> remaining
+                                                <span class="total">(out of {{ quota.allocated_days }} total)</span>
+                                            </div>
+                                            <div class="quota-progress-bar">
+                                                {% set usage_percent = (quota.used_days / quota.allocated_days * 100) if quota.allocated_days > 0 else 0 %}
+                                                <div class="progress" style="height: 4px;">
+                                                    <div class="progress-bar bg-info" role="progressbar" 
+                                                         style="width: {{ usage_percent }}%" 
+                                                         aria-valuenow="{{ usage_percent }}" 
+                                                         aria-valuemin="0" 
+                                                         aria-valuemax="100">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+
+                                    <!-- On Duty Quota -->
+                                    {% if quota_summary.od_quota.allocated_days > 0 %}
+                                    <div class="quota-item od-quota">
+                                        <div class="quota-icon">
+                                            <i class="bi bi-briefcase text-primary"></i>
+                                        </div>
+                                        <div class="quota-content">
+                                            <div class="quota-type">On Duty (OD)</div>
+                                            <div class="quota-balance">
+                                                <span class="remaining">{{ quota_summary.od_quota.remaining_days }}</span> remaining
+                                                <span class="total">(out of {{ quota_summary.od_quota.allocated_days }} total)</span>
+                                            </div>
+                                            <div class="quota-progress-bar">
+                                                {% set od_usage_percent = (quota_summary.od_quota.used_days / quota_summary.od_quota.allocated_days * 100) if quota_summary.od_quota.allocated_days > 0 else 0 %}
+                                                <div class="progress" style="height: 4px;">
+                                                    <div class="progress-bar bg-primary" role="progressbar" 
+                                                         style="width: {{ od_usage_percent }}%" 
+                                                         aria-valuenow="{{ od_usage_percent }}" 
+                                                         aria-valuemin="0" 
+                                                         aria-valuemax="100">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+
+                                    <!-- Permission Quota -->
+                                    {% if quota_summary.permission_quota.allocated_hours > 0 %}
+                                    <div class="quota-item permission-quota">
+                                        <div class="quota-icon">
+                                            <i class="bi bi-clock text-warning"></i>
+                                        </div>
+                                        <div class="quota-content">
+                                            <div class="quota-type">Permission</div>
+                                            <div class="quota-balance">
+                                                <span class="remaining">{{ "%.1f"|format(quota_summary.permission_quota.remaining_hours) }}</span> hours remaining
+                                                <span class="total">(out of {{ "%.1f"|format(quota_summary.permission_quota.allocated_hours) }} total)</span>
+                                            </div>
+                                            <div class="quota-progress-bar">
+                                                {% set perm_usage_percent = (quota_summary.permission_quota.used_hours / quota_summary.permission_quota.allocated_hours * 100) if quota_summary.permission_quota.allocated_hours > 0 else 0 %}
+                                                <div class="progress" style="height: 4px;">
+                                                    <div class="progress-bar bg-warning" role="progressbar" 
+                                                         style="width: {{ perm_usage_percent }}%" 
+                                                         aria-valuenow="{{ perm_usage_percent }}" 
+                                                         aria-valuemin="0" 
+                                                         aria-valuemax="100">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% else %}
+                                <div class="empty-state">
+                                    <div class="empty-icon">
+                                        <i class="bi bi-calendar-check"></i>
+                                    </div>
+                                    <h6 class="empty-title">No Quota Information</h6>
+                                    <p class="empty-text">Your leave quotas haven't been set up yet. Please contact your administrator.</p>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <!-- Weekly Attendance Calendar -->
+                        <div class="salary-results-card mt-4">
                             <div class="card-header">
                                 <div class="header-icon">
                                     <i class="bi bi-calendar-week"></i>
@@ -1611,6 +1721,83 @@
             }
             .on-duty-info {
                 margin-bottom: 0.5rem;
+            }
+            
+            /* Quota Balance Styles */
+            .quota-grid {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+            
+            .quota-item {
+                display: flex;
+                align-items: center;
+                padding: 1rem;
+                background: rgba(248, 249, 250, 0.8);
+                border-radius: 0.75rem;
+                border-left: 4px solid #dee2e6;
+                transition: all 0.3s ease;
+            }
+            
+            .quota-item:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                background: rgba(255, 255, 255, 0.9);
+            }
+            
+            .quota-item.leave-quota {
+                border-left-color: #17a2b8;
+            }
+            
+            .quota-item.od-quota {
+                border-left-color: #007bff;
+            }
+            
+            .quota-item.permission-quota {
+                border-left-color: #ffc107;
+            }
+            
+            .quota-icon {
+                font-size: 1.5rem;
+                margin-right: 1rem;
+                flex-shrink: 0;
+            }
+            
+            .quota-content {
+                flex: 1;
+            }
+            
+            .quota-type {
+                font-weight: 600;
+                color: #495057;
+                margin-bottom: 0.25rem;
+            }
+            
+            .quota-balance {
+                font-size: 0.9rem;
+                color: #6c757d;
+                margin-bottom: 0.5rem;
+            }
+            
+            .quota-balance .remaining {
+                font-weight: 700;
+                color: #28a745;
+                font-size: 1.1em;
+            }
+            
+            .quota-balance .total {
+                color: #6c757d;
+            }
+            
+            .quota-progress-bar {
+                margin-top: 0.5rem;
+            }
+            
+            @media (min-width: 768px) {
+                .quota-grid {
+                    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                }
             }
         `;
         document.head.appendChild(style);
