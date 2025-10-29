@@ -837,6 +837,20 @@
         .holiday-item {
             animation: slideInUp 0.3s ease-out;
         }
+
+        /* Spin animation for loading icons */
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .spin {
+            animation: spin 1s linear infinite;
+        }
     </style>
 </head>
 <body>
@@ -3196,13 +3210,55 @@
         }
 
         // View usage summary (placeholder for future enhancement)
-        function viewUsageSummary() {
+        async function viewUsageSummary() {
             if (!selectedStaffId) {
                 showQuotaMessage('Please select a staff member first', 'error');
                 return;
             }
-            
-            showQuotaMessage('Usage summary feature coming soon!', 'info');
+
+            try {
+                // Show loading state
+                const usageBtn = document.getElementById('viewUsageBtn');
+                const originalText = usageBtn.innerHTML;
+                usageBtn.disabled = true;
+                usageBtn.innerHTML = '<i class="bi bi-arrow-clockwise spin me-2"></i>Loading...';
+
+                // Get selected year
+                const year = document.getElementById('quotaYearSelect').value;
+
+                // Fetch usage summary data
+                const response = await fetch('/get_leave_usage_summary', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('input[name="csrf_token"]')?.value || ''
+                    },
+                    body: JSON.stringify({
+                        staff_id: selectedStaffId,
+                        year: year
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        showUsageSummaryModal(data.usage_data);
+                    } else {
+                        showQuotaMessage(`Failed to load usage summary: ${data.message}`, 'error');
+                    }
+                } else {
+                    showQuotaMessage('Failed to load usage summary. Please try again.', 'error');
+                }
+
+            } catch (error) {
+                console.error('Error loading usage summary:', error);
+                showQuotaMessage('Error loading usage summary. Please try again.', 'error');
+            } finally {
+                // Restore button state
+                const usageBtn = document.getElementById('viewUsageBtn');
+                usageBtn.disabled = false;
+                usageBtn.innerHTML = '<i class="bi bi-bar-chart"></i> View Usage Summary';
+            }
         }
 
         // Show quota message
@@ -3232,6 +3288,215 @@
             const messageElement = document.getElementById(`quota${type.charAt(0).toUpperCase() + type.slice(1)}Message`);
             if (messageElement) {
                 messageElement.style.display = 'none';
+            }
+        }
+
+        // Show usage summary modal
+        function showUsageSummaryModal(usageData) {
+            const modal = document.createElement('div');
+            modal.className = 'modal fade';
+            modal.id = 'usageSummaryModal';
+            modal.setAttribute('tabindex', '-1');
+            modal.innerHTML = `
+                <div class="modal-dialog modal-xl">
+                    <div class="modal-content">
+                        <div class="modal-header bg-primary text-white">
+                            <h5 class="modal-title">
+                                <i class="bi bi-bar-chart-fill me-2"></i>
+                                Leave & Permission Usage Summary - ${usageData.staff_name}
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            ${generateUsageSummaryContent(usageData)}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                <i class="bi bi-x-circle me-2"></i>Close
+                            </button>
+                            <button type="button" class="btn btn-success" onclick="generateUsageReport(${selectedStaffId})">
+                                <i class="bi bi-file-earmark-excel me-2"></i>Generate Report
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            const bsModal = new bootstrap.Modal(modal);
+            
+            // Clean up modal when closed
+            modal.addEventListener('hidden.bs.modal', () => {
+                modal.remove();
+            });
+            
+            bsModal.show();
+        }
+
+        // Generate usage summary content
+        function generateUsageSummaryContent(data) {
+            const { staff_name, year, quota_types, usage_records, summary_stats } = data;
+            
+            let content = `
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-person-badge me-2"></i>Staff Member: ${staff_name}</h6>
+                        <h6><i class="bi bi-calendar-range me-2"></i>Year: ${year}</h6>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center p-2">
+                                        <h6 class="mb-1">Total Used</h6>
+                                        <h4 class="text-primary mb-0">${summary_stats.total_used}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center p-2">
+                                        <h6 class="mb-1">Remaining</h6>
+                                        <h4 class="text-success mb-0">${summary_stats.total_remaining}</h4>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Quota breakdown by type
+            content += '<div class="row mb-4">';
+            quota_types.forEach(quota => {
+                const usagePercentage = quota.total_quota > 0 ? (quota.used / quota.total_quota * 100).toFixed(1) : 0;
+                const progressClass = usagePercentage >= 90 ? 'bg-danger' : usagePercentage >= 70 ? 'bg-warning' : 'bg-success';
+                
+                content += `
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="card-title">${quota.type_name}</h6>
+                                <p class="mb-2">
+                                    <strong>Used:</strong> ${quota.used}/${quota.total_quota}
+                                    <span class="badge badge-${quota.used > quota.total_quota ? 'danger' : 'success'} ms-2">
+                                        ${quota.remaining} left
+                                    </span>
+                                </p>
+                                <div class="progress" style="height: 8px;">
+                                    <div class="progress-bar ${progressClass}" style="width: ${Math.min(usagePercentage, 100)}%"></div>
+                                </div>
+                                <small class="text-muted">${usagePercentage}% used</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            content += '</div>';
+
+            // Usage records timeline
+            if (usage_records.length > 0) {
+                content += `
+                    <h6 class="mb-3"><i class="bi bi-calendar2-event me-2"></i>Usage Timeline</h6>
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-striped table-sm">
+                            <thead class="table-dark sticky-top">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Days</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                usage_records.forEach(record => {
+                    const statusBadge = record.status === 'approved' ? 'success' : 
+                                      record.status === 'pending' ? 'warning' : 'danger';
+                    
+                    content += `
+                        <tr>
+                            <td>
+                                <small>
+                                    ${formatDate(record.start_date)}
+                                    ${record.end_date !== record.start_date ? ' - ' + formatDate(record.end_date) : ''}
+                                </small>
+                            </td>
+                            <td><span class="badge bg-info">${record.quota_type}</span></td>
+                            <td><strong>${record.days_used}</strong></td>
+                            <td><small>${record.reason || 'N/A'}</small></td>
+                            <td><span class="badge bg-${statusBadge}">${record.status}</span></td>
+                        </tr>
+                    `;
+                });
+                
+                content += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } else {
+                content += `
+                    <div class="text-center py-4">
+                        <i class="bi bi-calendar-x display-4 text-muted"></i>
+                        <h6 class="text-muted mt-2">No leave or permission records found for ${year}</h6>
+                    </div>
+                `;
+            }
+
+            return content;
+        }
+
+        // Format date helper
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric'
+            });
+        }
+
+        // Generate usage report
+        async function generateUsageReport(staffId) {
+            try {
+                const year = document.getElementById('quotaYearSelect').value;
+                
+                // Create a form and submit it to download the report
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/generate_usage_report';
+                form.target = '_blank';
+                
+                const staffInput = document.createElement('input');
+                staffInput.type = 'hidden';
+                staffInput.name = 'staff_id';
+                staffInput.value = staffId;
+                form.appendChild(staffInput);
+                
+                const yearInput = document.createElement('input');
+                yearInput.type = 'hidden';
+                yearInput.name = 'year';
+                yearInput.value = year;
+                form.appendChild(yearInput);
+                
+                const csrfInput = document.createElement('input');
+                csrfInput.type = 'hidden';
+                csrfInput.name = 'csrf_token';
+                csrfInput.value = document.querySelector('input[name="csrf_token"]')?.value || '';
+                form.appendChild(csrfInput);
+                
+                document.body.appendChild(form);
+                form.submit();
+                document.body.removeChild(form);
+                
+                showQuotaMessage('Report generation started. Check your downloads folder.', 'success');
+                
+            } catch (error) {
+                console.error('Error generating usage report:', error);
+                showQuotaMessage('Failed to generate usage report. Please try again.', 'error');
             }
         }
 

@@ -11148,6 +11148,245 @@ def api_validate_quota(staff_id):
         }), 500
 
 
+@app.route('/get_leave_usage_summary', methods=['POST'])
+def get_leave_usage_summary():
+    """Get comprehensive leave usage summary for a staff member"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    school_id = session.get('school_id')
+    if not school_id:
+        return jsonify({'success': False, 'message': 'School ID required'}), 400
+    
+    try:
+        data = request.get_json()
+        staff_id = data.get('staff_id')
+        year = data.get('year', datetime.datetime.now().year)
+        
+        if not staff_id:
+            return jsonify({'success': False, 'message': 'Staff ID required'}), 400
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Get staff name
+        cursor.execute("SELECT full_name FROM staff WHERE id = ? AND school_id = ?", (staff_id, school_id))
+        staff_result = cursor.fetchone()
+        if not staff_result:
+            return jsonify({'success': False, 'message': 'Staff member not found'}), 404
+        
+        staff_name = staff_result[0]
+        
+        # Get current quotas
+        cursor.execute("""
+            SELECT qt.name, qt.unit, 
+                   COALESCE(sq.allocated_quota, qt.default_value) as allocated,
+                   COALESCE(sq.used_quota, 0) as used,
+                   (COALESCE(sq.allocated_quota, qt.default_value) - COALESCE(sq.used_quota, 0)) as remaining
+            FROM quota_types qt
+            LEFT JOIN staff_quotas sq ON qt.id = sq.quota_type_id AND sq.staff_id = ? AND sq.year = ?
+            WHERE qt.school_id = ?
+            ORDER BY qt.name
+        """, (staff_id, year, school_id))
+        
+        quota_types = []
+        total_used = 0
+        total_remaining = 0
+        
+        for row in cursor.fetchall():
+            quota_data = {
+                'type_name': row[0],
+                'unit': row[1],
+                'total_quota': row[2],
+                'used': row[3],
+                'remaining': row[4]
+            }
+            quota_types.append(quota_data)
+            total_used += row[3]
+            total_remaining += row[4]
+        
+        # Get usage records for the year
+        cursor.execute("""
+            SELECT 
+                la.start_date, la.end_date, 
+                CASE 
+                    WHEN la.start_date = la.end_date THEN 1
+                    ELSE julianday(la.end_date) - julianday(la.start_date) + 1
+                END as days_used,
+                la.reason, la.status, la.leave_type as quota_type
+            FROM leave_applications la
+            WHERE la.staff_id = ? AND la.school_id = ? 
+            AND strftime('%Y', la.start_date) = ?
+            ORDER BY la.start_date DESC
+        """, (staff_id, school_id, str(year)))
+        
+        usage_records = []
+        for row in cursor.fetchall():
+            record = {
+                'start_date': row[0],
+                'end_date': row[1],
+                'days_used': row[2],
+                'reason': row[3],
+                'status': row[4],
+                'quota_type': row[5]
+            }
+            usage_records.append(record)
+        
+        # Get OD records as well
+        cursor.execute("""
+            SELECT 
+                oda.start_date, oda.end_date,
+                CASE 
+                    WHEN oda.start_date = oda.end_date THEN 1
+                    ELSE julianday(oda.end_date) - julianday(oda.start_date) + 1
+                END as days_used,
+                oda.reason, oda.status, 'On Duty' as quota_type
+            FROM on_duty_applications oda
+            WHERE oda.staff_id = ? AND oda.school_id = ? 
+            AND strftime('%Y', oda.start_date) = ?
+            ORDER BY oda.start_date DESC
+        """, (staff_id, school_id, str(year)))
+        
+        for row in cursor.fetchall():
+            record = {
+                'start_date': row[0],
+                'end_date': row[1],
+                'days_used': row[2],
+                'reason': row[3],
+                'status': row[4],
+                'quota_type': row[5]
+            }
+            usage_records.append(record)
+        
+        # Sort all records by start date (most recent first)
+        usage_records.sort(key=lambda x: x['start_date'], reverse=True)
+        
+        summary_stats = {
+            'total_used': total_used,
+            'total_remaining': total_remaining
+        }
+        
+        usage_data = {
+            'staff_name': staff_name,
+            'year': year,
+            'quota_types': quota_types,
+            'usage_records': usage_records,
+            'summary_stats': summary_stats
+        }
+        
+        return jsonify({
+            'success': True,
+            'usage_data': usage_data
+        })
+        
+    except Exception as e:
+        print(f"Error getting leave usage summary: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to retrieve usage summary'
+        }), 500
+
+
+@app.route('/generate_usage_report', methods=['POST'])
+def generate_usage_report():
+    """Generate Excel report for leave usage summary"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    school_id = session.get('school_id')
+    if not school_id:
+        return jsonify({'success': False, 'message': 'School ID required'}), 400
+    
+    try:
+        staff_id = request.form.get('staff_id')
+        year = request.form.get('year', datetime.datetime.now().year)
+        
+        if not staff_id:
+            return jsonify({'success': False, 'message': 'Staff ID required'}), 400
+        
+        # Get staff data
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute("SELECT full_name, staff_id, department FROM staff WHERE id = ? AND school_id = ?", (staff_id, school_id))
+        staff_result = cursor.fetchone()
+        if not staff_result:
+            return jsonify({'success': False, 'message': 'Staff member not found'}), 404
+        
+        staff_name, employee_id, department = staff_result
+        
+        # Use Excel report generator
+        excel_generator = ExcelReportGenerator()
+        
+        # Get the usage data similar to the summary function
+        cursor.execute("""
+            SELECT qt.name, qt.unit, 
+                   COALESCE(sq.allocated_quota, qt.default_value) as allocated,
+                   COALESCE(sq.used_quota, 0) as used,
+                   (COALESCE(sq.allocated_quota, qt.default_value) - COALESCE(sq.used_quota, 0)) as remaining
+            FROM quota_types qt
+            LEFT JOIN staff_quotas sq ON qt.id = sq.quota_type_id AND sq.staff_id = ? AND sq.year = ?
+            WHERE qt.school_id = ?
+            ORDER BY qt.name
+        """, (staff_id, year, school_id))
+        
+        quota_data = cursor.fetchall()
+        
+        # Get usage records
+        cursor.execute("""
+            SELECT 
+                la.start_date, la.end_date,
+                CASE 
+                    WHEN la.start_date = la.end_date THEN 1
+                    ELSE julianday(la.end_date) - julianday(la.start_date) + 1
+                END as days_used,
+                la.reason, la.status, la.leave_type as quota_type, 'Leave' as application_type
+            FROM leave_applications la
+            WHERE la.staff_id = ? AND la.school_id = ? 
+            AND strftime('%Y', la.start_date) = ?
+            
+            UNION ALL
+            
+            SELECT 
+                oda.start_date, oda.end_date,
+                CASE 
+                    WHEN oda.start_date = oda.end_date THEN 1
+                    ELSE julianday(oda.end_date) - julianday(oda.start_date) + 1
+                END as days_used,
+                oda.reason, oda.status, 'On Duty' as quota_type, 'OD' as application_type
+            FROM on_duty_applications oda
+            WHERE oda.staff_id = ? AND oda.school_id = ? 
+            AND strftime('%Y', oda.start_date) = ?
+            
+            ORDER BY start_date DESC
+        """, (staff_id, school_id, str(year), staff_id, school_id, str(year)))
+        
+        usage_records = cursor.fetchall()
+        
+        # Generate the report
+        report_data = {
+            'staff_name': staff_name,
+            'employee_id': employee_id,
+            'department': department,
+            'year': year,
+            'quota_data': quota_data,
+            'usage_records': usage_records
+        }
+        
+        filename = f"Leave_Usage_Report_{staff_name.replace(' ', '_')}_{year}.xlsx"
+        
+        response = excel_generator.generate_usage_report(report_data, filename)
+        
+        return response
+        
+    except Exception as e:
+        print(f"Error generating usage report: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Failed to generate usage report'
+        }), 500
+
+
 if __name__ == '__main__':
     init_db(app)
     app.run(debug=True, host='0.0.0.0', port=5000)

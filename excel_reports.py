@@ -1454,3 +1454,155 @@ class ExcelReportGenerator:
         column_widths = [18, 12, 14, 12, 12]
         for col, width in enumerate(column_widths, 1):
             ws.column_dimensions[chr(64 + col)].width = width
+
+    def generate_usage_report(self, report_data, filename):
+        """Generate comprehensive leave usage report for an individual staff member"""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        if ws is not None:
+            ws.title = "Leave Usage Summary"
+        
+        staff_name = report_data['staff_name']
+        employee_id = report_data['employee_id']
+        department = report_data['department']
+        year = report_data['year']
+        quota_data = report_data['quota_data']
+        usage_records = report_data['usage_records']
+        
+        # Title Section
+        ws['A1'] = f"Leave & Permission Usage Report - {year}"
+        ws['A1'].font = Font(bold=True, size=16, color="2F5597")
+        ws.merge_cells('A1:G1')
+        
+        # Staff Information
+        ws['A3'] = "Staff Information"
+        ws['A3'].font = Font(bold=True, size=12)
+        
+        info_data = [
+            ("Name:", staff_name),
+            ("Employee ID:", employee_id),
+            ("Department:", department),
+            ("Report Year:", year),
+            ("Generated On:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        ]
+        
+        for i, (label, value) in enumerate(info_data, 4):
+            ws[f'A{i}'] = label
+            ws[f'A{i}'].font = Font(bold=True)
+            ws[f'B{i}'] = value
+        
+        # Quota Summary Section
+        start_row = 10
+        ws[f'A{start_row}'] = "Quota Summary"
+        ws[f'A{start_row}'].font = Font(bold=True, size=12)
+        
+        # Quota headers
+        quota_headers = ['Leave Type', 'Unit', 'Allocated', 'Used', 'Remaining', 'Usage %']
+        for col, header in enumerate(quota_headers, 1):
+            cell = ws.cell(row=start_row+1, column=col)
+            cell.value = header
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+            cell.border = self.border
+        
+        # Quota data
+        for row, quota in enumerate(quota_data, start_row+2):
+            quota_type, unit, allocated, used, remaining = quota
+            usage_pct = (used / max(allocated, 1)) * 100 if allocated > 0 else 0
+            
+            values = [quota_type, unit, allocated, used, remaining, f"{usage_pct:.1f}%"]
+            
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.border = self.border
+                
+                # Color coding for usage percentage
+                if col == 6:  # Usage percentage column
+                    if usage_pct >= 90:
+                        cell.fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+                    elif usage_pct >= 70:
+                        cell.fill = PatternFill(start_color='FFFFCC', end_color='FFFFCC', fill_type='solid')
+                    else:
+                        cell.fill = PatternFill(start_color='CCFFCC', end_color='CCFFCC', fill_type='solid')
+        
+        # Usage Records Section
+        usage_start_row = start_row + len(quota_data) + 4
+        ws[f'A{usage_start_row}'] = "Usage History"
+        ws[f'A{usage_start_row}'].font = Font(bold=True, size=12)
+        
+        if usage_records:
+            # Usage headers
+            usage_headers = ['Date Range', 'Type', 'Days/Hours', 'Reason', 'Status', 'Application Type']
+            for col, header in enumerate(usage_headers, 1):
+                cell = ws.cell(row=usage_start_row+1, column=col)
+                cell.value = header
+                cell.font = self.header_font
+                cell.fill = self.header_fill
+                cell.border = self.border
+            
+            # Usage data
+            for row, record in enumerate(usage_records, usage_start_row+2):
+                start_date, end_date, days_used, reason, status, quota_type, app_type = record
+                
+                # Format date range
+                if start_date == end_date:
+                    date_range = start_date
+                else:
+                    date_range = f"{start_date} to {end_date}"
+                
+                values = [
+                    date_range,
+                    quota_type,
+                    days_used,
+                    reason or 'N/A',
+                    status.title(),
+                    app_type
+                ]
+                
+                for col, value in enumerate(values, 1):
+                    cell = ws.cell(row=row, column=col, value=value)
+                    cell.border = self.border
+                    
+                    # Color coding for status
+                    if col == 5:  # Status column
+                        if status.lower() == 'approved':
+                            cell.fill = PatternFill(start_color='CCFFCC', end_color='CCFFCC', fill_type='solid')
+                        elif status.lower() == 'pending':
+                            cell.fill = PatternFill(start_color='FFFFCC', end_color='FFFFCC', fill_type='solid')
+                        elif status.lower() == 'rejected':
+                            cell.fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+        else:
+            ws[f'A{usage_start_row+2}'] = "No usage records found for this year."
+            ws[f'A{usage_start_row+2}'].font = Font(italic=True, color="666666")
+        
+        # Format column widths
+        column_widths = [16, 12, 10, 10, 12, 12, 14]
+        for col, width in enumerate(column_widths, 1):
+            ws.column_dimensions[chr(64 + col)].width = width
+        
+        # Add summary statistics at the bottom
+        stats_row = usage_start_row + len(usage_records) + 5 if usage_records else usage_start_row + 5
+        ws[f'A{stats_row}'] = "Summary Statistics"
+        ws[f'A{stats_row}'].font = Font(bold=True, size=12)
+        
+        # Calculate totals
+        total_allocated = sum(quota[2] for quota in quota_data)  # allocated
+        total_used = sum(quota[3] for quota in quota_data)       # used
+        total_remaining = sum(quota[4] for quota in quota_data)  # remaining
+        overall_usage_pct = (total_used / max(total_allocated, 1)) * 100 if total_allocated > 0 else 0
+        
+        stats_data = [
+            ("Total Allocated:", total_allocated),
+            ("Total Used:", total_used),
+            ("Total Remaining:", total_remaining),
+            ("Overall Usage:", f"{overall_usage_pct:.1f}%")
+        ]
+        
+        for i, (label, value) in enumerate(stats_data, stats_row+1):
+            ws[f'A{i}'] = label
+            ws[f'A{i}'].font = Font(bold=True)
+            ws[f'B{i}'] = value
+            if 'Usage:' in label and overall_usage_pct >= 80:
+                ws[f'B{i}'].fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+        
+        return self._save_workbook_to_response(wb, filename)
