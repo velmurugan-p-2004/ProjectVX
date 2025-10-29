@@ -16,7 +16,7 @@ This module calculates salaries based on various attendance factors:
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-from database import get_db, calculate_hourly_rate, calculate_standard_working_hours_per_month
+from database import get_db, calculate_hourly_rate, calculate_standard_working_hours_per_month, is_holiday
 import calendar
 
 
@@ -149,8 +149,10 @@ class SalaryCalculator:
             # Get leave data for the month
             leave_data = self._get_monthly_leaves(staff_id, year, month)
             
-            # Calculate working days in month
-            working_days = self._get_working_days_in_month(year, month)
+            # Calculate working days in month (excluding holidays)  
+            # Get staff department for department-specific holidays
+            staff_department = staff_info.get('department')
+            working_days = self._get_working_days_excluding_holidays(year, month, staff_department)
             
             # Perform salary calculations
             salary_breakdown = self._calculate_salary_breakdown(
@@ -197,8 +199,10 @@ class SalaryCalculator:
             # Get leave data for the month
             leave_data = self._get_monthly_leaves(staff_id, year, month)
 
-            # Calculate working days in month
-            working_days = self._get_working_days_in_month(year, month)
+            # Calculate working days in month (excluding holidays)
+            # Get staff department for department-specific holidays
+            staff_department = staff_info.get('department')
+            working_days = self._get_working_days_excluding_holidays(year, month, staff_department)
 
             # Perform enhanced salary calculations
             salary_breakdown = self._calculate_enhanced_salary_breakdown(
@@ -277,6 +281,7 @@ class SalaryCalculator:
             hours_ratio = actual_hours_worked / standard_monthly_hours
             base_salary_earned = basic_salary * hours_ratio
         else:
+            hours_ratio = 1.0
             base_salary_earned = basic_salary
 
         # Calculate bonus for extra hours worked
@@ -315,8 +320,9 @@ class SalaryCalculator:
                 if record.get('overtime_hours') and record['overtime_hours'] > 0:
                     overtime_pay += record['overtime_hours'] * hourly_rate * self.salary_rules['overtime_rate_multiplier']
 
-        # Calculate leave pay
-        leave_pay = self._calculate_leave_pay(leave_data, hourly_rate, standard_monthly_hours, working_days)
+        # Calculate leave pay (using existing leave processing logic)
+        leave_summary = self._process_leave_data(leave_data, hourly_rate * 8, year, month)  # 8 hours per day
+        leave_pay = leave_summary['leave_pay']
 
         # Calculate deductions
         pf_deduction = float(staff_info.get('pf_deduction', 0))
@@ -442,6 +448,36 @@ class SalaryCalculator:
         
         return working_days
     
+    def _get_working_days_excluding_holidays(self, year: int, month: int, department: Optional[str] = None) -> int:
+        """
+        Calculate working days in month excluding weekends AND holidays.
+        
+        Args:
+            year (int): Year
+            month (int): Month
+            department (str, optional): Department name for department-specific holidays
+            
+        Returns:
+            int: Number of working days excluding holidays
+        """
+        total_days = calendar.monthrange(year, month)[1]
+        working_days = 0
+        
+        for day in range(1, total_days + 1):
+            date_obj = datetime(year, month, day).date()
+            
+            # Exclude Sundays (weekday 6)
+            if datetime(year, month, day).weekday() == 6:
+                continue
+                
+            # Exclude holidays (both institution-wide and department-specific)
+            if is_holiday(date_obj, department=department, school_id=self.school_id):
+                continue
+                
+            working_days += 1
+        
+        return working_days
+    
     def _calculate_salary_breakdown(self, staff_info: Dict, attendance_data: List[Dict], 
                                   leave_data: List[Dict], working_days: int, 
                                   year: int, month: int) -> Dict:
@@ -492,6 +528,7 @@ class SalaryCalculator:
         
         # Calculate actual absent days: total working days minus accounted days
         # Since late days are counted as present days, this formula works correctly
+        # Note: working_days already excludes holidays, so holidays won't be counted as absent
         absent_days = working_days - present_days - on_duty_days - leave_days
         
         # Calculate final amounts
