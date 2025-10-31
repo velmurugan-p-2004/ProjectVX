@@ -1272,19 +1272,18 @@ def sync_attendance_from_device(device_ip: str = '192.168.1.201', school_id: int
             result['success'] = True
             return result
 
-        # Initialize sync handler
-        sync_handler = AttendanceSync()
-
-        # Check if we're in Flask app context
-        try:
-            current_app._get_current_object()
-            # We're in app context, sync to SQLite
-            result['sqlite_synced'] = sync_handler.sync_to_sqlite(records, school_id)
-        except RuntimeError:
-            # Not in app context, skip SQLite sync
-            logger.warning("Not in Flask app context, skipping SQLite sync")
+        # Use the newer comprehensive processing method that handles both check-in and check-out
+        # This replaces the old sync_handler that only processed check-in records
+        process_result = zk_device.process_device_attendance_to_database(school_id)
+        
+        if process_result['success']:
+            result['sqlite_synced'] = process_result['processed_count']
+        else:
             result['sqlite_synced'] = 0
+            result['message'] = process_result.get('message', 'Failed to process attendance records')
 
+        # Initialize sync handler for MySQL backup
+        sync_handler = AttendanceSync()
         # Sync to MySQL (backup/reporting database)
         result['mysql_synced'] = sync_handler.sync_to_mysql(records)
 
