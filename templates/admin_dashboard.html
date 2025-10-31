@@ -285,6 +285,11 @@
                                     <span class="stat-value">{{ attendance_summary.on_permission }}</span>
                                     <span>On Permission</span>
                                 </div>
+                                <div class="stat-item">
+                                    <i class="bi bi-calendar-event text-dark"></i>
+                                    <span class="stat-value">{{ attendance_summary.holiday }}</span>
+                                    <span>Holiday</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -343,7 +348,9 @@
                                             </span>
                                         </td>
                                         <td class="status">
-                                            {% if attendance.status == 'present' %}
+                                            {% if attendance.status == 'Holiday' %}
+                                                <span class="badge bg-dark text-white"><i class="bi bi-calendar-event"></i> Holiday</span>
+                                            {% elif attendance.status == 'present' %}
                                                 <span class="earnings-badge">Present</span>
                                             {% elif attendance.status == 'late' %}
                                                 <span class="deductions-badge">Late</span>

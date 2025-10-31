@@ -611,13 +611,14 @@ def get_today_attendance_status():
 def get_staff_status_for_date(staff_id, date, school_id, db):
     """
     Get comprehensive staff status for a given date.
-    Checks approved applications first, then falls back to attendance records.
+    Checks holidays first, then approved applications, then falls back to attendance records.
     
     Priority order:
-    1. Approved Leave application -> "On Leave"
-    2. Approved On Duty application -> "On Duty"  
-    3. Approved Permission application -> "On Permission"
-    4. Standard attendance status (Present/Absent/Late)
+    1. Holiday (institution-wide or department-specific) -> "Holiday"
+    2. Approved Leave application -> "On Leave"
+    3. Approved On Duty application -> "On Duty"  
+    4. Approved Permission application -> "On Permission"
+    5. Standard attendance status (Present/Absent/Late)
     
     Args:
         staff_id: Staff database ID
@@ -626,8 +627,22 @@ def get_staff_status_for_date(staff_id, date, school_id, db):
         db: Database connection
     
     Returns:
-        str: Status string ("On Leave", "On Duty", "On Permission", "present", "absent", "late")
+        str: Status string ("Holiday", "On Leave", "On Duty", "On Permission", "present", "absent", "late")
     """
+    
+    # Import holiday checking function
+    from database import is_holiday
+    
+    # Get staff department for holiday checking
+    staff_info = db.execute('''
+        SELECT department FROM staff WHERE id = ?
+    ''', (staff_id,)).fetchone()
+    
+    staff_department = staff_info['department'] if staff_info else None
+    
+    # Check if this date is a holiday
+    if is_holiday(date, department=staff_department, school_id=school_id):
+        return "Holiday"
     
     # Check for approved Leave application
     leave_app = db.execute('''
@@ -744,7 +759,8 @@ def get_realtime_attendance():
         'late': 0,
         'on_leave': 0,
         'on_duty': 0,
-        'on_permission': 0
+        'on_permission': 0,
+        'holiday': 0
     }
     
     for staff in staff_list:
@@ -769,7 +785,9 @@ def get_realtime_attendance():
         # Count statuses for summary
         status_counts['total_staff'] += 1
         
-        if status == 'On Leave':
+        if status == 'Holiday':
+            status_counts['holiday'] += 1
+        elif status == 'On Leave':
             status_counts['on_leave'] += 1
         elif status == 'On Duty':
             status_counts['on_duty'] += 1
@@ -4482,7 +4500,8 @@ def admin_dashboard():
         'late': 0,
         'on_leave': 0,
         'on_duty': 0,
-        'on_permission': 0
+        'on_permission': 0,
+        'holiday': 0
     }
     
     today_attendance = []
@@ -4507,7 +4526,9 @@ def admin_dashboard():
         # Count statuses for summary
         status_counts['total_staff'] += 1
         
-        if status == 'On Leave':
+        if status == 'Holiday':
+            status_counts['holiday'] += 1
+        elif status == 'On Leave':
             status_counts['on_leave'] += 1
         elif status == 'On Duty':
             status_counts['on_duty'] += 1
@@ -7840,23 +7861,115 @@ def get_comprehensive_staff_profile():
         if not staff:
             return jsonify({'success': False, 'error': 'Staff not found'})
 
-        # Get attendance records (last 30 days)
-        thirty_days_ago = (datetime.datetime.now() - datetime.timedelta(days=30)).date()
-        attendance = db.execute('''
+        # Get attendance records for current month - existing records from database
+        today = datetime.date.today()
+        first_day_of_month = today.replace(day=1)
+        
+        existing_attendance = db.execute('''
             SELECT date, time_in, time_out, status,
                    on_duty_type, on_duty_location, on_duty_purpose
             FROM attendance
-            WHERE staff_id = ? AND date >= ?
+            WHERE staff_id = ? AND date >= ? AND date <= ?
             ORDER BY date DESC
-        ''', (staff_id, thirty_days_ago)).fetchall()
+        ''', (staff_id, first_day_of_month, today)).fetchall()
 
-        # Get biometric verifications (last 30 days)
+        # Get approved leaves for the current month
+        approved_leaves = db.execute('''
+            SELECT start_date, end_date
+            FROM leave_applications
+            WHERE staff_id = ? 
+              AND status = 'approved'
+              AND ((start_date BETWEEN ? AND ?) 
+                   OR (end_date BETWEEN ? AND ?)
+                   OR (start_date <= ? AND end_date >= ?))
+        ''', (staff_id, first_day_of_month, today, 
+              first_day_of_month, today, 
+              first_day_of_month, today)).fetchall()
+
+        # Create a set of leave dates
+        leave_dates = set()
+        for leave in approved_leaves:
+            start_date = datetime.datetime.strptime(leave['start_date'], '%Y-%m-%d').date()
+            end_date = datetime.datetime.strptime(leave['end_date'], '%Y-%m-%d').date()
+            current_date = max(start_date, first_day_of_month)
+            end_date_capped = min(end_date, today)
+            
+            while current_date <= end_date_capped:
+                if current_date.weekday() < 6:  # Monday to Saturday
+                    leave_dates.add(current_date)
+                current_date += datetime.timedelta(days=1)
+
+        # Create comprehensive attendance records including missing days
+        attendance_dict = {}
+        
+        # Add existing records
+        for record in existing_attendance:
+            date_str = record['date']
+            attendance_dict[date_str] = dict(record)
+        
+        # Import holiday checking function
+        from database import is_holiday
+        
+        # Get staff department for holiday checking
+        staff_department = staff['department'] if staff and 'department' in staff else None
+        
+        # Generate complete attendance records for all working days in current month
+        current_date = first_day_of_month
+        
+        while current_date <= today:
+            # Skip Sundays (weekday 6)
+            if current_date.weekday() < 6:  # Monday to Saturday
+                date_str = current_date.strftime('%Y-%m-%d')
+                
+                if date_str not in attendance_dict:
+                    # Check if this date is a holiday
+                    staff_school_id = staff['school_id'] if staff and 'school_id' in staff else None
+                    is_date_holiday = is_holiday(current_date, department=staff_department, school_id=staff_school_id)
+                    
+                    # Determine status for missing days
+                    if is_date_holiday:
+                        status = 'holiday'
+                    elif current_date in leave_dates:
+                        status = 'leave'
+                    elif current_date == today:
+                        # Don't create absent record for today if it's still ongoing
+                        current_date += datetime.timedelta(days=1)
+                        continue
+                    else:
+                        status = 'absent'
+                    
+                    # Create missing attendance record
+                    attendance_dict[date_str] = {
+                        'date': date_str,
+                        'time_in': None,
+                        'time_out': None,
+                        'status': status,
+                        'on_duty_type': None,
+                        'on_duty_location': None,
+                        'on_duty_purpose': None
+                    }
+                else:
+                    # Check existing records for holiday status override
+                    existing_record = attendance_dict[date_str]
+                    staff_school_id = staff['school_id'] if staff and 'school_id' in staff else None
+                    is_date_holiday = is_holiday(current_date, department=staff_department, school_id=staff_school_id)
+                    
+                    # If it's a holiday but marked as absent, update to holiday
+                    if is_date_holiday and existing_record['status'] == 'absent':
+                        existing_record['status'] = 'holiday'
+            
+            current_date += datetime.timedelta(days=1)
+        
+        # Convert back to list and sort by date (newest first)
+        attendance = sorted(attendance_dict.values(), key=lambda x: x['date'], reverse=True)
+
+        # Get biometric verifications for current month
         verifications = db.execute('''
             SELECT verification_type, verification_time, verification_status, device_ip
             FROM biometric_verifications
             WHERE staff_id = ? AND DATE(verification_time) >= ?
             ORDER BY verification_time DESC
-        ''', (staff_id, thirty_days_ago)).fetchall()
+        ''', (staff_id, first_day_of_month)).fetchall()
 
         # Get leave applications
         leaves = db.execute('''
@@ -7885,26 +7998,43 @@ def get_comprehensive_staff_profile():
             LIMIT 20
         ''', (staff_id,)).fetchall()
 
-        # Calculate attendance statistics (excluding holidays from total days)
-        total_days = len(attendance)
+        # Calculate total working days in current month (Monday to Saturday)
+        def calculate_working_days_in_month(year, month):
+            """Calculate total working days (Monday-Saturday) in a given month"""
+            import calendar
+            # Get the last day of the month
+            last_day = calendar.monthrange(year, month)[1]
+            working_days = 0
+            
+            for day in range(1, last_day + 1):
+                date_obj = datetime.date(year, month, day)
+                # Monday=0, Sunday=6, so weekday < 6 means Monday-Saturday
+                if date_obj.weekday() < 6:
+                    working_days += 1
+            return working_days
+        
+        # Calculate actual working days in current month
+        current_month_working_days = calculate_working_days_in_month(today.year, today.month)
+        
+        # Calculate accurate attendance statistics
+        total_recorded_days = len(attendance)
         present_days = len([a for a in attendance if a['status'] in ['present', 'late', 'on_duty']])
         absent_days = len([a for a in attendance if a['status'] == 'absent'])
         late_days = len([a for a in attendance if a['status'] == 'late'])
         on_duty_days = len([a for a in attendance if a['status'] == 'on_duty'])
+        leave_days = len([a for a in attendance if a['status'] == 'leave'])
         holiday_days = len([a for a in attendance if a['status'] == 'holiday'])
 
-        # Calculate working days (excluding holidays)
-        working_days = total_days - holiday_days
-
         attendance_stats = {
-            'total_days': total_days,
-            'working_days': working_days,
+            'total_recorded_days': total_recorded_days,
+            'working_days': current_month_working_days,
             'present_days': present_days,
             'absent_days': absent_days,
             'late_days': late_days,
             'on_duty_days': on_duty_days,
+            'leave_days': leave_days,
             'holiday_days': holiday_days,
-            'attendance_rate': round((present_days / working_days * 100) if working_days > 0 else 0, 1)
+            'attendance_rate': round((present_days / current_month_working_days * 100) if current_month_working_days > 0 else 0, 1)
         }
 
         # Format attendance times to 12-hour format

@@ -233,51 +233,76 @@ document.addEventListener('DOMContentLoaded', function () {
                 <div class="col-12">
                     <div class="card">
                         <div class="card-header bg-light">
-                            <h5 class="mb-0"><i class="bi bi-graph-up"></i> Attendance Statistics (Last 30 Days)</h5>
+                            <h5 class="mb-0"><i class="bi bi-graph-up"></i> Attendance Statistics (Current Month)</h5>
+                            <small class="text-muted">Comprehensive attendance overview for ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} - Total working days (Mon-Sat): ${stats.working_days}</small>
                         </div>
                         <div class="card-body">
                             <div class="row text-center">
-                                <div class="col-md-3">
-                                    <div class="card bg-primary text-white">
+                                <div class="col-md-2">
+                                    <div class="card bg-info text-white">
                                         <div class="card-body">
-                                            <h3>${stats.total_days}</h3>
-                                            <p class="mb-0">Total Days</p>
+                                            <h4>${stats.working_days}</h4>
+                                            <p class="mb-0">Working Days</p>
+                                            <small class="text-light">This Month</small>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <div class="card bg-success text-white">
                                         <div class="card-body">
-                                            <h3>${stats.present_days}</h3>
+                                            <h4>${stats.present_days}</h4>
                                             <p class="mb-0">Present</p>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <div class="card bg-warning text-white">
                                         <div class="card-body">
-                                            <h3>${stats.late_days}</h3>
+                                            <h4>${stats.late_days}</h4>
                                             <p class="mb-0">Late</p>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <div class="card bg-danger text-white">
                                         <div class="card-body">
-                                            <h3>${stats.absent_days}</h3>
+                                            <h4>${stats.absent_days}</h4>
                                             <p class="mb-0">Absent</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="card bg-secondary text-white">
+                                        <div class="card-body">
+                                            <h4>${stats.leave_days || 0}</h4>
+                                            <p class="mb-0">On Leave</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="card bg-primary text-white">
+                                        <div class="card-body">
+                                            <h4>${stats.on_duty_days || 0}</h4>
+                                            <p class="mb-0">On Duty</p>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                             <div class="mt-3">
-                                <div class="progress">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="fw-bold">Attendance Rate:</span>
+                                    <span class="fw-bold">${stats.attendance_rate}%</span>
+                                </div>
+                                <div class="progress" style="height: 20px;">
                                     <div class="progress-bar bg-success" role="progressbar"
                                          style="width: ${stats.attendance_rate}%"
                                          aria-valuenow="${stats.attendance_rate}" aria-valuemin="0" aria-valuemax="100">
-                                        ${stats.attendance_rate}% Attendance Rate
+                                        ${stats.attendance_rate}%
                                     </div>
                                 </div>
+                                <small class="text-muted mt-1">
+                                    Based on Present + Late + On Duty days out of ${stats.working_days} total working days in current month
+                                </small>
                             </div>
                         </div>
                     </div>
@@ -333,11 +358,15 @@ document.addEventListener('DOMContentLoaded', function () {
             <div class="tab-content mt-3" id="staffProfileTabContent">
                 <!-- Attendance Records Tab -->
                 <div class="tab-pane fade show active" id="attendance-pane" role="tabpanel">
+                    <div class="alert alert-info mb-3">
+                        <i class="bi bi-info-circle"></i> Showing comprehensive attendance records for the <strong>current month</strong> including all working days
+                    </div>
                     <div class="table-responsive">
                         <table class="table table-striped table-hover">
                             <thead class="table-dark">
                                 <tr>
                                     <th>Date</th>
+                                    <th>Day</th>
                                     <th>Time In</th>
                                     <th>Time Out</th>
                                     <th>Overtime In</th>
@@ -346,26 +375,39 @@ document.addEventListener('DOMContentLoaded', function () {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${(data.attendance || []).map(record => `
-                                    <tr>
-                                        <td>${record.date || ''}</td>
-                                        <td>${record.time_in || '--:--'}</td>
-                                        <td>${record.time_out || '--:--'}</td>
-                                        <td>${record.overtime_in || '--:--'}</td>
-                                        <td>${record.overtime_out || '--:--'}</td>
-                                        <td><span class="badge bg-${getStatusColor(record.status || 'unknown')}">${record.status || 'Unknown'}</span></td>
+                                ${(data.attendance || []).map(record => {
+                                    const date = new Date(record.date + 'T00:00:00');
+                                    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+                                    const formattedDate = date.toLocaleDateString('en-GB');
+                                    const status = record.status || 'unknown';
+                                    const statusDisplay = status.charAt(0).toUpperCase() + status.slice(1);
+                                    
+                                    return `
+                                    <tr class="${status === 'absent' ? 'table-danger' : status === 'leave' ? 'table-secondary' : ''}">
+                                        <td><strong>${formattedDate}</strong></td>
+                                        <td><span class="text-muted">${dayName}</span></td>
+                                        <td>${record.time_in ? `<span class="text-success">${record.time_in}</span>` : '<span class="text-muted">--:--</span>'}</td>
+                                        <td>${record.time_out ? `<span class="text-info">${record.time_out}</span>` : '<span class="text-muted">--:--</span>'}</td>
+                                        <td>${record.overtime_in ? `<span class="text-warning">${record.overtime_in}</span>` : '<span class="text-muted">--:--</span>'}</td>
+                                        <td>${record.overtime_out ? `<span class="text-warning">${record.overtime_out}</span>` : '<span class="text-muted">--:--</span>'}</td>
+                                        <td>
+                                            <span class="badge bg-${getStatusColor(status)}">${statusDisplay}</span>
+                                            ${status === 'absent' ? '<br><small class="text-muted">No check-in recorded</small>' : ''}
+                                            ${status === 'leave' ? '<br><small class="text-muted">Approved leave</small>' : ''}
+                                        </td>
                                     </tr>
-                                `).join('')}
+                                `;
+                                }).join('')}
                             </tbody>
                         </table>
                     </div>
-                    ${(data.attendance || []).length === 0 ? '<div class="alert alert-info">No attendance records found</div>' : ''}
+                    ${(data.attendance || []).length === 0 ? '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> No attendance records available for the current month</div>' : ''}
                 </div>
 
                 <!-- Biometric Verifications Tab -->
                 <div class="tab-pane fade" id="biometric-pane" role="tabpanel">
                     <div class="alert alert-info mb-3">
-                        <i class="bi bi-info-circle"></i> Showing biometric verification records for the <strong>last 30 days</strong>
+                        <i class="bi bi-info-circle"></i> Showing biometric verification records for the <strong>current month</strong>
                     </div>
                     <div class="table-responsive">
                         <table class="table table-striped table-hover">
@@ -648,9 +690,12 @@ document.addEventListener('DOMContentLoaded', function () {
             'present': 'success',
             'absent': 'danger',
             'late': 'warning',
-            'leave': 'info'
+            'leave': 'secondary',
+            'on_duty': 'primary',
+            'holiday': 'dark',
+            'unknown': 'secondary'
         };
-        return colors[status] || 'secondary';
+        return colors[status?.toLowerCase()] || 'secondary';
     }
 
     function getLeaveStatusColor(status) {
@@ -1799,6 +1844,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     let statusText = 'Not Marked';
 
                     switch (attendance.status) {
+                        case 'Holiday':
+                            badgeClass = 'bg-dark text-white';
+                            statusText = '<i class="bi bi-calendar-event"></i> Holiday';
+                            break;
                         case 'present':
                             badgeClass = 'bg-success';
                             statusText = 'Present';
@@ -1875,7 +1924,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 const statValue = item.querySelector('.stat-value');
                 const text = item.textContent.toLowerCase();
                 
-                if (text.includes('present') && statValue) {
+                if (text.includes('holiday') && statValue) {
+                    statValue.textContent = summary.holiday || 0;
+                } else if (text.includes('present') && statValue) {
                     statValue.textContent = summary.present || 0;
                 } else if (text.includes('absent') && statValue) {
                     statValue.textContent = summary.absent || 0;
