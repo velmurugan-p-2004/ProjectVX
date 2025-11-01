@@ -683,64 +683,77 @@
                             </div>
                         </div>
 
-                        <!-- Attendance Summary -->
+                        <!-- Attendance Statistics -->
                         <div class="salary-results-card mt-4">
-                            <div class="card-header">
+                            <div class="card-header bg-light">
                                 <div class="header-icon">
-                                    <i class="bi bi-calendar-check"></i>
+                                    <i class="bi bi-graph-up"></i>
                                 </div>
                                 <div class="header-content">
-                                    <h5 class="card-title">{{ current_month }} Summary</h5>
-                                    <p class="card-subtitle">Your attendance statistics for this month</p>
+                                    <h5 class="card-title">Attendance Statistics (Current Month)</h5>
+                                    <p class="card-subtitle">Comprehensive attendance overview for {{ current_month }} - Total working days (Mon-Sat): {{ attendance_summary.working_days or 0 }}</p>
                                 </div>
                                 <button id="refreshAttendanceSummary" class="btn btn-sm btn-outline-primary ms-auto" title="Refresh attendance data">
                                     <i class="bi bi-arrow-clockwise"></i>
                                 </button>
                             </div>
                             <div class="card-body">
-                                <div class="filters-grid">
-                                    <div class="filter-group">
-                                        <div class="attendance-stat-card bg-success bg-opacity-10">
-                                            <div class="stat-icon text-success">
-                                                <i class="bi bi-check-circle"></i>
-                                            </div>
-                                            <div class="stat-content">
-                                                <div class="stat-value">{{ attendance_summary.present_days or 0 }}</div>
-                                                <div class="stat-label">Present</div>
-                                            </div>
+                                <!-- Force all 7 cards to display in a simple grid -->
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; width: 100%;">
+                                    <!-- Card 1: Working Days -->
+                                    <div class="card bg-info text-white" style="min-height: 120px;">
+                                        <div class="card-body text-center p-3">
+                                            <h4 class="mb-1">{{ attendance_summary.working_days or 0 }}</h4>
+                                            <p class="mb-0 small">Working Days</p>
+                                            <small class="text-light">This Month</small>
                                         </div>
                                     </div>
-                                    <div class="filter-group">
-                                        <div class="attendance-stat-card bg-danger bg-opacity-10">
-                                            <div class="stat-icon text-danger">
-                                                <i class="bi bi-x-circle"></i>
-                                            </div>
-                                            <div class="stat-content">
-                                                <div class="stat-value">{{ attendance_summary.absent_days or 0 }}</div>
-                                                <div class="stat-label">Absent</div>
-                                            </div>
+                                    
+                                    <!-- Card 2: Present Days -->
+                                    <div class="card bg-success text-white" style="min-height: 120px;">
+                                        <div class="card-body text-center p-3">
+                                            <h4 class="mb-1">{{ attendance_summary.present_days or 0 }}</h4>
+                                            <p class="mb-0 small">Present</p>
                                         </div>
                                     </div>
-                                    <div class="filter-group">
-                                        <div class="attendance-stat-card bg-warning bg-opacity-10">
-                                            <div class="stat-icon text-warning">
-                                                <i class="bi bi-clock"></i>
-                                            </div>
-                                            <div class="stat-content">
-                                                <div class="stat-value">{{ attendance_summary.late_days or 0 }}</div>
-                                                <div class="stat-label">Late</div>
-                                            </div>
+                                    
+                                    <!-- Card 3: Late Days -->
+                                    <div class="card bg-warning text-white" style="min-height: 120px;">
+                                        <div class="card-body text-center p-3">
+                                            <h4 class="mb-1">{{ attendance_summary.late_days or 0 }}</h4>
+                                            <p class="mb-0 small">Late</p>
                                         </div>
                                     </div>
-                                    <div class="filter-group">
-                                        <div class="attendance-stat-card bg-info bg-opacity-10">
-                                            <div class="stat-icon text-info">
-                                                <i class="bi bi-calendar-x"></i>
-                                            </div>
-                                            <div class="stat-content">
-                                                <div class="stat-value">{{ attendance_summary.leave_days or 0 }}</div>
-                                                <div class="stat-label">Leave</div>
-                                            </div>
+                                    
+                                    <!-- Card 4: Absent Days -->
+                                    <div class="card bg-danger text-white" style="min-height: 120px;">
+                                        <div class="card-body text-center p-3">
+                                            <h4 class="mb-1">{{ attendance_summary.absent_days or 0 }}</h4>
+                                            <p class="mb-0 small">Absent</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Card 5: Leave Days -->
+                                    <div class="card bg-secondary text-white" style="min-height: 120px;">
+                                        <div class="card-body text-center p-3">
+                                            <h4 class="mb-1">{{ attendance_summary.leave_days or 0 }}</h4>
+                                            <p class="mb-0 small">On Leave</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Card 6: On Duty Days -->
+                                    <div class="card bg-primary text-white" style="min-height: 120px;">
+                                        <div class="card-body text-center p-3">
+                                            <h4 class="mb-1">{{ attendance_summary.on_duty_days or 0 }}</h4>
+                                            <p class="mb-0 small">On Duty</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Card 7: Holiday Days -->
+                                    <div class="card bg-dark text-white" style="min-height: 120px;">
+                                        <div class="card-body text-center p-3">
+                                            <h4 class="mb-1">{{ attendance_summary.holiday_days or 0 }}</h4>
+                                            <p class="mb-0 small">Holiday</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1592,6 +1605,17 @@
         // Enhanced attendance stat card styles
         const style = document.createElement('style');
         style.textContent = `
+            /* Force all attendance cards to be visible */
+            .salary-results-card .card-body {
+                overflow: visible !important;
+                max-height: none !important;
+                height: auto !important;
+            }
+            .salary-results-card {
+                overflow: visible !important;
+                max-height: none !important;
+                height: auto !important;
+            }
             .salary-results-card .card-header {
                 display: flex;
                 align-items: center;

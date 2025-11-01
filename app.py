@@ -6915,6 +6915,20 @@ def sync_biometric_attendance():
     auto_create_missing_staff = request.form.get('auto_create_staff', 'true').lower() == 'true'
 
     try:
+        # Use the updated automatic processing function that includes check-out sync
+        result = process_device_attendance_automatically(device_ip, school_id)
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'message': result['message'],
+                'synced_count': result.get('processed_count', 0),
+                'auto_checkout_enabled': True
+            })
+        else:
+            return jsonify({'success': False, 'error': result['message']})
+            
+        # Fallback to old method if needed
         zk_device = ZKBiometricDevice(device_ip)
         if not zk_device.connect():
             return jsonify({'success': False, 'error': 'Failed to connect to biometric device'})
@@ -8151,12 +8165,32 @@ def _calculate_accurate_attendance_summary(staff_id: int, year: int, month: int)
     # Ensure absent days is never negative
     absent_days = max(0, absent_days)
     
+    # Calculate holiday days in the current month
+    from database import is_holiday
+    
+    # Get staff department and school info for holiday checking
+    staff_info = db.execute('SELECT department, school_id FROM staff WHERE id = ?', (staff_id,)).fetchone()
+    staff_department = staff_info['department'] if staff_info else None
+    staff_school_id = staff_info['school_id'] if staff_info else None
+    
+    # Count holidays in the current month
+    holiday_days = 0
+    current_date = first_day
+    
+    while current_date <= last_day:
+        # Only count holidays on working days (Monday-Saturday)
+        if current_date.weekday() < 6:  # 0=Monday, 6=Sunday
+            if is_holiday(current_date, department=staff_department, school_id=staff_school_id):
+                holiday_days += 1
+        current_date += datetime.timedelta(days=1)
+
     return {
         'present_days': present_days,
         'absent_days': absent_days,
         'late_days': late_days,
         'leave_days': leave_days,
         'on_duty_days': on_duty_days,
+        'holiday_days': holiday_days,
         'working_days': working_days,
         'total_recorded_days': attendance_summary['total_recorded_days'] or 0
     }
@@ -8209,6 +8243,24 @@ def staff_profile_page():
         LIMIT 20
     ''', (staff_id,)).fetchall()
 
+    # Get on duty applications
+    on_duty_applications = db.execute('''
+        SELECT id, duty_type, start_date, end_date, location, purpose, reason, status, applied_at
+        FROM on_duty_applications
+        WHERE staff_id = ?
+        ORDER BY applied_at DESC
+        LIMIT 10
+    ''', (staff_id,)).fetchall()
+
+    # Get permission applications
+    permission_applications = db.execute('''
+        SELECT id, permission_type, permission_date, start_time, end_time, duration_hours, reason, status, applied_at
+        FROM permission_applications
+        WHERE staff_id = ?
+        ORDER BY applied_at DESC
+        LIMIT 10
+    ''', (staff_id,)).fetchall()
+
     # Get quota summary for current year
     quota_year = today.year
     quota_summary = get_staff_quota_summary(staff_id, quota_year)
@@ -8217,6 +8269,8 @@ def staff_profile_page():
                          staff=staff,
                          attendance_summary=attendance_summary_dict,
                          leave_applications=leave_applications,
+                         on_duty_applications=on_duty_applications,
+                         permission_applications=permission_applications,
                          recent_verifications=recent_verifications,
                          today=today,
                          current_month=today.strftime('%B %Y'),
@@ -8243,6 +8297,7 @@ def get_staff_attendance_summary():
             'late_days': attendance_summary['late_days'],
             'leave_days': attendance_summary['leave_days'],
             'on_duty_days': attendance_summary['on_duty_days'],
+            'holiday_days': attendance_summary['holiday_days'],
             'working_days': attendance_summary['working_days'],
             'total_recorded_days': attendance_summary['total_recorded_days'],
             'current_month': today.strftime('%B %Y')

@@ -237,53 +237,63 @@ document.addEventListener('DOMContentLoaded', function () {
                             <small class="text-muted">Comprehensive attendance overview for ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} - Total working days (Mon-Sat): ${stats.working_days}</small>
                         </div>
                         <div class="card-body">
-                            <div class="row text-center">
-                                <div class="col-md-2">
-                                    <div class="card bg-info text-white">
-                                        <div class="card-body">
-                                            <h4>${stats.working_days}</h4>
-                                            <p class="mb-0">Working Days</p>
-                                            <small class="text-light">This Month</small>
+                            <div class="overflow-auto" style="white-space: nowrap;">
+                                <div class="d-flex gap-3 pb-2" style="min-width: max-content;">
+                                    <div class="flex-shrink-0" style="min-width: 140px;">
+                                        <div class="card bg-info text-white h-100">
+                                            <div class="card-body text-center p-3">
+                                                <h4 class="mb-1">${stats.working_days}</h4>
+                                                <p class="mb-0 small">Working Days</p>
+                                                <small class="text-light">This Month</small>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="col-md-2">
-                                    <div class="card bg-success text-white">
-                                        <div class="card-body">
-                                            <h4>${stats.present_days}</h4>
-                                            <p class="mb-0">Present</p>
+                                    <div class="flex-shrink-0" style="min-width: 140px;">
+                                        <div class="card bg-success text-white h-100">
+                                            <div class="card-body text-center p-3">
+                                                <h4 class="mb-1">${stats.present_days}</h4>
+                                                <p class="mb-0 small">Present</p>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="col-md-2">
-                                    <div class="card bg-warning text-white">
-                                        <div class="card-body">
-                                            <h4>${stats.late_days}</h4>
-                                            <p class="mb-0">Late</p>
+                                    <div class="flex-shrink-0" style="min-width: 140px;">
+                                        <div class="card bg-warning text-white h-100">
+                                            <div class="card-body text-center p-3">
+                                                <h4 class="mb-1">${stats.late_days}</h4>
+                                                <p class="mb-0 small">Late</p>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="col-md-2">
-                                    <div class="card bg-danger text-white">
-                                        <div class="card-body">
-                                            <h4>${stats.absent_days}</h4>
-                                            <p class="mb-0">Absent</p>
+                                    <div class="flex-shrink-0" style="min-width: 140px;">
+                                        <div class="card bg-danger text-white h-100">
+                                            <div class="card-body text-center p-3">
+                                                <h4 class="mb-1">${stats.absent_days}</h4>
+                                                <p class="mb-0 small">Absent</p>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="col-md-2">
-                                    <div class="card bg-secondary text-white">
-                                        <div class="card-body">
-                                            <h4>${stats.leave_days || 0}</h4>
-                                            <p class="mb-0">On Leave</p>
+                                    <div class="flex-shrink-0" style="min-width: 140px;">
+                                        <div class="card bg-secondary text-white h-100">
+                                            <div class="card-body text-center p-3">
+                                                <h4 class="mb-1">${stats.leave_days || 0}</h4>
+                                                <p class="mb-0 small">On Leave</p>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="col-md-2">
-                                    <div class="card bg-primary text-white">
-                                        <div class="card-body">
-                                            <h4>${stats.on_duty_days || 0}</h4>
-                                            <p class="mb-0">On Duty</p>
+                                    <div class="flex-shrink-0" style="min-width: 140px;">
+                                        <div class="card bg-primary text-white h-100">
+                                            <div class="card-body text-center p-3">
+                                                <h4 class="mb-1">${stats.on_duty_days || 0}</h4>
+                                                <p class="mb-0 small">On Duty</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="flex-shrink-0" style="min-width: 140px;">
+                                        <div class="card bg-dark text-white h-100">
+                                            <div class="card-body text-center p-3">
+                                                <h4 class="mb-1">${stats.holiday_days || 0}</h4>
+                                                <p class="mb-0 small">Holiday</p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

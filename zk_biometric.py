@@ -1018,9 +1018,8 @@ class AttendanceSync:
                         date = record['timestamp'].date()
                         time_val = record['timestamp'].time()
 
-                        # IMPORTANT: Only sync check-in automatically from ZK device
-                        # Check-out, overtime-in, and overtime-out must be user-selected
-                        if record['punch'] == 0:  # Check In only
+                        # AUTOMATIC SYNC: Handle both check-in and check-out from ZK device
+                        if record['punch'] == 0:  # Check In
                             # Check if record already exists
                             existing = db.execute('''
                                 SELECT id FROM attendance
@@ -1050,9 +1049,31 @@ class AttendanceSync:
                                 ''', (staff_id, school_id, date, time_str, status))
                                 synced_count += 1
 
-                        # NOTE: Removed automatic check-out sync (punch == 1)
-                        # Check-out must be explicitly selected by user through biometric verification
-                        # This ensures user has control over when they check-out, overtime-in, overtime-out
+                        elif record['punch'] == 1:  # Check Out - AUTO SYNC ENABLED
+                            # Check if attendance record exists for check-out update
+                            existing = db.execute('''
+                                SELECT id, time_out FROM attendance
+                                WHERE staff_id = ? AND date = ?
+                            ''', (staff_id, date)).fetchone()
+
+                            if existing:
+                                # Only update if no check-out time exists yet (prevent overwriting)
+                                if not existing['time_out']:
+                                    # Convert time to string format for SQLite
+                                    time_str = time_val.strftime('%H:%M:%S')
+
+                                    db.execute('''
+                                        UPDATE attendance
+                                        SET time_out = ?
+                                        WHERE staff_id = ? AND date = ?
+                                    ''', (time_str, staff_id, date))
+                                    synced_count += 1
+                                    logger.info(f"Auto-synced check-out time {time_str} for staff {staff_id} on {date}")
+                            else:
+                                # No check-in record found, log warning but don't create orphan check-out
+                                logger.warning(f"Check-out sync skipped: No check-in record found for staff {staff_id} on {date}")
+
+                        # Note: Overtime-in (punch == 4) and overtime-out (punch == 5) remain manual only
                         
                     except Exception as e:
                         logger.error(f"Error syncing record {record}: {str(e)}")
