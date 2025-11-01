@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', function () {
         loadComprehensiveStaffProfile(staffId);
     });
 
-    function loadComprehensiveStaffProfile(staffId) {
+    function loadComprehensiveStaffProfile(staffId, year = null, month = null) {
         // Show loading state
         const modalContent = document.getElementById('staffProfileModalContent');
         const modalTitle = document.getElementById('staffProfileModalLabel');
@@ -149,15 +149,21 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
         `;
 
+        // Build URL with optional year/month parameters
+        let url = `/get_comprehensive_staff_profile?id=${staffId}`;
+        if (year && month) {
+            url += `&year=${year}&month=${month}`;
+        }
+
         // Load comprehensive staff profile data
-        fetch(`/get_comprehensive_staff_profile?id=${staffId}`)
+        fetch(url)
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
                     if (modalTitle) {
                         modalTitle.textContent = `Staff Profile - ${data.staff.full_name}`;
                     }
-                    renderComprehensiveStaffProfile(data);
+                    renderComprehensiveStaffProfile(data, staffId);
 
                     // Set up modal buttons
                     setupStaffProfileButtons(staffId, data.staff);
@@ -179,7 +185,7 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
-    function renderComprehensiveStaffProfile(data) {
+    function renderComprehensiveStaffProfile(data, staffId) {
         const modalContent = document.getElementById('staffProfileModalContent');
         if (!modalContent) {
             console.error('Staff profile modal content element not found');
@@ -193,6 +199,11 @@ document.addEventListener('DOMContentLoaded', function () {
             late_days: 0,
             absent_days: 0,
             attendance_rate: 0
+        };
+        const monthInfo = data.month_info || {
+            year: new Date().getFullYear(),
+            month: new Date().getMonth() + 1,
+            month_name: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
         };
 
     modalContent.innerHTML = `
@@ -232,9 +243,20 @@ document.addEventListener('DOMContentLoaded', function () {
             <div class="row mb-4">
                 <div class="col-12">
                     <div class="card">
-                        <div class="card-header bg-light">
-                            <h5 class="mb-0"><i class="bi bi-graph-up"></i> Attendance Statistics (Current Month)</h5>
-                            <small class="text-muted">Comprehensive attendance overview for ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} - Total working days (Mon-Sat): ${stats.working_days}</small>
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-0"><i class="bi bi-graph-up"></i> Attendance Statistics</h5>
+                                <small class="text-muted">Comprehensive attendance overview for ${monthInfo.month_name} - Total working days (Mon-Sat): ${stats.working_days}</small>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="navigateMonth(${staffId}, ${monthInfo.year}, ${monthInfo.month}, -1)" title="Previous Month">
+                                    <i class="bi bi-chevron-left"></i>
+                                </button>
+                                <span class="mx-2 fw-bold">${monthInfo.month_name}</span>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="navigateMonth(${staffId}, ${monthInfo.year}, ${monthInfo.month}, 1)" title="Next Month">
+                                    <i class="bi bi-chevron-right"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="overflow-auto" style="white-space: nowrap;">
@@ -368,8 +390,13 @@ document.addEventListener('DOMContentLoaded', function () {
             <div class="tab-content mt-3" id="staffProfileTabContent">
                 <!-- Attendance Records Tab -->
                 <div class="tab-pane fade show active" id="attendance-pane" role="tabpanel">
-                    <div class="alert alert-info mb-3">
-                        <i class="bi bi-info-circle"></i> Showing comprehensive attendance records for the <strong>current month</strong> including all working days
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="alert alert-info mb-0 flex-grow-1 me-3">
+                            <i class="bi bi-info-circle"></i> Showing comprehensive attendance records for <strong>${monthInfo.month_name}</strong> including all working days
+                        </div>
+                        <button type="button" class="btn btn-success" onclick="downloadAttendanceReport(${staffId}, ${monthInfo.year}, ${monthInfo.month})" title="Download Report">
+                            <i class="bi bi-download"></i> Download Report
+                        </button>
                     </div>
                     <div class="table-responsive">
                         <table class="table table-striped table-hover">
@@ -626,6 +653,60 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }, 100);
     }
+
+    // Month navigation function (make it global)
+    window.navigateMonth = function(staffId, currentYear, currentMonth, direction) {
+        let newYear = currentYear;
+        let newMonth = currentMonth + direction;
+        
+        if (newMonth > 12) {
+            newMonth = 1;
+            newYear++;
+        } else if (newMonth < 1) {
+            newMonth = 12;
+            newYear--;
+        }
+        
+        // Don't allow navigation to future months
+        const now = new Date();
+        const currentDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        const targetDate = new Date(newYear, newMonth - 1, 1);
+        
+        if (targetDate > currentDate) {
+            alert('Cannot view future months');
+            return;
+        }
+        
+        // Reload profile with new month
+        loadComprehensiveStaffProfile(staffId, newYear, newMonth);
+    };
+
+    // Download attendance report function (make it global)
+    window.downloadAttendanceReport = function(staffId, year, month) {
+        const downloadBtn = event.target;
+        const originalText = downloadBtn.innerHTML;
+        
+        // Show loading state
+        downloadBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Generating...';
+        downloadBtn.disabled = true;
+        
+        // Create download URL
+        const url = `/download_staff_attendance_report?id=${staffId}&year=${year}&month=${month}`;
+        
+        // Create temporary link and trigger download
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Reset button after a short delay
+        setTimeout(() => {
+            downloadBtn.innerHTML = originalText;
+            downloadBtn.disabled = false;
+        }, 2000);
+    };
 
     function setupStaffProfileButtons(staffId, staff) {
         // Edit Profile Button

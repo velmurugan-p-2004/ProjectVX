@@ -7861,6 +7861,17 @@ def get_comprehensive_staff_profile():
     if not staff_id:
         return jsonify({'success': False, 'error': 'Staff ID required'})
 
+    # Get year and month parameters for viewing past records
+    year = request.args.get('year', type=int)
+    month = request.args.get('month', type=int)
+    
+    # Default to current month if not specified
+    today = datetime.date.today()
+    if not year:
+        year = today.year
+    if not month:
+        month = today.month
+
     db = get_db()
 
     try:
@@ -7875,9 +7886,16 @@ def get_comprehensive_staff_profile():
         if not staff:
             return jsonify({'success': False, 'error': 'Staff not found'})
 
-        # Get attendance records for current month - existing records from database
-        today = datetime.date.today()
-        first_day_of_month = today.replace(day=1)
+        # Calculate month boundaries for the requested month
+        first_day_of_month = datetime.date(year, month, 1)
+        if month == 12:
+            last_day_of_month = datetime.date(year + 1, 1, 1) - datetime.timedelta(days=1)
+        else:
+            last_day_of_month = datetime.date(year, month + 1, 1) - datetime.timedelta(days=1)
+        
+        # For current month, limit to today's date
+        if year == today.year and month == today.month:
+            last_day_of_month = min(last_day_of_month, today)
         
         existing_attendance = db.execute('''
             SELECT date, time_in, time_out, status,
@@ -7885,9 +7903,9 @@ def get_comprehensive_staff_profile():
             FROM attendance
             WHERE staff_id = ? AND date >= ? AND date <= ?
             ORDER BY date DESC
-        ''', (staff_id, first_day_of_month, today)).fetchall()
+        ''', (staff_id, first_day_of_month, last_day_of_month)).fetchall()
 
-        # Get approved leaves for the current month
+        # Get approved leaves for the requested month
         approved_leaves = db.execute('''
             SELECT start_date, end_date
             FROM leave_applications
@@ -7896,9 +7914,9 @@ def get_comprehensive_staff_profile():
               AND ((start_date BETWEEN ? AND ?) 
                    OR (end_date BETWEEN ? AND ?)
                    OR (start_date <= ? AND end_date >= ?))
-        ''', (staff_id, first_day_of_month, today, 
-              first_day_of_month, today, 
-              first_day_of_month, today)).fetchall()
+        ''', (staff_id, first_day_of_month, last_day_of_month, 
+              first_day_of_month, last_day_of_month, 
+              first_day_of_month, last_day_of_month)).fetchall()
 
         # Create a set of leave dates
         leave_dates = set()
@@ -7924,20 +7942,21 @@ def get_comprehensive_staff_profile():
         # Import holiday checking function
         from database import is_holiday
         
-        # Get staff department for holiday checking
-        staff_department = staff['department'] if staff and 'department' in staff else None
+        # Get staff department for holiday checking  
+        staff_dict = dict(staff) if staff else {}
+        staff_department = staff_dict.get('department')
         
-        # Generate complete attendance records for all working days in current month
+        # Generate complete attendance records for all working days in requested month
         current_date = first_day_of_month
         
-        while current_date <= today:
+        while current_date <= last_day_of_month:
             # Skip Sundays (weekday 6)
             if current_date.weekday() < 6:  # Monday to Saturday
                 date_str = current_date.strftime('%Y-%m-%d')
                 
                 if date_str not in attendance_dict:
                     # Check if this date is a holiday
-                    staff_school_id = staff['school_id'] if staff and 'school_id' in staff else None
+                    staff_school_id = staff_dict.get('school_id')
                     is_date_holiday = is_holiday(current_date, department=staff_department, school_id=staff_school_id)
                     
                     # Determine status for missing days
@@ -7945,8 +7964,8 @@ def get_comprehensive_staff_profile():
                         status = 'holiday'
                     elif current_date in leave_dates:
                         status = 'leave'
-                    elif current_date == today:
-                        # Don't create absent record for today if it's still ongoing
+                    elif current_date == today and year == today.year and month == today.month:
+                        # Don't create absent record for today if it's still ongoing (current month only)
                         current_date += datetime.timedelta(days=1)
                         continue
                     else:
@@ -7965,7 +7984,7 @@ def get_comprehensive_staff_profile():
                 else:
                     # Check existing records for holiday status override
                     existing_record = attendance_dict[date_str]
-                    staff_school_id = staff['school_id'] if staff and 'school_id' in staff else None
+                    staff_school_id = staff_dict.get('school_id')
                     is_date_holiday = is_holiday(current_date, department=staff_department, school_id=staff_school_id)
                     
                     # If it's a holiday but marked as absent, update to holiday
@@ -7977,13 +7996,13 @@ def get_comprehensive_staff_profile():
         # Convert back to list and sort by date (newest first)
         attendance = sorted(attendance_dict.values(), key=lambda x: x['date'], reverse=True)
 
-        # Get biometric verifications for current month
+        # Get biometric verifications for requested month
         verifications = db.execute('''
             SELECT verification_type, verification_time, verification_status, device_ip
             FROM biometric_verifications
-            WHERE staff_id = ? AND DATE(verification_time) >= ?
+            WHERE staff_id = ? AND DATE(verification_time) BETWEEN ? AND ?
             ORDER BY verification_time DESC
-        ''', (staff_id, first_day_of_month)).fetchall()
+        ''', (staff_id, first_day_of_month, last_day_of_month)).fetchall()
 
         # Get leave applications
         leaves = db.execute('''
@@ -8027,8 +8046,8 @@ def get_comprehensive_staff_profile():
                     working_days += 1
             return working_days
         
-        # Calculate actual working days in current month
-        current_month_working_days = calculate_working_days_in_month(today.year, today.month)
+        # Calculate actual working days in requested month
+        current_month_working_days = calculate_working_days_in_month(year, month)
         
         # Calculate accurate attendance statistics
         total_recorded_days = len(attendance)
@@ -8062,7 +8081,12 @@ def get_comprehensive_staff_profile():
             'leaves': [dict(l) for l in leaves],
             'on_duty_applications': [dict(od) for od in on_duty_applications],
             'permission_applications': [dict(p) for p in permission_applications],
-            'attendance_stats': attendance_stats
+            'attendance_stats': attendance_stats,
+            'month_info': {
+                'year': year,
+                'month': month,
+                'month_name': datetime.date(year, month, 1).strftime('%B %Y')
+            }
         })
 
     except Exception as e:
@@ -8070,6 +8094,275 @@ def get_comprehensive_staff_profile():
             'success': False,
             'error': f'Failed to get staff profile: {str(e)}'
         })
+
+@app.route('/download_staff_attendance_report')
+def download_staff_attendance_report():
+    """Download staff attendance report for a specific month"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    staff_id = request.args.get('id')
+    year = request.args.get('year', type=int)
+    month = request.args.get('month', type=int)
+    
+    if not staff_id:
+        return jsonify({'success': False, 'error': 'Staff ID required'})
+    
+    # Default to current month if not specified
+    today = datetime.date.today()
+    if not year:
+        year = today.year
+    if not month:
+        month = today.month
+
+    try:
+        # Import ExcelReportGenerator
+        from excel_reports import ExcelReportGenerator
+        
+        excel_generator = ExcelReportGenerator()
+        
+        # Convert year/month to start_date and end_date
+        start_date = datetime.date(year, month, 1)
+        if month == 12:
+            end_date = datetime.date(year + 1, 1, 1) - datetime.timedelta(days=1)
+        else:
+            end_date = datetime.date(year, month + 1, 1) - datetime.timedelta(days=1)
+        
+        # Get staff name for filename and validate staff exists
+        db = get_db()
+        staff = db.execute('SELECT full_name FROM staff WHERE id = ?', (staff_id,)).fetchone()
+        
+        if not staff:
+            return jsonify({'success': False, 'error': 'Staff member not found'})
+        
+        staff_name = staff['full_name'] if staff and staff['full_name'] else 'Staff'
+        
+        # Clean staff name for filename
+        clean_name = ''.join(c for c in staff_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        if not clean_name:
+            clean_name = f"Staff_{staff_id}"
+        
+        month_name = datetime.date(year, month, 1).strftime('%B_%Y')
+        filename = f"{clean_name}_Attendance_Report_{month_name}.xlsx"
+        
+        # Create Excel workbook directly using openpyxl
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        import io
+        
+        # Create new workbook
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Attendance Report"
+        
+        # Add title and metadata
+        ws['A1'] = f"Attendance Report - {staff_name}"
+        ws['A1'].font = Font(bold=True, size=16)
+        ws['A2'] = f"Period: {month_name}"
+        ws['A2'].font = Font(bold=True, size=12)
+        ws['A3'] = f"Generated: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        ws['A3'].font = Font(size=10, italic=True)
+        
+        # Get existing attendance records for the month
+        existing_attendance = db.execute('''
+            SELECT date, time_in, time_out, status, on_duty_type, on_duty_location, on_duty_purpose
+            FROM attendance
+            WHERE staff_id = ? AND date >= ? AND date <= ?
+            ORDER BY date DESC
+        ''', (staff_id, start_date, end_date)).fetchall()
+
+        # Get approved leaves for the month
+        approved_leaves = db.execute('''
+            SELECT start_date, end_date
+            FROM leave_applications
+            WHERE staff_id = ? 
+              AND status = 'approved'
+              AND ((start_date BETWEEN ? AND ?) 
+                   OR (end_date BETWEEN ? AND ?)
+                   OR (start_date <= ? AND end_date >= ?))
+        ''', (staff_id, start_date, end_date, 
+              start_date, end_date, 
+              start_date, end_date)).fetchall()
+
+        # Create a set of leave dates
+        leave_dates = set()
+        for leave in approved_leaves:
+            leave_start = datetime.datetime.strptime(leave['start_date'], '%Y-%m-%d').date()
+            leave_end = datetime.datetime.strptime(leave['end_date'], '%Y-%m-%d').date()
+            current_date = max(leave_start, start_date)
+            end_date_capped = min(leave_end, end_date)
+            
+            while current_date <= end_date_capped:
+                if current_date.weekday() < 6:  # Monday to Saturday
+                    leave_dates.add(current_date)
+                current_date += datetime.timedelta(days=1)
+
+        # Create comprehensive attendance records including missing days
+        attendance_dict = {}
+        
+        # Add existing records
+        for record in existing_attendance:
+            date_str = record['date']
+            attendance_dict[date_str] = dict(record)
+        
+        # Import holiday checking function
+        from database import is_holiday
+        
+        # Get staff department for holiday checking
+        staff_dept = db.execute('SELECT department, school_id FROM staff WHERE id = ?', (staff_id,)).fetchone()
+        staff_department = staff_dept['department'] if staff_dept else None
+        staff_school_id = staff_dept['school_id'] if staff_dept else None
+        
+        # Generate complete attendance records for all working days
+        current_date = start_date
+        today = datetime.date.today()
+        
+        while current_date <= end_date:
+            # Skip Sundays (weekday 6)
+            if current_date.weekday() < 6:  # Monday to Saturday
+                date_str = current_date.strftime('%Y-%m-%d')
+                
+                if date_str not in attendance_dict:
+                    # Check if this date is a holiday
+                    is_date_holiday = is_holiday(current_date, department=staff_department, school_id=staff_school_id)
+                    
+                    # Determine status for missing days
+                    if is_date_holiday:
+                        status = 'Holiday'
+                    elif current_date in leave_dates:
+                        status = 'Leave'
+                    elif current_date == today and year == today.year and month == today.month:
+                        # Don't create absent record for today if it's still ongoing (current month only)
+                        current_date += datetime.timedelta(days=1)
+                        continue
+                    else:
+                        status = 'Absent'
+                    
+                    # Create missing attendance record
+                    attendance_dict[date_str] = {
+                        'date': date_str,
+                        'time_in': None,
+                        'time_out': None,
+                        'status': status,
+                        'on_duty_type': None,
+                        'on_duty_location': None,
+                        'on_duty_purpose': None
+                    }
+                else:
+                    # Check existing records for holiday status override
+                    existing_record = attendance_dict[date_str]
+                    is_date_holiday = is_holiday(current_date, department=staff_department, school_id=staff_school_id)
+                    
+                    # If it's a holiday but marked as absent, update to holiday
+                    if is_date_holiday and existing_record['status'] == 'absent':
+                        existing_record['status'] = 'Holiday'
+            
+            current_date += datetime.timedelta(days=1)
+        
+        # Convert back to list and sort by date (newest first)
+        all_attendance = sorted(attendance_dict.values(), key=lambda x: x['date'], reverse=True)
+        
+        # Calculate statistics for summary
+        present_count = len([r for r in all_attendance if r['status'] and r['status'].lower() in ['present', 'late']])
+        absent_count = len([r for r in all_attendance if r['status'] and r['status'].lower() == 'absent'])
+        leave_count = len([r for r in all_attendance if r['status'] and r['status'].lower() == 'leave'])
+        holiday_count = len([r for r in all_attendance if r['status'] and r['status'].lower() == 'holiday'])
+        on_duty_count = len([r for r in all_attendance if r['status'] and r['status'].lower() == 'on_duty'])
+        # Working days should be total calendar working days (Mon-Sat) minus holidays
+        total_working_days = _get_working_days_in_month(year, month) - holiday_count
+        
+        # Add summary statistics
+        ws['A5'] = "Summary Statistics:"
+        ws['A5'].font = Font(bold=True, size=12)
+        ws['A6'] = f"Total Working Days: {total_working_days}"
+        ws['A7'] = f"Present: {present_count}"
+        ws['A8'] = f"Absent: {absent_count}"
+        ws['A9'] = f"Leave: {leave_count}"
+        ws['A10'] = f"Holiday: {holiday_count}"
+        ws['A11'] = f"On Duty: {on_duty_count}"
+        
+        # Add headers
+        headers = ['Date', 'Day', 'Time In', 'Time Out', 'Status', 'On Duty Type', 'Location', 'Purpose']
+        header_row = 13
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=header_row, column=col, value=header)
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+            cell.font = Font(bold=True, color="FFFFFF")
+        
+        # Add data rows
+        row = 14
+        if all_attendance:
+            for record in all_attendance:
+                date_obj = datetime.datetime.strptime(record['date'], '%Y-%m-%d').date()
+                day_name = date_obj.strftime('%A')
+                formatted_date = date_obj.strftime('%d/%m/%Y')
+                
+                # Set row background color based on status
+                status = record['status'] or 'Unknown'
+                
+                ws.cell(row=row, column=1, value=formatted_date)
+                ws.cell(row=row, column=2, value=day_name)
+                ws.cell(row=row, column=3, value=record['time_in'] or '--:--')
+                ws.cell(row=row, column=4, value=record['time_out'] or '--:--')
+                ws.cell(row=row, column=5, value=status.title())
+                ws.cell(row=row, column=6, value=record['on_duty_type'] or '')
+                ws.cell(row=row, column=7, value=record['on_duty_location'] or '')
+                ws.cell(row=row, column=8, value=record['on_duty_purpose'] or '')
+                
+                # Color coding for different statuses
+                if status.lower() == 'absent':
+                    fill_color = PatternFill(start_color="FFE6E6", end_color="FFE6E6", fill_type="solid")  # Light red
+                elif status.lower() == 'leave':
+                    fill_color = PatternFill(start_color="E6F3FF", end_color="E6F3FF", fill_type="solid")  # Light blue
+                elif status.lower() == 'holiday':
+                    fill_color = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")  # Light gray
+                elif status.lower() in ['present', 'late']:
+                    fill_color = PatternFill(start_color="E6FFE6", end_color="E6FFE6", fill_type="solid")  # Light green
+                else:
+                    fill_color = None
+                
+                if fill_color:
+                    for col in range(1, 9):
+                        ws.cell(row=row, column=col).fill = fill_color
+                
+                row += 1
+        else:
+            # Add "No records found" message if no data
+            ws.cell(row=row, column=1, value="No attendance records found for this period")
+            ws.merge_cells(f'A{row}:H{row}')
+            ws.cell(row=row, column=1).font = Font(italic=True)
+            ws.cell(row=row, column=1).alignment = Alignment(horizontal='center')
+        
+        # Auto-adjust column widths
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = (max_length + 2) * 1.2
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save to BytesIO
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # Create response
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response.headers['Cache-Control'] = 'no-cache'
+        response.headers['Content-Length'] = str(len(output.getvalue()))
+        
+        return response
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to generate report: {str(e)}'})
 
 def _get_working_days_in_month(year: int, month: int) -> int:
     """Calculate working days in a month (excluding only Sundays)"""
