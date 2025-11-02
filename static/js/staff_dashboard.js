@@ -249,11 +249,59 @@ document.addEventListener('DOMContentLoaded', function() {
     // Global variables for biometric verification
     let isVerificationInProgress = false;
 
+    // Update current date display
+    const currentDateElement = document.getElementById('currentDate');
+    if (currentDateElement) {
+        const today = new Date();
+        const options = { 
+            weekday: 'short', 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric' 
+        };
+        const dateStr = today.toLocaleDateString('en-US', options);
+        currentDateElement.textContent = dateStr;
+    }
+
     // Load today's attendance status on page load
     loadTodayAttendanceStatus();
 
     // Start automatic polling for device verifications
     startDevicePolling();
+
+    // Refresh attendance data every minute
+    setInterval(loadTodayAttendanceStatus, 60000);
+    
+    // Update total hours every 30 seconds for ongoing work
+    setInterval(function() {
+        const totalHours = document.getElementById('totalHours');
+        if (totalHours && totalHours.textContent.includes('(live)')) {
+            // Only update if we're showing live hours
+            loadTodayAttendanceStatus();
+        }
+    }, 30000);
+
+    // Add refresh button functionality
+    const refreshBtn = document.getElementById('refreshDataBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            // Show loading state
+            const originalText = refreshBtn.innerHTML;
+            refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise spinning"></i> Refreshing...';
+            refreshBtn.disabled = true;
+
+            // Reload attendance data
+            loadTodayAttendanceStatus();
+
+            // Reset button after 2 seconds
+            setTimeout(() => {
+                refreshBtn.innerHTML = originalText;
+                refreshBtn.disabled = false;
+            }, 2000);
+        });
+    }
+
+    // Test functionality removed - attendance display working correctly
 
     // Removed device status check (no longer needed)
 
@@ -264,6 +312,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.success) {
                     updateAttendanceDisplay(data.attendance);
                     // Removed verification history and available actions (no longer needed)
+                } else {
+                    console.error('Failed to load attendance status:', data.error);
                 }
             })
             .catch(error => {
@@ -275,73 +325,91 @@ document.addEventListener('DOMContentLoaded', function() {
         const currentStatus = document.getElementById('currentStatus');
         const timeIn = document.getElementById('timeIn');
         const timeOut = document.getElementById('timeOut');
-        const workStatus = document.getElementById('workStatus');
         const totalHours = document.getElementById('totalHours');
-
-        // Update today's status widget
-        const todayStatusText = document.getElementById('todayStatusText');
-        const todayCheckIn = document.getElementById('todayCheckIn');
-        const todayCheckOut = document.getElementById('todayCheckOut');
 
         if (attendance) {
             timeIn.textContent = attendance.time_in || '--:--:--';
             timeOut.textContent = attendance.time_out || '--:--:--';
 
-            // Update today's status widget
-            todayCheckIn.textContent = attendance.time_in || '--:--';
-            todayCheckOut.textContent = attendance.time_out || '--:--';
-
             // Calculate total hours worked
             let totalHoursText = '--:--';
             if (attendance.time_in && attendance.time_out) {
+                // Both check-in and check-out times are available
                 const timeInDate = new Date(`2000-01-01 ${attendance.time_in}`);
                 const timeOutDate = new Date(`2000-01-01 ${attendance.time_out}`);
                 const diffMs = timeOutDate - timeInDate;
-                const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-                const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-                totalHoursText = `${diffHours}:${diffMinutes.toString().padStart(2, '0')}`;
+                
+                if (diffMs > 0) {
+                    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                    totalHoursText = `${diffHours}:${diffMinutes.toString().padStart(2, '0')} hrs`;
+                } else {
+                    totalHoursText = 'Invalid time';
+                }
+            } else if (attendance.time_in && !attendance.time_out) {
+                // Only checked in, calculate hours worked so far (ongoing)
+                const timeInDate = new Date(`2000-01-01 ${attendance.time_in}`);
+                const now = new Date();
+                const currentTimeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+                const currentTime = new Date(`2000-01-01 ${currentTimeStr}`);
+                const diffMs = currentTime - timeInDate;
+                
+                if (diffMs > 0) {
+                    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                    totalHoursText = `${diffHours}:${diffMinutes.toString().padStart(2, '0')} (live)`;
+                    
+                    // Add a pulsing indicator for ongoing work
+                    if (totalHours) {
+                        totalHours.style.color = '#0d6efd';
+                        totalHours.style.animation = 'pulse 2s infinite';
+                    }
+                } else {
+                    totalHoursText = 'Just started';
+                }
+            } else {
+                // No check-in yet
+                totalHoursText = '--:--';
+                if (totalHours) {
+                    totalHours.style.color = '';
+                    totalHours.style.animation = '';
+                }
             }
             totalHours.textContent = totalHoursText;
 
-            // Update status based on attendance
-            let statusText, statusClass, todayStatusClass, workStatusText;
+            // Update status based on attendance with proper badge styling
+            let statusText, badgeClass;
             if (attendance.time_out) {
                 statusText = 'Work Complete';
-                statusClass = 'text-success';
-                todayStatusClass = 'text-success';
-                todayStatusText.textContent = '✅ Work Complete';
-                workStatusText = 'Checked Out';
+                badgeClass = 'badge bg-success';
             } else if (attendance.time_in) {
-                statusText = 'Checked In';
-                statusClass = 'text-primary';
-                todayStatusClass = 'text-primary';
-                todayStatusText.textContent = '🟢 Checked In';
-                workStatusText = 'Working';
+                // Check if the person is late based on attendance status
+                if (attendance.status && attendance.status.toLowerCase() === 'late') {
+                    statusText = 'Present (Late)';
+                    badgeClass = 'badge bg-warning';
+                } else {
+                    statusText = 'Present';
+                    badgeClass = 'badge bg-primary';
+                }
             } else {
                 statusText = 'Not Marked';
-                statusClass = 'text-secondary';
-                todayStatusClass = 'text-secondary';
-                todayStatusText.textContent = '⚪ Not Marked';
-                workStatusText = 'Not Checked In';
+                badgeClass = 'badge bg-secondary';
             }
 
             currentStatus.textContent = statusText;
-            currentStatus.className = statusClass;
-            todayStatusText.className = todayStatusClass;
-            workStatus.textContent = workStatusText;
+            currentStatus.className = badgeClass;
         } else {
             currentStatus.textContent = 'Not Marked';
-            currentStatus.className = 'text-secondary';
+            currentStatus.className = 'badge bg-secondary';
             timeIn.textContent = '--:--:--';
             timeOut.textContent = '--:--:--';
-            workStatus.textContent = 'Not Checked In';
             totalHours.textContent = '--:--';
-
-            // Update today's status widget
-            todayStatusText.textContent = '⚪ Not Marked';
-            todayStatusText.className = 'text-secondary';
-            todayCheckIn.textContent = '--:--';
-            todayCheckOut.textContent = '--:--';
+            
+            // Reset any styles
+            if (totalHours) {
+                totalHours.style.color = '';
+                totalHours.style.animation = '';
+            }
         }
     }
 

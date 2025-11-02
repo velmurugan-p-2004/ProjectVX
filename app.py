@@ -601,11 +601,20 @@ def get_today_attendance_status():
     # Format attendance times to 12-hour format
     formatted_attendance = format_attendance_times_to_12hr(attendance) if attendance else None
 
+    # Debug information
+    debug_info = {
+        'staff_id': staff_id,
+        'today': str(today),
+        'attendance_found': attendance is not None,
+        'raw_attendance': dict(attendance) if attendance else None
+    }
+
     return jsonify({
         'success': True,
         'attendance': formatted_attendance,
         'verifications': [dict(v) for v in verifications],
-        'available_actions': available_actions
+        'available_actions': available_actions,
+        'debug': debug_info
     })
 
 def get_staff_status_for_date(staff_id, date, school_id, db):
@@ -8867,6 +8876,8 @@ def staff_preview_pay_slip():
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'Failed to generate pay slip preview: {str(e)}'})
+
+# Test route removed - attendance functionality working correctly
 
 @app.route('/fix_staff_names', methods=['POST'])
 def fix_staff_names():
