@@ -5871,6 +5871,9 @@ def add_staff_enhanced():
         if 'destination' in column_names and destination:
             insert_columns.append('destination')
             insert_values.append(destination)
+        if 'position' in column_names and destination:
+            insert_columns.append('position')
+            insert_values.append(destination)  # Use the same value for position
         if 'gender' in column_names and gender:
             insert_columns.append('gender')
             insert_values.append(gender)
@@ -6156,6 +6159,9 @@ def update_staff_enhanced():
         if 'destination' in column_names:
             update_parts.append('destination = ?')
             update_values.append(destination)
+        if 'position' in column_names:
+            update_parts.append('position = ?')
+            update_values.append(destination)  # Use the same value for position
         if 'gender' in column_names:
             update_parts.append('gender = ?')
             update_values.append(gender)
@@ -8057,17 +8063,20 @@ def get_comprehensive_staff_profile():
         on_duty_days = len([a for a in attendance if a['status'] == 'on_duty'])
         leave_days = len([a for a in attendance if a['status'] == 'leave'])
         holiday_days = len([a for a in attendance if a['status'] == 'holiday'])
+        
+        # Calculate actual working days (Monday-Saturday minus holidays)
+        actual_working_days = current_month_working_days - holiday_days
 
         attendance_stats = {
             'total_recorded_days': total_recorded_days,
-            'working_days': current_month_working_days,
+            'working_days': actual_working_days,
             'present_days': present_days,
             'absent_days': absent_days,
             'late_days': late_days,
             'on_duty_days': on_duty_days,
             'leave_days': leave_days,
             'holiday_days': holiday_days,
-            'attendance_rate': round((present_days / current_month_working_days * 100) if current_month_working_days > 0 else 0, 1)
+            'attendance_rate': round((present_days / actual_working_days * 100) if actual_working_days > 0 else 0, 1)
         }
 
         # Format attendance times to 12-hour format
