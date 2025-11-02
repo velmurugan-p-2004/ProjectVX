@@ -8778,6 +8778,48 @@ def staff_attendance_calendar():
         'leaves': [dict(l) for l in leaves]
     })
 
+@app.route('/staff/download_pay_slip', methods=['POST'])
+def staff_download_pay_slip():
+    """Generate and download pay slip for staff member"""
+    if 'user_id' not in session or session['user_type'] != 'staff':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    staff_db_id = session['user_id']
+    year = request.form.get('year', type=int)
+    month = request.form.get('month', type=int)
+
+    if not all([year, month]):
+        return jsonify({'success': False, 'error': 'Year and month are required'})
+
+    try:
+        db = get_db()
+        school_id = session.get('school_id')
+        
+        # Get staff information including staff_id
+        staff_info = db.execute('''
+            SELECT id, staff_id, full_name, department, position, basic_salary
+            FROM staff WHERE id = ? AND school_id = ?
+        ''', (staff_db_id, school_id)).fetchone()
+        
+        if not staff_info:
+            return jsonify({'success': False, 'error': 'Staff information not found'})
+        
+        # Initialize salary calculator
+        salary_calculator = SalaryCalculator(school_id=school_id)
+        
+        # Generate salary data for the staff member
+        result = salary_calculator.generate_salary_report(staff_db_id, year, month)
+        
+        if not result['success']:
+            return jsonify({'success': False, 'error': result.get('error', 'Failed to generate salary data')})
+        
+        # Generate PDF pay slip
+        pdf_response = generate_individual_salary_slip_pdf(result, year, month)
+        return pdf_response
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to generate pay slip: {str(e)}'})
+
 @app.route('/fix_staff_names', methods=['POST'])
 def fix_staff_names():
     """
