@@ -691,6 +691,83 @@
             font-weight: 500;
         }
 
+        /* Month Navigation Styles */
+        .holiday-month-navigation {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .holiday-month-navigation .btn {
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+        }
+
+        #currentMonthDisplay {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #495057;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        /* Past Holiday Blackout Styles */
+        .holiday-item.past-holiday {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-color: rgba(0,0,0,0.05);
+            opacity: 0.6;
+            position: relative;
+        }
+
+        .holiday-item.past-holiday::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(108, 117, 125, 0.1);
+            border-radius: 8px;
+            pointer-events: none;
+        }
+
+        .holiday-item.past-holiday .holiday-name {
+            color: #6c757d;
+            text-decoration: line-through;
+        }
+
+        .holiday-item.past-holiday .holiday-dates {
+            color: #adb5bd;
+        }
+
+        .holiday-item.past-holiday .holiday-type-badge {
+            background-color: #6c757d !important;
+            color: #fff !important;
+        }
+
+        .holiday-item.past-holiday .holiday-actions .btn {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        /* Past holiday border colors override */
+        .holiday-item.past-holiday.institution-wide {
+            border-left-color: #6c757d;
+        }
+
+        .holiday-item.past-holiday.department-specific {
+            border-left-color: #6c757d;
+        }
+
+        .holiday-item.past-holiday.common-leave {
+            border-left-color: #6c757d;
+        }
+
         /* FullCalendar Custom Styling - Enhanced Color Coding */
         .fc-event.holiday-event {
             border-radius: 8px;
@@ -714,6 +791,22 @@
             background: linear-gradient(135deg, #fd7e14 0%, #ffc107 100%);
             border-color: #fd7e14;
             color: #212529;
+        }
+
+        /* Calendar Date Hover Effect for Double-Click */
+        .fc-daygrid-day:hover {
+            background-color: rgba(13, 110, 253, 0.05);
+            cursor: pointer;
+        }
+        
+        .fc-daygrid-day:hover .fc-daygrid-day-number {
+            color: #0d6efd;
+            font-weight: 600;
+        }
+        
+        /* Add subtle animation for better UX */
+        .fc-daygrid-day {
+            transition: background-color 0.2s ease;
         }
 
         /* Common leave holidays - Blue/Purple gradient (general leave days) */
@@ -1101,7 +1194,7 @@
                         </div>
                         <div class="header-content">
                             <h5 class="card-title">Holiday Management System</h5>
-                            <p class="card-subtitle">Manage institutional holidays, common leaves, and weekly offs</p>
+                            <p class="card-subtitle">Manage institutional holidays, common leaves, and weekly offs • <i class="bi bi-hand-index"></i> Double-click calendar dates to add holidays</p>
                         </div>
                         <div class="header-actions">
                             <button type="button" class="btn btn-primary" id="addHolidayBtn">
@@ -1150,9 +1243,22 @@
                             <!-- Holiday List -->
                             <div class="col-md-4">
                                 <div class="holiday-list-section">
-                                    <h6 class="section-title">
-                                        <i class="bi bi-list-check text-success"></i> Holiday List
-                                    </h6>
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h6 class="section-title mb-0">
+                                            <i class="bi bi-list-check text-success"></i> Holiday List
+                                        </h6>
+                                        
+                                        <!-- Month Navigation Controls -->
+                                        <div class="holiday-month-navigation">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="prevMonthBtn" title="Previous Month">
+                                                <i class="bi bi-chevron-left"></i>
+                                            </button>
+                                            <span class="mx-2 text-nowrap" id="currentMonthDisplay">Current Month</span>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="nextMonthBtn" title="Next Month">
+                                                <i class="bi bi-chevron-right"></i>
+                                            </button>
+                                        </div>
+                                    </div>
                                     
                                     <!-- Loading and Messages -->
                                     <div class="text-center py-3" id="holidaysLoading" style="display: none;">
@@ -1163,7 +1269,7 @@
                                     </div>
                                     
                                     <div class="alert alert-info" id="noHolidaysMessage" style="display: none;">
-                                        <i class="bi bi-info-circle"></i> No holidays configured yet. Click "Add Holiday" to get started.
+                                        <i class="bi bi-info-circle"></i> No holidays configured for this month. Click "Add Holiday" to get started.
                                     </div>
 
                                     <!-- Holiday Items Container -->
@@ -2012,8 +2118,15 @@
         // Holiday Management Global Variables
         let holidayCalendar;
         let currentHolidays = [];
+        let allHolidays = []; // Store all holidays for filtering
+        let currentViewMonth = new Date(); // Current month being viewed
         let editingHolidayId = null;
         let weeklyOffDays = []; // Weekly off disabled
+        
+        // Double-click detection variables
+        let lastClickedDate = null;
+        let lastClickTime = 0;
+        let doubleClickDelay = 300; // milliseconds
 
         // Initialize Holiday Management System
         function initializeHolidayManagement() {
@@ -2025,6 +2138,9 @@
                 
                 // Setup event listeners
                 setupHolidayEventListeners();
+                
+                // Initialize month navigation
+                initializeMonthNavigation();
                 
                 // Load existing holidays
                 loadHolidays();
@@ -2066,8 +2182,8 @@
                 windowResizeDelay: 100,
                 events: function(fetchInfo, successCallback, failureCallback) {
                     try {
-                        // Convert holidays to calendar events
-                        const holidayEvents = currentHolidays.map(holiday => ({
+                        // Convert ALL holidays to calendar events (not just current month filter)
+                        const holidayEvents = allHolidays.map(holiday => ({
                             id: holiday.id,
                             title: holiday.holiday_name,
                             start: holiday.start_date,
@@ -2096,6 +2212,10 @@
                 },
                 eventClick: function(info) {
                     showHolidayDetails(info.event);
+                },
+                dateClick: function(info) {
+                    // Handle double-click to add holiday
+                    handleCalendarDateClick(info);
                 },
                 eventDidMount: function(info) {
                     // Enhanced tooltips with color coding information
@@ -2174,6 +2294,135 @@
             document.getElementById('confirmDeleteHolidayBtn')?.addEventListener('click', function() {
                 confirmDeleteHoliday();
             });
+
+            // Month navigation event listeners
+            document.getElementById('prevMonthBtn')?.addEventListener('click', function() {
+                navigateMonth(-1);
+            });
+
+            document.getElementById('nextMonthBtn')?.addEventListener('click', function() {
+                navigateMonth(1);
+            });
+        }
+
+        // Initialize Month Navigation
+        function initializeMonthNavigation() {
+            currentViewMonth = new Date();
+            updateMonthDisplay();
+        }
+
+        // Navigate to previous/next month
+        function navigateMonth(direction) {
+            currentViewMonth.setMonth(currentViewMonth.getMonth() + direction);
+            updateMonthDisplay();
+            filterHolidaysByMonth();
+        }
+
+        // Update month display text
+        function updateMonthDisplay() {
+            const monthNames = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'
+            ];
+            
+            const displayText = `${monthNames[currentViewMonth.getMonth()]} ${currentViewMonth.getFullYear()}`;
+            const displayEl = document.getElementById('currentMonthDisplay');
+            if (displayEl) {
+                displayEl.textContent = displayText;
+            }
+        }
+
+        // Filter holidays by current month
+        function filterHolidaysByMonth() {
+            const currentMonth = currentViewMonth.getMonth();
+            const currentYear = currentViewMonth.getFullYear();
+            
+            // Filter holidays that fall within the current viewing month
+            currentHolidays = allHolidays.filter(holiday => {
+                const startDate = new Date(holiday.start_date);
+                const endDate = new Date(holiday.end_date);
+                
+                // Check if holiday overlaps with current month
+                const monthStart = new Date(currentYear, currentMonth, 1);
+                const monthEnd = new Date(currentYear, currentMonth + 1, 0);
+                
+                return (startDate <= monthEnd && endDate >= monthStart);
+            });
+            
+            console.log(`📅 Filtered ${currentHolidays.length} holidays for ${currentViewMonth.toLocaleDateString()}`);
+            displayHolidaysList();
+            updateHolidayCalendar();
+        }
+
+        // Handle calendar date click (double-click detection)
+        function handleCalendarDateClick(info) {
+            const clickedDate = info.dateStr;
+            const currentTime = new Date().getTime();
+            
+            // Check if this is a double-click
+            if (lastClickedDate === clickedDate && 
+                (currentTime - lastClickTime) < doubleClickDelay) {
+                
+                // This is a double-click - open add holiday modal with pre-filled date
+                console.log('📅 Double-click detected on date:', clickedDate);
+                openHolidayModalWithDate(clickedDate);
+                
+                // Reset click tracking
+                lastClickedDate = null;
+                lastClickTime = 0;
+            } else {
+                // This is a single click - just track it
+                lastClickedDate = clickedDate;
+                lastClickTime = currentTime;
+            }
+        }
+
+        // Open holiday modal with pre-filled date
+        function openHolidayModalWithDate(dateStr) {
+            // Check if a modal is already open to prevent multiple modals
+            const existingModal = document.querySelector('.modal.show');
+            if (existingModal) {
+                console.log('⚠️ Modal already open, ignoring double-click');
+                return;
+            }
+            
+            console.log('🎯 Opening holiday modal for date:', dateStr);
+            
+            // Show a brief success message to confirm double-click was detected
+            const dateObj = new Date(dateStr);
+            const formattedDate = dateObj.toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            
+            // Optional: Show a brief notification (you can uncomment this if you want visual feedback)
+            // showHolidaySuccess(`Adding holiday for ${formattedDate}...`);
+            
+            // Open the modal in add mode
+            openHolidayModal();
+            
+            // Pre-fill the date fields after modal is shown
+            setTimeout(() => {
+                const startDateInput = document.getElementById('startDate');
+                const endDateInput = document.getElementById('endDate');
+                
+                if (startDateInput) {
+                    startDateInput.value = dateStr;
+                }
+                if (endDateInput) {
+                    endDateInput.value = dateStr;
+                }
+                
+                // Focus on holiday name field for immediate input
+                const holidayNameInput = document.getElementById('holidayName');
+                if (holidayNameInput) {
+                    holidayNameInput.focus();
+                }
+                
+                console.log(`✅ Holiday modal opened with pre-filled date: ${dateStr} (${formattedDate})`);
+            }, 100); // Small delay to ensure modal is fully rendered
         }
 
         // Load Holidays from API
@@ -2200,10 +2449,11 @@
             .then(data => {
                 console.log('📋 Holidays API response data:', data);
                 if (data.success) {
-                    currentHolidays = data.holidays || [];
-                    console.log(`📋 Loaded ${currentHolidays.length} holidays`);
-                    displayHolidaysList();
-                    updateHolidayCalendar();
+                    allHolidays = data.holidays || [];
+                    console.log(`📋 Loaded ${allHolidays.length} total holidays`);
+                    
+                    // Filter holidays for current month
+                    filterHolidaysByMonth();
                 } else {
                     const message = data.message || 'Unknown error';
                     console.error('❌ API returned error:', message);
@@ -2243,7 +2493,15 @@
                 const endDate = new Date(holiday.end_date).toLocaleDateString();
                 const dateRange = startDate === endDate ? startDate : `${startDate} - ${endDate}`;
 
+                // Check if holiday is in the past
+                const today = new Date();
+                today.setHours(0, 0, 0, 0); // Reset time to start of day for accurate comparison
+                const holidayEndDate = new Date(holiday.end_date);
+                const isPastHoliday = holidayEndDate < today;
+
                 const typeClass = holiday.holiday_type.replace('_', '-');
+                const pastClass = isPastHoliday ? 'past-holiday' : '';
+                
                 let typeBadge = '';
                 
                 switch (holiday.holiday_type) {
@@ -2268,21 +2526,27 @@
                     ? `<div class="text-muted small mt-1"><i class="bi bi-info-circle"></i> ${holiday.description}</div>`
                     : '';
 
+                // Add past holiday indicator
+                const pastIndicator = isPastHoliday 
+                    ? `<div class="text-muted small mt-1"><i class="bi bi-clock-history"></i> Past Holiday</div>`
+                    : '';
+
                 return `
-                    <div class="holiday-item ${typeClass}" data-holiday-id="${holiday.id}">
+                    <div class="holiday-item ${typeClass} ${pastClass}" data-holiday-id="${holiday.id}">
                         <div class="holiday-name">${holiday.holiday_name}</div>
                         <div class="holiday-dates">
                             <i class="bi bi-calendar-date"></i> ${dateRange}
                         </div>
                         ${departmentInfo}
                         ${description}
+                        ${pastIndicator}
                         <div class="d-flex justify-content-between align-items-center mt-2">
                             ${typeBadge}
                             <div class="holiday-actions">
-                                <button class="btn btn-outline-primary btn-sm" onclick="editHoliday(${holiday.id})" title="Edit Holiday">
+                                <button class="btn btn-outline-primary btn-sm" onclick="editHoliday(${holiday.id})" title="Edit Holiday" ${isPastHoliday ? 'disabled' : ''}>
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-outline-danger btn-sm" onclick="deleteHoliday(${holiday.id}, '${holiday.holiday_name.replace(/'/g, '\\\'')}')" title="Delete Holiday">
+                                <button class="btn btn-outline-danger btn-sm" onclick="deleteHoliday(${holiday.id}, '${holiday.holiday_name.replace(/'/g, '\\\'')}')" title="Delete Holiday" ${isPastHoliday ? 'disabled' : ''}>
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </div>

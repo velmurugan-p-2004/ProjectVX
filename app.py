@@ -338,7 +338,7 @@ def school_details(school_id):
         SELECT id, staff_id, full_name, department, position, email, phone
         FROM staff
         WHERE school_id = ?
-        ORDER BY full_name
+        ORDER BY CAST(staff_id AS INTEGER) ASC
     ''', (school_id,)).fetchall()
 
     # Get attendance summary
@@ -747,7 +747,7 @@ def get_realtime_attendance():
         FROM staff s
         LEFT JOIN attendance a ON s.id = a.staff_id AND a.date = ?
         WHERE s.school_id = ?
-        ORDER BY s.full_name
+        ORDER BY CAST(s.staff_id AS INTEGER) ASC
     ''', (today, school_id)).fetchall()
 
     # Build attendance data with correct status logic
@@ -1482,7 +1482,7 @@ def test_performance_report_json():
                 s.date_of_joining
             FROM staff s
             WHERE s.school_id = ? AND s.is_active = 1 {dept_clause}
-            ORDER BY s.department, s.full_name
+            ORDER BY CAST(s.staff_id AS INTEGER) ASC
         """
         
         staff_rows = db.execute(staff_performance_query, tuple(staff_params)).fetchall()
@@ -1633,7 +1633,7 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
                s.date_of_joining
         FROM staff s
         WHERE {' AND '.join(where_conditions)}
-        ORDER BY s.department, s.full_name
+        ORDER BY CAST(s.staff_id AS INTEGER) ASC
     '''
 
     staff_data = db.execute(staff_query, params).fetchall()
@@ -1744,7 +1744,7 @@ def generate_staff_directory_report(school_id, format_type):
                s.created_at
         FROM staff s
         WHERE s.school_id = ?
-        ORDER BY s.department, s.full_name
+        ORDER BY CAST(s.staff_id AS INTEGER) ASC
     ''', (school_id,)).fetchall()
 
     # Common headers and rows for all formats
@@ -1963,7 +1963,7 @@ def generate_payroll_summary_report(school_id, year, month, format_type):
             s.date_of_joining
         FROM staff s
         WHERE s.school_id = ? AND s.is_active = 1 {dept_clause}
-        ORDER BY s.department, s.full_name
+        ORDER BY CAST(s.staff_id AS INTEGER) ASC
     """
     
     staff_rows = db.execute(staff_query, tuple(staff_params)).fetchall()
@@ -2374,7 +2374,7 @@ def generate_department_salary_report(school_id, year, department, format_type):
         query += " AND department = ?"
         params.append(department.strip())
     
-    query += " ORDER BY department, full_name"
+    query += " ORDER BY CAST(staff_id AS INTEGER) ASC"
     
     staff_data = db.execute(query, params).fetchall()
     
@@ -2906,7 +2906,7 @@ def generate_department_analysis_report(school_id, year=None, month=None, format
                COALESCE(gender,'Other') AS gender, date_of_joining, COALESCE(basic_salary,0) AS basic_salary
         FROM staff
         WHERE school_id = ? AND COALESCE(department, '') <> ''
-        ORDER BY department, full_name
+        ORDER BY CAST(staff_id AS INTEGER) ASC
         """, (school_id,)
     ).fetchall()
     ws3 = wb.create_sheet(title='Staff Details')
@@ -2998,7 +2998,7 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
             
         FROM staff s
         WHERE s.school_id = ? AND s.is_active = 1 {dept_clause[24:] if dept_clause else ''}
-        ORDER BY s.department, s.full_name
+        ORDER BY CAST(s.staff_id AS INTEGER) ASC
     """
 
     # Adjust parameters for staff query (remove date parameters)
@@ -3403,7 +3403,7 @@ def generate_daily_attendance_report(school_id, date_str=None, department=None, 
         FROM staff s
         LEFT JOIN attendance a ON a.staff_id = s.id AND a.date = ?
         WHERE s.school_id = ? {dept_clause}
-        ORDER BY s.department, s.full_name
+        ORDER BY CAST(s.staff_id AS INTEGER) ASC
     """
     rows = db.execute(query, tuple(params)).fetchall()
 
@@ -4237,7 +4237,7 @@ def staff_management():
                position, gender, phone, email, shift_type, photo_url
         FROM staff
         WHERE school_id = ?
-        ORDER BY full_name
+        ORDER BY CAST(staff_id AS INTEGER) ASC
     ''', (school_id,)).fetchall()
 
     # Get department shift mappings for reference
@@ -4449,7 +4449,7 @@ def admin_dashboard():
         SELECT id, staff_id, full_name, department, position
         FROM staff
         WHERE school_id = ?
-        ORDER BY full_name
+        ORDER BY CAST(staff_id AS INTEGER) ASC
     ''', (school_id,)).fetchall()
 
     # Get pending leave applications
@@ -4489,7 +4489,7 @@ def admin_dashboard():
         FROM staff s
         LEFT JOIN attendance a ON s.id = a.staff_id AND a.date = ?
         WHERE s.school_id = ?
-        ORDER BY s.full_name
+        ORDER BY CAST(s.staff_id AS INTEGER) ASC
     ''', (today, school_id)).fetchall()
     
     # Calculate attendance summary with correct status logic
@@ -4836,7 +4836,7 @@ def export_comprehensive_dashboard_data(school_id, export_format='excel'):
         FROM staff s
         LEFT JOIN attendance a ON s.id = a.staff_id AND a.date = ?
         WHERE s.school_id = ?
-        ORDER BY s.full_name
+        ORDER BY CAST(s.staff_id AS INTEGER) ASC
     ''', (today, school_id)).fetchall()
 
     for row_idx, record in enumerate(today_attendance, 2):
@@ -6232,7 +6232,7 @@ def export_staff_excel():
                    position, gender, phone, email, shift_type, created_at
             FROM staff
             WHERE school_id = ?
-            ORDER BY full_name
+            ORDER BY CAST(staff_id AS INTEGER) ASC
         ''', (school_id,)).fetchall()
 
         # Create proper Excel file using openpyxl
@@ -6483,7 +6483,7 @@ def preview_staff_shift_changes():
             JOIN department_shift_mappings dsm ON s.department = dsm.department AND s.school_id = dsm.school_id
             WHERE s.school_id = ? AND s.department IS NOT NULL AND s.department != ''
             AND (s.shift_type IS NULL OR s.shift_type != dsm.default_shift_type)
-            ORDER BY s.department, s.full_name
+            ORDER BY CAST(s.staff_id AS INTEGER) ASC
         ''', (school_id,)).fetchall()
 
         changes_list = [dict(change) for change in changes]
@@ -6845,7 +6845,7 @@ def search_staff():
         SELECT id, staff_id, full_name, department, position
         FROM staff
         WHERE school_id = ? AND full_name LIKE ?
-        ORDER BY full_name
+        ORDER BY CAST(staff_id AS INTEGER) ASC
     ''', (session['school_id'], f"%{search_term}%")).fetchall()
 
     # Get pending leave applications
@@ -9286,6 +9286,8 @@ def bulk_salary_calculation():
         if department:
             query += ' AND department = ?'
             params.append(department)
+            
+        query += ' ORDER BY CAST(staff_id AS INTEGER) ASC'
 
         staff_list = get_db().execute(query, params).fetchall()
 
@@ -11453,7 +11455,7 @@ def api_staff_list():
             SELECT id, staff_id, full_name, department, position
             FROM staff
             WHERE school_id = ?
-            ORDER BY full_name
+            ORDER BY CAST(staff_id AS INTEGER) ASC
         ''', (school_id,)).fetchall()
         
         staff_list = []
