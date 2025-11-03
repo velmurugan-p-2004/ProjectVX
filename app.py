@@ -5144,16 +5144,66 @@ def apply_leave():
     end_date = request.form.get('end_date')
     reason = request.form.get('reason')
 
+    # Validate required fields
+    if not all([leave_type, start_date, end_date, reason]):
+        return jsonify({'success': False, 'error': 'Please fill all required fields'})
+
+    # Calculate requested days
+    try:
+        start = datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
+        end = datetime.datetime.strptime(end_date, '%Y-%m-%d').date()
+        requested_days = (end - start).days + 1
+        
+        if requested_days <= 0:
+            return jsonify({'success': False, 'error': 'End date must be after or equal to start date'})
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid date format'})
+
     db = get_db()
+    current_year = datetime.datetime.now().year
+    
+    # Initialize quotas if not exists
+    initialize_staff_quotas(staff_id, school_id, current_year)
+    
+    # CRITICAL: Check quota availability (Server-Side Validation)
+    quota = db.execute("""
+        SELECT allocated_days, used_days, (allocated_days - used_days) as remaining_days
+        FROM staff_leave_quotas 
+        WHERE staff_id = ? AND quota_year = ? AND leave_type = ?
+    """, (staff_id, current_year, leave_type)).fetchone()
+    
+    if not quota:
+        return jsonify({
+            'success': False, 
+            'error': f'No quota found for {leave_type}. Please contact administrator.'
+        })
+    
+    # Check A: Zero Balance
+    if quota['remaining_days'] <= 0:
+        return jsonify({
+            'success': False,
+            'error': f'Application Failed: You have used all your available {leave_type}.'
+        })
+    
+    # Check B: Insufficient Balance
+    if requested_days > quota['remaining_days']:
+        return jsonify({
+            'success': False,
+            'error': f'Application Failed: Your request for {requested_days} {leave_type} days exceeds your remaining balance of {quota["remaining_days"]} day{"s" if quota["remaining_days"] != 1 else ""}.'
+        })
 
-    db.execute('''
-        INSERT INTO leave_applications
-        (staff_id, school_id, leave_type, start_date, end_date, reason)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (staff_id, school_id, leave_type, start_date, end_date, reason))
-    db.commit()
+    # If quota checks pass, submit the application
+    try:
+        db.execute('''
+            INSERT INTO leave_applications
+            (staff_id, school_id, leave_type, start_date, end_date, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (staff_id, school_id, leave_type, start_date, end_date, reason))
+        db.commit()
 
-    return jsonify({'success': True})
+        return jsonify({'success': True, 'message': 'Leave application submitted successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to submit application: {str(e)}'})
 
 @app.route('/apply_on_duty', methods=['POST'])
 def apply_on_duty():
@@ -5175,8 +5225,51 @@ def apply_on_duty():
     if not all([duty_type, start_date, end_date, purpose]):
         return jsonify({'success': False, 'error': 'Please fill all required fields'})
 
-    db = get_db()
+    # Calculate requested days
+    try:
+        start = datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
+        end = datetime.datetime.strptime(end_date, '%Y-%m-%d').date()
+        requested_days = (end - start).days + 1
+        
+        if requested_days <= 0:
+            return jsonify({'success': False, 'error': 'End date must be after or equal to start date'})
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid date format'})
 
+    db = get_db()
+    current_year = datetime.datetime.now().year
+    
+    # Initialize quotas if not exists
+    initialize_staff_quotas(staff_id, school_id, current_year)
+    
+    # CRITICAL: Check quota availability (Server-Side Validation)
+    quota = db.execute("""
+        SELECT allocated_days, used_days, (allocated_days - used_days) as remaining_days
+        FROM staff_od_quotas 
+        WHERE staff_id = ? AND quota_year = ?
+    """, (staff_id, current_year)).fetchone()
+    
+    if not quota:
+        return jsonify({
+            'success': False, 
+            'error': 'No On Duty quota found. Please contact administrator.'
+        })
+    
+    # Check A: Zero Balance
+    if quota['remaining_days'] <= 0:
+        return jsonify({
+            'success': False,
+            'error': 'Application Failed: You have used all your available On Duty days.'
+        })
+    
+    # Check B: Insufficient Balance
+    if requested_days > quota['remaining_days']:
+        return jsonify({
+            'success': False,
+            'error': f'Application Failed: Your request for {requested_days} On Duty days exceeds your remaining balance of {quota["remaining_days"]} day{"s" if quota["remaining_days"] != 1 else ""}.'
+        })
+
+    # If quota checks pass, submit the application
     try:
         db.execute('''
             INSERT INTO on_duty_applications
@@ -5208,9 +5301,8 @@ def apply_permission():
 
     # Calculate duration in hours
     try:
-        from datetime import datetime
-        start_dt = datetime.strptime(start_time, '%H:%M')
-        end_dt = datetime.strptime(end_time, '%H:%M')
+        start_dt = datetime.datetime.strptime(start_time, '%H:%M')
+        end_dt = datetime.datetime.strptime(end_time, '%H:%M')
         duration = (end_dt - start_dt).total_seconds() / 3600
 
         if duration <= 0:
@@ -5220,7 +5312,39 @@ def apply_permission():
         return jsonify({'success': False, 'error': 'Invalid time format'})
 
     db = get_db()
+    current_year = datetime.datetime.now().year
+    
+    # Initialize quotas if not exists
+    initialize_staff_quotas(staff_id, school_id, current_year)
+    
+    # CRITICAL: Check quota availability (Server-Side Validation)
+    quota = db.execute("""
+        SELECT allocated_hours, used_hours, (allocated_hours - used_hours) as remaining_hours
+        FROM staff_permission_quotas 
+        WHERE staff_id = ? AND quota_year = ?
+    """, (staff_id, current_year)).fetchone()
+    
+    if not quota:
+        return jsonify({
+            'success': False, 
+            'error': 'No Permission quota found. Please contact administrator.'
+        })
+    
+    # Check A: Zero Balance
+    if quota['remaining_hours'] <= 0:
+        return jsonify({
+            'success': False,
+            'error': 'Application Failed: You have used all your available Permission hours.'
+        })
+    
+    # Check B: Insufficient Balance
+    if duration > quota['remaining_hours']:
+        return jsonify({
+            'success': False,
+            'error': f'Application Failed: Your request for {duration} hours exceeds your remaining balance of {quota["remaining_hours"]} hour{"s" if quota["remaining_hours"] != 1 else ""}.'
+        })
 
+    # If quota checks pass, submit the application
     try:
         db.execute('''
             INSERT INTO permission_applications
@@ -12155,6 +12279,157 @@ def generate_usage_report():
             'success': False,
             'message': 'Failed to generate usage report'
         }), 500
+
+
+# =======================================
+# QUOTA MANAGEMENT API ENDPOINTS
+# =======================================
+
+@app.route('/api/staff/<int:staff_id>/quotas')
+def get_staff_quotas(staff_id):
+    """Get staff quota information for current year"""
+    try:
+        if 'user_id' not in session:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        
+        # Ensure staff can only access their own quotas
+        if session['user_type'] == 'staff' and session['user_id'] != staff_id:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
+        
+        db = get_db()
+        current_year = datetime.datetime.now().year
+        
+        # Get staff info
+        staff = db.execute("""
+            SELECT staff_id, full_name, school_id FROM staff WHERE id = ?
+        """, (staff_id,)).fetchone()
+        
+        if not staff:
+            return jsonify({'success': False, 'error': 'Staff not found'}), 404
+        
+        school_id = staff['school_id']
+        
+        # Initialize quotas if not exists
+        initialize_staff_quotas(staff_id, school_id, current_year)
+        
+        # Get quota information
+        quotas = {}
+        
+        # Leave quotas (by leave type)
+        leave_quotas = db.execute("""
+            SELECT leave_type, allocated_days, used_days,
+                   (allocated_days - used_days) as remaining_days
+            FROM staff_leave_quotas 
+            WHERE staff_id = ? AND quota_year = ?
+        """, (staff_id, current_year)).fetchall()
+        
+        quotas['leave'] = {}
+        for quota in leave_quotas:
+            quotas['leave'][quota['leave_type']] = {
+                'allocated': quota['allocated_days'],
+                'used': quota['used_days'],
+                'remaining': quota['remaining_days']
+            }
+        
+        # On Duty quota
+        od_quota = db.execute("""
+            SELECT allocated_days, used_days,
+                   (allocated_days - used_days) as remaining_days
+            FROM staff_od_quotas 
+            WHERE staff_id = ? AND quota_year = ?
+        """, (staff_id, current_year)).fetchone()
+        
+        if od_quota:
+            quotas['od'] = {
+                'allocated': od_quota['allocated_days'],
+                'used': od_quota['used_days'],
+                'remaining': od_quota['remaining_days']
+            }
+        
+        # Permission quota
+        permission_quota = db.execute("""
+            SELECT allocated_hours, used_hours,
+                   (allocated_hours - used_hours) as remaining_hours
+            FROM staff_permission_quotas 
+            WHERE staff_id = ? AND quota_year = ?
+        """, (staff_id, current_year)).fetchone()
+        
+        if permission_quota:
+            quotas['permission'] = {
+                'allocated': float(permission_quota['allocated_hours']),
+                'used': float(permission_quota['used_hours']),
+                'remaining': float(permission_quota['remaining_hours'])
+            }
+        
+        return jsonify({
+            'success': True,
+            'quotas': quotas,
+            'staff_info': {
+                'staff_id': staff['staff_id'],
+                'name': staff['full_name']
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error fetching staff quotas: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Failed to fetch quota information'
+        }), 500
+
+
+def initialize_staff_quotas(staff_id, school_id, year):
+    """Initialize default quotas for staff if not exists"""
+    db = get_db()
+    
+    try:
+        # Initialize leave quotas
+        leave_types = ['CL', 'SL', 'EL', 'ML', 'PL']
+        default_allocations = {'CL': 12, 'SL': 10, 'EL': 21, 'ML': 90, 'PL': 7}
+        
+        for leave_type in leave_types:
+            existing = db.execute("""
+                SELECT id FROM staff_leave_quotas 
+                WHERE staff_id = ? AND quota_year = ? AND leave_type = ?
+            """, (staff_id, year, leave_type)).fetchone()
+            
+            if not existing:
+                db.execute("""
+                    INSERT INTO staff_leave_quotas 
+                    (staff_id, school_id, quota_year, leave_type, allocated_days, used_days)
+                    VALUES (?, ?, ?, ?, ?, 0)
+                """, (staff_id, school_id, year, leave_type, default_allocations.get(leave_type, 12)))
+        
+        # Initialize OD quota
+        existing_od = db.execute("""
+            SELECT id FROM staff_od_quotas 
+            WHERE staff_id = ? AND quota_year = ?
+        """, (staff_id, year)).fetchone()
+        
+        if not existing_od:
+            db.execute("""
+                INSERT INTO staff_od_quotas 
+                (staff_id, school_id, quota_year, allocated_days, used_days)
+                VALUES (?, ?, ?, 20, 0)
+            """, (staff_id, school_id, year))
+        
+        # Initialize permission quota
+        existing_permission = db.execute("""
+            SELECT id FROM staff_permission_quotas 
+            WHERE staff_id = ? AND quota_year = ?
+        """, (staff_id, year)).fetchone()
+        
+        if not existing_permission:
+            db.execute("""
+                INSERT INTO staff_permission_quotas 
+                (staff_id, school_id, quota_year, allocated_hours, used_hours)
+                VALUES (?, ?, ?, 40.0, 0.0)
+            """, (staff_id, school_id, year))
+        
+        db.commit()
+        
+    except Exception as e:
+        print(f"Error initializing quotas: {e}")
 
 
 if __name__ == '__main__':
