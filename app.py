@@ -10292,6 +10292,18 @@ def generate_individual_salary_slip_pdf(salary_data, year, month):
         attendance = breakdown['attendance_summary']
         earnings = breakdown['earnings']
         deductions = breakdown['deductions']
+        
+        # Calculate net salary with fallback logic
+        net_salary = breakdown.get('net_salary', 0)
+        total_earnings = earnings.get('total_earnings', 0)
+        total_deductions = deductions.get('total_deductions', 0)
+        
+        # If net_salary is missing or zero, calculate it manually
+        if not net_salary or net_salary == 0:
+            net_salary = total_earnings - total_deductions
+            print(f"DEBUG: Net salary missing or zero, calculated fallback: {total_earnings} - {total_deductions} = {net_salary}")
+        
+        print(f"DEBUG: Staff: {staff_info.get('full_name', 'Unknown')}, Total Earnings: {total_earnings}, Total Deductions: {total_deductions}, Net Salary: {net_salary}")
 
         # Create PDF buffer
         buffer = io.BytesIO()
@@ -10410,30 +10422,30 @@ def generate_individual_salary_slip_pdf(salary_data, year, month):
             elements.append(holiday_table)
             elements.append(Spacer(1, 20))
 
-        # Earnings and Deductions Table
+        # Earnings and Deductions Table with safe property access
         salary_data = [
             ['EARNINGS', 'Amount (₹)', 'DEDUCTIONS', 'Amount (₹)'],
-            ['Basic Salary', f'{earnings["basic_salary"]:,.2f}', 'Absent Days Deduction', f'{deductions["absent_deduction"]:,.2f}'],
-            ['HRA', f'{earnings["hra"]:,.2f}', 'PF Deduction', f'{deductions["pf_deduction"]:,.2f}'],
-            ['Transport Allowance', f'{earnings["transport_allowance"]:,.2f}', 'ESI Deduction', f'{deductions["esi_deduction"]:,.2f}'],
-            ['Other Allowances', f'{earnings["other_allowances"]:,.2f}', 'Professional Tax', f'{deductions["professional_tax"]:,.2f}'],
-            ['Present Days Pay', f'{earnings["present_pay"]:,.2f}', 'Early Departure Penalty', f'{deductions["early_departure_penalty"]:,.2f}'],
-            ['On Duty Pay', f'{earnings["on_duty_pay"]:,.2f}', 'Late Arrival Penalty', f'{deductions["late_arrival_penalty"]:,.2f}'],
-            ['Leave Pay', f'{earnings["leave_pay"]:,.2f}', 'Other Deductions', f'{deductions["other_deductions"]:,.2f}']
+            ['Basic Salary', f'{earnings.get("basic_salary", 0):,.2f}', 'Absent Days Deduction', f'{deductions.get("absent_deduction", 0):,.2f}'],
+            ['HRA', f'{earnings.get("hra", 0):,.2f}', 'PF Deduction', f'{deductions.get("pf_deduction", 0):,.2f}'],
+            ['Transport Allowance', f'{earnings.get("transport_allowance", 0):,.2f}', 'ESI Deduction', f'{deductions.get("esi_deduction", 0):,.2f}'],
+            ['Other Allowances', f'{earnings.get("other_allowances", 0):,.2f}', 'Professional Tax', f'{deductions.get("professional_tax", 0):,.2f}'],
+            ['Present Days Pay', f'{earnings.get("present_pay", 0):,.2f}', 'Early Departure Penalty', f'{deductions.get("early_departure_penalty", 0):,.2f}'],
+            ['On Duty Pay', f'{earnings.get("on_duty_pay", 0):,.2f}', 'Late Arrival Penalty', f'{deductions.get("late_arrival_penalty", 0):,.2f}'],
+            ['Leave Pay', f'{earnings.get("leave_pay", 0):,.2f}', 'Other Deductions', f'{deductions.get("other_deductions", 0):,.2f}']
         ]
 
         # Add bonuses if they exist
         if earnings.get("early_arrival_bonus", 0) > 0:
-            salary_data.append(['Early Arrival Bonus', f'{earnings["early_arrival_bonus"]:,.2f}', '', ''])
+            salary_data.append(['Early Arrival Bonus', f'{earnings.get("early_arrival_bonus", 0):,.2f}', '', ''])
         if earnings.get("overtime_pay", 0) > 0:
-            salary_data.append(['Overtime Pay', f'{earnings["overtime_pay"]:,.2f}', '', ''])
+            salary_data.append(['Overtime Pay', f'{earnings.get("overtime_pay", 0):,.2f}', '', ''])
 
-        # Add totals
+        # Add totals with calculated net salary
         salary_data.extend([
             ['', '', '', ''],
-            ['TOTAL EARNINGS', f'{earnings["total_earnings"]:,.2f}', 'TOTAL DEDUCTIONS', f'{deductions["total_deductions"]:,.2f}'],
+            ['TOTAL EARNINGS', f'{total_earnings:,.2f}', 'TOTAL DEDUCTIONS', f'{total_deductions:,.2f}'],
             ['', '', '', ''],
-            ['NET SALARY', f'{breakdown["net_salary"]:,.2f}', '', '']
+            [f'NET SALARY: {net_salary:,.2f}', '', '', '']
         ])
 
         salary_table = Table(salary_data, colWidths=[2.5*inch, 1*inch, 2.5*inch, 1*inch])
@@ -10452,12 +10464,13 @@ def generate_individual_salary_slip_pdf(salary_data, year, month):
             ('BACKGROUND', (0, -4), (-1, -4), colors.lightgrey),
             ('FONTNAME', (0, -4), (-1, -4), 'Helvetica-Bold'),
             
-            # Net salary row
-            ('BACKGROUND', (0, -1), (1, -1), colors.darkgreen),
-            ('TEXTCOLOR', (0, -1), (1, -1), colors.white),
-            ('FONTNAME', (0, -1), (1, -1), 'Helvetica-Bold'),
-            ('SPAN', (0, -1), (1, -1)),
-            ('SPAN', (2, -1), (3, -1)),
+            # Net salary row - span across all columns
+            ('BACKGROUND', (0, -1), (-1, -1), colors.darkgreen),
+            ('TEXTCOLOR', (0, -1), (-1, -1), colors.white),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, -1), (-1, -1), 12),
+            ('SPAN', (0, -1), (-1, -1)),
+            ('ALIGN', (0, -1), (-1, -1), 'CENTER'),
         ]))
 
         elements.append(salary_table)
@@ -10494,6 +10507,8 @@ def generate_individual_salary_slip_pdf(salary_data, year, month):
             'error': 'PDF generation requires reportlab library. Please install it with: pip install reportlab'
         })
     except Exception as e:
+        print(f"ERROR in PDF generation: {str(e)}")
+        print(f"Salary data structure: {salary_data}")
         return jsonify({'success': False, 'error': f'Salary slip generation failed: {str(e)}'})
 
 @app.route('/get_staff_count')

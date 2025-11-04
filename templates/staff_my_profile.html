@@ -593,6 +593,185 @@
             border-radius: 2px;
             transition: width 0.3s ease;
         }
+
+        /* Pay Slip Preview Styling */
+        .pay-slip-preview {
+            font-family: 'Inter', sans-serif;
+            background: white;
+            border-radius: 0.5rem;
+            padding: 2rem;
+        }
+
+        .pay-slip-preview .card {
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .pay-slip-preview .card-header {
+            border-radius: 0.5rem 0.5rem 0 0 !important;
+        }
+
+        .pay-slip-preview .card-body p {
+            margin-bottom: 0.5rem;
+            font-size: 0.95rem;
+        }
+
+        .pay-slip-preview .d-flex {
+            margin-bottom: 0.25rem;
+        }
+
+        .pay-slip-preview .d-flex:last-child {
+            margin-bottom: 0;
+        }
+
+        .pay-slip-preview hr {
+            margin: 0.5rem 0;
+            border-color: rgba(0,0,0,0.1);
+        }
+
+        @media (max-width: 767.98px) {
+            .pay-slip-preview {
+                padding: 1rem;
+                font-size: 0.9rem;
+            }
+        }
+
+        /* PAY SLIP MODAL RESPONSIVE DESIGN                 */
+        /* Mobile Optimization for Pay Slip Modal          */
+        @media (max-width: 767.98px) {
+            #paySlipModal .modal-dialog {
+                margin: 0.5rem;
+                max-width: calc(100% - 1rem);
+                width: calc(100% - 1rem);
+            }
+
+            #paySlipModal .modal-content {
+                border-radius: 0.75rem;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                overflow: hidden;
+            }
+
+            #paySlipModal .modal-header {
+                padding: 1rem 1.25rem;
+                border-bottom: 1px solid rgba(255,255,255,0.2);
+            }
+
+            #paySlipModal .modal-title {
+                font-size: 1.1rem;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+            }
+
+            #paySlipModal .modal-body {
+                padding: 1.5rem 1.25rem;
+                max-height: 70vh;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: thin;
+                scrollbar-color: #cbd5e0 #f7fafc;
+            }
+
+            #paySlipModal #paySlipForm {
+                margin-bottom: 1.5rem;
+            }
+
+            #paySlipModal .alert {
+                padding: 0.875rem 1rem;
+                border-radius: 0.5rem;
+                border: none;
+                font-size: 0.9rem;
+            }
+
+            #paySlipModal .alert strong {
+                font-size: 0.95rem;
+                margin-bottom: 0.25rem;
+                display: block;
+            }
+
+            #paySlipModal .row {
+                margin: 0;
+                gap: 0;
+            }
+
+            /* Stack form fields vertically on mobile with proper spacing */
+            #paySlipModal .row .col-md-6 {
+                padding: 0;
+                margin-bottom: 1rem;
+            }
+
+            #paySlipModal .col-md-6 {
+                width: 100%;
+                max-width: 100%;
+                flex: 0 0 100%;
+            }
+
+            /* Improve form field appearance on mobile */
+            #paySlipModal .col-md-6:nth-child(1),
+            #paySlipModal .col-md-6:nth-child(2) {
+                padding-left: 0;
+                padding-right: 0;
+            }
+
+            /* Better label and input styling */
+            #paySlipModal .form-label {
+                font-size: 0.95rem;
+                font-weight: 600;
+                color: #374151;
+                margin-bottom: 0.5rem;
+                display: flex;
+                align-items: center;
+            }
+
+            #paySlipModal .mb-3 {
+                margin-bottom: 1.25rem !important;
+            }
+
+            /* Enhanced form select appearance */
+            #paySlipModal .form-select {
+                padding: 0.75rem 1rem;
+                font-size: 0.95rem;
+                border: 2px solid #e5e7eb;
+                border-radius: 0.5rem;
+                background-color: #f9fafb;
+                transition: all 0.3s ease;
+                -webkit-appearance: none;
+                -moz-appearance: none;
+                appearance: none;
+                background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='%23374151' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='m7.247 4.86-4.796 5.481c-.566.647-.106 1.659.753 1.659h9.592a1 1 0 0 0 .753-1.659l-4.796-5.48a1 1 0 0 0-1.506 0z'/%3e%3c/svg%3e");
+                background-repeat: no-repeat;
+                background-position: right 0.75rem center;
+                background-size: 16px 12px;
+            }
+
+            #paySlipModal .form-select:focus {
+                border-color: #3b82f6;
+                box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+                background-color: white;
+            }
+
+            /* Responsive preview section */
+            #paySlipModal #paySlipPreview {
+                margin-top: 1.5rem;
+                padding: 1rem;
+                border-radius: 0.5rem;
+            }
+
+            #paySlipModal #paySlipPreview .row {
+                margin: 0;
+            }
+
+            #paySlipModal #paySlipPreview .col-md-8,
+            #paySlipModal #paySlipPreview .col-md-4 {
+                padding: 0;
+                margin-bottom: 0.5rem;
+            }
+
+            #paySlipModal #paySlipPreview .col-md-4:last-child {
+                margin-bottom: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -664,6 +843,15 @@
                                         <i class="bi bi-person"></i>
                                     </div>
                                     <span class="nav-text">My Profile</span>
+                                    <div class="nav-indicator"></div>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="#" id="paySlipLink">
+                                    <div class="nav-icon">
+                                        <i class="bi bi-receipt"></i>
+                                    </div>
+                                    <span class="nav-text">Pay Slip</span>
                                     <div class="nav-indicator"></div>
                                 </a>
                             </li>
@@ -1611,6 +1799,157 @@
         </div>
     </div>
 
+    <!-- Pay Slip Modal -->
+    <div class="modal fade" id="paySlipModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-receipt"></i> Download Pay Slip
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info mb-4 d-flex align-items-start">
+                        <i class="bi bi-info-circle me-2 mt-1 flex-shrink-0"></i>
+                        <div>
+                            <strong class="d-block mb-1">Your Pay Slip Access</strong>
+                            <span class="small">Download your salary slip for any month. Please select the year and month below.</span>
+                        </div>
+                    </div>
+
+                    <form id="paySlipForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <div class="row g-3">
+                            <div class="col-md-6 col-12">
+                                <div class="mb-3">
+                                    <label for="paySlipYear" class="form-label fw-semibold">
+                                        <i class="bi bi-calendar-event me-1 text-primary"></i>Year
+                                    </label>
+                                    <select class="form-select form-select-lg" id="paySlipYear" name="year" required>
+                                        <option value="" selected disabled>Select year</option>
+                                        <!-- Years will be populated by JavaScript -->
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-12">
+                                <div class="mb-3">
+                                    <label for="paySlipMonth" class="form-label fw-semibold">
+                                        <i class="bi bi-calendar-month me-1 text-primary"></i>Month
+                                    </label>
+                                    <select class="form-select form-select-lg" id="paySlipMonth" name="month" required>
+                                        <option value="" selected disabled>Select month</option>
+                                        <option value="1">January</option>
+                                        <option value="2">February</option>
+                                        <option value="3">March</option>
+                                        <option value="4">April</option>
+                                        <option value="5">May</option>
+                                        <option value="6">June</option>
+                                        <option value="7">July</option>
+                                        <option value="8">August</option>
+                                        <option value="9">September</option>
+                                        <option value="10">October</option>
+                                        <option value="11">November</option>
+                                        <option value="12">December</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Pay Slip Preview Information -->
+                        <div class="alert alert-light border border-success" id="paySlipPreview" style="display: none;">
+                            <div class="row g-2 align-items-start align-items-md-center">
+                                <div class="col-md-8 col-12">
+                                    <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center">
+                                        <strong class="me-2 mb-1 mb-sm-0 text-success">
+                                            <i class="bi bi-receipt me-1"></i>Pay Slip:
+                                        </strong> 
+                                        <span id="paySlipPeriod" class="badge bg-success fs-6">-</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 col-12 text-start text-md-end">
+                                    <small class="text-muted d-flex align-items-center justify-content-start justify-content-md-end">
+                                        <i class="bi bi-person-badge me-1"></i>
+                                        Staff ID: <span id="paySlipStaffId" class="fw-bold ms-1">{{ staff.staff_id if staff else '-' }}</span>
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                    
+                    <div class="card mt-3 border-success shadow-sm">
+                        <div class="card-body p-3">
+                            <h6 class="card-title text-success d-flex align-items-center mb-3">
+                                <i class="bi bi-download me-2"></i>
+                                <span>Download Instructions</span>
+                            </h6>
+                            <div class="instructions-list">
+                                <div class="instruction-item d-flex align-items-start mb-2">
+                                    <i class="bi bi-check-circle text-success me-2 mt-1 flex-shrink-0"></i>
+                                    <span class="small">Select the year and month for your pay slip</span>
+                                </div>
+                                <div class="instruction-item d-flex align-items-start mb-2">
+                                    <i class="bi bi-check-circle text-success me-2 mt-1 flex-shrink-0"></i>
+                                    <span class="small">Click "Download Pay Slip" to generate PDF</span>
+                                </div>
+                                <div class="instruction-item d-flex align-items-start">
+                                    <i class="bi bi-check-circle text-success me-2 mt-1 flex-shrink-0"></i>
+                                    <span class="small">Your pay slip will be downloaded automatically</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-info d-flex align-items-center" id="previewPaySlip" disabled>
+                        <i class="bi bi-eye me-2"></i>
+                        <span class="d-none d-sm-inline">Preview Pay Slip</span>
+                        <span class="d-sm-none">Preview</span>
+                    </button>
+                    <button type="button" class="btn btn-success d-flex align-items-center" id="downloadPaySlip" disabled>
+                        <i class="bi bi-download me-2"></i>
+                        <span class="d-none d-sm-inline">Download Pay Slip</span>
+                        <span class="d-sm-none">Download</span>
+                    </button>
+                    <button type="button" class="btn btn-secondary d-flex align-items-center" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle me-2"></i>
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pay Slip Preview Modal -->
+    <div class="modal fade" id="paySlipPreviewModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-eye"></i> Pay Slip Preview
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="paySlipPreviewContent">
+                        <!-- Preview content will be loaded here -->
+                    </div>
+                </div>
+                <div class="modal-footer d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-success d-flex align-items-center" id="downloadFromPreview">
+                        <i class="bi bi-download me-2"></i>
+                        <span class="d-none d-sm-inline">Download This Pay Slip</span>
+                        <span class="d-sm-none">Download</span>
+                    </button>
+                    <button type="button" class="btn btn-secondary d-flex align-items-center" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle me-2"></i>
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
@@ -1762,6 +2101,385 @@
                 loadAsyncProfileData();
             }, 1000);
             */
+        });
+
+        // Set current staff ID for JavaScript access
+        window.currentStaffId = '{{ staff.staff_id if staff else "" }}';
+        window.staffDbId = '{{ session.get("user_id", "") }}';
+        
+        // Pay Slip Modal Functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            // Pay slip modal elements
+            const paySlipLink = document.getElementById('paySlipLink');
+            const paySlipModal = new bootstrap.Modal(document.getElementById('paySlipModal'));
+            const paySlipPreviewModal = new bootstrap.Modal(document.getElementById('paySlipPreviewModal'));
+            const paySlipYear = document.getElementById('paySlipYear');
+            const paySlipMonth = document.getElementById('paySlipMonth');
+            const paySlipPreview = document.getElementById('paySlipPreview');
+            const paySlipPeriod = document.getElementById('paySlipPeriod');
+            const previewPaySlipBtn = document.getElementById('previewPaySlip');
+            const downloadPaySlipBtn = document.getElementById('downloadPaySlip');
+            const paySlipPreviewContent = document.getElementById('paySlipPreviewContent');
+            const downloadFromPreviewBtn = document.getElementById('downloadFromPreview');
+            
+            // Populate years (current year and past 5 years)
+            const currentYear = new Date().getFullYear();
+            for (let year = currentYear; year >= currentYear - 5; year--) {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                paySlipYear.appendChild(option);
+            }
+            
+            // Open pay slip modal
+            if (paySlipLink) {
+                paySlipLink.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    paySlipModal.show();
+                });
+            }
+            
+            // Update preview when year/month changes
+            function updatePaySlipPreview() {
+                const year = paySlipYear.value;
+                const month = paySlipMonth.value;
+                
+                if (year && month) {
+                    const monthNames = [
+                        'January', 'February', 'March', 'April', 'May', 'June',
+                        'July', 'August', 'September', 'October', 'November', 'December'
+                    ];
+                    const monthName = monthNames[parseInt(month) - 1];
+                    paySlipPeriod.textContent = `${monthName} ${year}`;
+                    paySlipPreview.style.display = 'block';
+                    previewPaySlipBtn.disabled = false;
+                    downloadPaySlipBtn.disabled = false;
+                } else {
+                    paySlipPreview.style.display = 'none';
+                    previewPaySlipBtn.disabled = true;
+                    downloadPaySlipBtn.disabled = true;
+                }
+            }
+            
+            paySlipYear.addEventListener('change', updatePaySlipPreview);
+            paySlipMonth.addEventListener('change', updatePaySlipPreview);
+            
+            // Preview pay slip
+            previewPaySlipBtn.addEventListener('click', function() {
+                const year = paySlipYear.value;
+                const month = paySlipMonth.value;
+                
+                if (!year || !month) {
+                    showAlert('Please select both year and month', 'warning');
+                    return;
+                }
+                
+                previewStaffPaySlip(year, month);
+            });
+            
+            // Download pay slip
+            downloadPaySlipBtn.addEventListener('click', function() {
+                const year = paySlipYear.value;
+                const month = paySlipMonth.value;
+                
+                if (!year || !month) {
+                    showAlert('Please select both year and month', 'warning');
+                    return;
+                }
+                
+                downloadStaffPaySlip(year, month);
+            });
+            
+            // Download from preview
+            downloadFromPreviewBtn.addEventListener('click', function() {
+                const year = paySlipYear.value;
+                const month = paySlipMonth.value;
+                
+                if (!year || !month) {
+                    showAlert('Please select both year and month', 'warning');
+                    return;
+                }
+                
+                downloadStaffPaySlip(year, month);
+                paySlipPreviewModal.hide();
+            });
+            
+            // Function to preview staff pay slip
+            function previewStaffPaySlip(year, month) {
+                showAlert('<i class="bi bi-eye me-2"></i>Loading pay slip preview...', 'info');
+                
+                const formData = new FormData();
+                formData.append('year', year);
+                formData.append('month', month);
+                formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+                
+                fetch('/staff/preview_pay_slip', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    } else {
+                        return response.json().then(err => Promise.reject(err));
+                    }
+                })
+                .then(data => {
+                    if (data.success) {
+                        displayPaySlipPreview(data.data, year, month);
+                        paySlipModal.hide();
+                        paySlipPreviewModal.show();
+                        showAlert('<i class="bi bi-check-circle me-2"></i>Pay slip preview loaded successfully', 'success');
+                    } else {
+                        showAlert(`<i class="bi bi-exclamation-triangle me-2"></i>${data.error}`, 'danger');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error previewing pay slip:', error);
+                    const errorMessage = error.error || error.message || 'Error loading pay slip preview. Please try again.';
+                    showAlert(`<i class="bi bi-exclamation-triangle me-2"></i>${errorMessage}`, 'danger');
+                });
+            }
+            
+            // Function to display pay slip preview
+            function displayPaySlipPreview(salaryData, year, month) {
+                const monthNames = [
+                    'January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November', 'December'
+                ];
+                const monthName = monthNames[parseInt(month) - 1];
+                
+                const staff = salaryData.staff_info;
+                const breakdown = salaryData.salary_details;
+                const earnings = breakdown.earnings;
+                const deductions = breakdown.deductions;
+                const attendance = breakdown.attendance_summary;
+                
+                const previewHTML = `
+                    <div class="pay-slip-preview">
+                        <!-- Header -->
+                        <div class="text-center mb-4">
+                            <h4 class="fw-bold text-primary">VishnoRex Staff Management System</h4>
+                            <h5 class="text-secondary">Pay Slip for ${monthName} ${year}</h5>
+                            <hr>
+                        </div>
+                        
+                        <!-- Staff Information -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="card border-primary">
+                                    <div class="card-header bg-primary text-white">
+                                        <h6 class="mb-0"><i class="bi bi-person"></i> Employee Information</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p><strong>Staff ID:</strong> ${staff.staff_id}</p>
+                                        <p><strong>Name:</strong> ${staff.full_name}</p>
+                                        <p><strong>Department:</strong> ${staff.department || 'N/A'}</p>
+                                        <p><strong>Position:</strong> ${staff.position || 'N/A'}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card border-info">
+                                    <div class="card-header bg-info text-white">
+                                        <h6 class="mb-0"><i class="bi bi-calendar"></i> Pay Period</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p><strong>Month:</strong> ${monthName}</p>
+                                        <p><strong>Year:</strong> ${year}</p>
+                                        <p><strong>Working Days:</strong> ${breakdown.working_days || 'N/A'}</p>
+                                        <p><strong>Days Present:</strong> ${attendance.present_days || 'N/A'}</p>
+                                        <p><strong>Days Absent:</strong> ${attendance.absent_days || 0}</p>
+                                        <p><strong>Leave Days:</strong> ${attendance.leave_days || 0}</p>
+                                        ${attendance.on_duty_days > 0 ? `<p><strong>On Duty Days:</strong> ${attendance.on_duty_days}</p>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Salary Details -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="card border-success">
+                                    <div class="card-header bg-success text-white">
+                                        <h6 class="mb-0"><i class="bi bi-plus-circle"></i> Earnings</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between">
+                                            <span>Basic Salary:</span>
+                                            <span class="fw-bold">₹${(earnings.basic_salary || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between">
+                                            <span>HRA:</span>
+                                            <span class="fw-bold">₹${(earnings.hra || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between">
+                                            <span>Transport Allowance:</span>
+                                            <span class="fw-bold">₹${(earnings.transport_allowance || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between">
+                                            <span>Other Allowances:</span>
+                                            <span class="fw-bold">₹${(earnings.other_allowances || 0).toFixed(2)}</span>
+                                        </div>
+                                        ${earnings.early_arrival_bonus > 0 ? `
+                                        <div class="d-flex justify-content-between">
+                                            <span>Early Arrival Bonus:</span>
+                                            <span class="fw-bold text-success">₹${earnings.early_arrival_bonus.toFixed(2)}</span>
+                                        </div>` : ''}
+                                        ${earnings.overtime_pay > 0 ? `
+                                        <div class="d-flex justify-content-between">
+                                            <span>Overtime Pay:</span>
+                                            <span class="fw-bold text-success">₹${earnings.overtime_pay.toFixed(2)}</span>
+                                        </div>` : ''}
+                                        <hr>
+                                        <div class="d-flex justify-content-between fw-bold text-success">
+                                            <span>Total Earnings:</span>
+                                            <span>₹${(earnings.total_earnings || 0).toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card border-danger">
+                                    <div class="card-header bg-danger text-white">
+                                        <h6 class="mb-0"><i class="bi bi-dash-circle"></i> Deductions</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between">
+                                            <span>PF Deduction:</span>
+                                            <span class="fw-bold">₹${(deductions.pf_deduction || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between">
+                                            <span>ESI Deduction:</span>
+                                            <span class="fw-bold">₹${(deductions.esi_deduction || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between">
+                                            <span>Professional Tax:</span>
+                                            <span class="fw-bold">₹${(deductions.professional_tax || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between">
+                                            <span>Other Deductions:</span>
+                                            <span class="fw-bold">₹${(deductions.other_deductions || 0).toFixed(2)}</span>
+                                        </div>
+                                        ${deductions.absent_deduction > 0 ? `
+                                        <div class="d-flex justify-content-between">
+                                            <span>Absent Day Deduction:</span>
+                                            <span class="fw-bold text-warning">₹${deductions.absent_deduction.toFixed(2)}</span>
+                                        </div>` : ''}
+                                        ${deductions.late_arrival_penalty > 0 ? `
+                                        <div class="d-flex justify-content-between">
+                                            <span>Late Arrival Penalty:</span>
+                                            <span class="fw-bold text-warning">₹${deductions.late_arrival_penalty.toFixed(2)}</span>
+                                        </div>` : ''}
+                                        ${deductions.early_departure_penalty > 0 ? `
+                                        <div class="d-flex justify-content-between">
+                                            <span>Early Departure Penalty:</span>
+                                            <span class="fw-bold text-warning">₹${deductions.early_departure_penalty.toFixed(2)}</span>
+                                        </div>` : ''}
+                                        <hr>
+                                        <div class="d-flex justify-content-between fw-bold text-danger">
+                                            <span>Total Deductions:</span>
+                                            <span>₹${(deductions.total_deductions || 0).toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Net Salary -->
+                        <div class="row">
+                            <div class="col-12">
+                                <div class="card border-primary bg-light">
+                                    <div class="card-body text-center">
+                                        <h4 class="text-primary mb-3">
+                                            <i class="bi bi-currency-rupee"></i> Net Salary
+                                        </h4>
+                                        <h2 class="display-4 fw-bold text-primary">
+                                            ₹${(breakdown.net_salary || 0).toFixed(2)}
+                                        </h2>
+                                        <p class="text-muted">
+                                            <small>Amount payable for ${monthName} ${year}</small>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Footer -->
+                        <div class="text-center mt-4">
+                            <hr>
+                            <p class="text-muted">
+                                <small>This is a computer-generated pay slip. Generated on ${new Date().toLocaleDateString()}</small>
+                            </p>
+                        </div>
+                    </div>
+                `;
+                
+                paySlipPreviewContent.innerHTML = previewHTML;
+            }
+            
+            // Function to download staff pay slip
+            function downloadStaffPaySlip(year, month) {
+                showAlert('<i class="bi bi-download me-2"></i>Generating your pay slip...', 'info');
+                
+                const formData = new FormData();
+                formData.append('year', year);
+                formData.append('month', month);
+                formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+                
+                fetch('/staff/download_pay_slip', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (response.ok) {
+                        return response.blob();
+                    } else {
+                        return response.json().then(err => Promise.reject(err));
+                    }
+                })
+                .then(blob => {
+                    // Create download link
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `pay_slip_${window.currentStaffId}_${year}_${month.toString().padStart(2, '0')}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    showAlert('<i class="bi bi-check-circle me-2"></i>Pay slip downloaded successfully', 'success');
+                    paySlipModal.hide();
+                })
+                .catch(error => {
+                    console.error('Error downloading pay slip:', error);
+                    const errorMessage = error.error || error.message || 'Error downloading pay slip. Please try again.';
+                    showAlert(`<i class="bi bi-exclamation-triangle me-2"></i>${errorMessage}`, 'danger');
+                });
+            }
+            
+            // Alert function
+            function showAlert(message, type = 'info') {
+                // Create alert element
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+                alertDiv.style.cssText = 'top: 1rem; right: 1rem; z-index: 9999; min-width: 300px;';
+                alertDiv.innerHTML = `
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                
+                document.body.appendChild(alertDiv);
+                
+                // Auto remove after 5 seconds
+                setTimeout(() => {
+                    if (alertDiv.parentNode) {
+                        alertDiv.remove();
+                    }
+                }, 5000);
+            }
         });
 
         // 🚀 ASYNC DATA LOADING - For heavy profile data
