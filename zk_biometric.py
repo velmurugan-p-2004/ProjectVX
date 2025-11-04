@@ -438,6 +438,14 @@ class ZKBiometricDevice:
             
             # Check-out verification with early departure detection
             if existing_attendance:
+                # Get the actual check-in time from existing attendance record
+                check_in_time = None
+                if existing_attendance['time_in']:
+                    try:
+                        check_in_time = datetime.datetime.strptime(existing_attendance['time_in'], '%H:%M:%S').time()
+                    except (ValueError, TypeError):
+                        check_in_time = None
+
                 # Use ShiftManager for check-out status calculation
                 shift_manager = ShiftManager()
                 staff_info = db.execute('''
@@ -446,11 +454,14 @@ class ZKBiometricDevice:
                 ''', (staff_db_id,)).fetchone()
 
                 shift_type = staff_info['shift_type'] if staff_info else 'general'
-                checkout_result = shift_manager.calculate_attendance_status(
-                    shift_type, None, timestamp.time()  # check_out_time
-                )
-
-                early_departure_minutes = checkout_result.get('early_departure_minutes', 0)
+                
+                # Calculate early departure if check-in time is available
+                early_departure_minutes = 0
+                if check_in_time:
+                    checkout_result = shift_manager.calculate_attendance_status(
+                        shift_type, check_in_time, timestamp.time()  # proper check_in and check_out times
+                    )
+                    early_departure_minutes = checkout_result.get('early_departure_minutes', 0)
 
                 if early_departure_minutes > 0:
                     # Early departure detected
@@ -458,12 +469,14 @@ class ZKBiometricDevice:
                         UPDATE attendance SET time_out = ?, early_departure_minutes = ?
                         WHERE staff_id = ? AND date = ?
                     ''', (current_time, early_departure_minutes, staff_db_id, today))
+                    print(f"🔍 CHECKOUT DEBUG: Early departure detected: {early_departure_minutes} minutes")
                 else:
                     # Normal check-out, just update time_out
                     db.execute('''
                         UPDATE attendance SET time_out = ?
                         WHERE staff_id = ? AND date = ?
                     ''', (current_time, staff_db_id, today))
+                    print(f"🔍 CHECKOUT DEBUG: Normal checkout updated: {current_time}")
             else:
                 logger.warning(f"Check-out attempt without check-in for staff {staff_db_id} on {today}")
                 print(f"⚠️ CHECK-OUT WITHOUT CHECK-IN: Staff {staff_db_id} attempted check-out at {current_time} without checking in first")
