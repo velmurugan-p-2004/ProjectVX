@@ -382,6 +382,10 @@
                             <button type="button" class="btn btn-outline-primary" id="refreshDataBtn" title="Refresh data">
                                 <i class="bi bi-arrow-clockwise"></i> Refresh
                             </button>
+                            <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#passwordResetModal" title="Manage password reset requests">
+                                <i class="bi bi-key"></i> Password Reset Requests
+                                <span class="badge bg-danger ms-2 d-none" id="resetRequestCount">0</span>
+                            </button>
                             <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addStaffModal" title="Add new staff member">
                                 <i class="bi bi-person-plus"></i> Add Staff
                             </button>
@@ -1913,6 +1917,461 @@
             }
         });
     </script>
+
+    <!-- Password Reset Requests Modal -->
+    <div class="modal fade" id="passwordResetModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title">
+                        <i class="bi bi-key"></i> Password Reset Requests Management
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>Password Reset Management:</strong> Review and process staff password reset requests. You can approve requests by setting new temporary passwords or reject them if needed.
+                    </div>
+                    
+                    <!-- Month Filter Controls -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="monthFilter" class="form-label">Filter by Month:</label>
+                            <select class="form-select" id="monthFilter" onchange="loadPasswordResetRequests()">
+                                <option value="">All Months</option>
+                                <option value="current">Current Month</option>
+                                <option value="previous">Previous Month</option>
+                                <option value="custom">Custom Month</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6" id="customMonthContainer" style="display: none;">
+                            <label for="customMonth" class="form-label">Select Month & Year:</label>
+                            <input type="month" class="form-control" id="customMonth" onchange="loadPasswordResetRequests()">
+                        </div>
+                    </div>
+                    
+                    <div id="passwordResetContent">
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading password reset requests...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-outline-primary" onclick="loadPasswordResetRequests()">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approve Password Reset Modal -->
+    <div class="modal fade" id="approveResetModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-check-circle"></i> Approve Password Reset
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>Set New Password:</strong><br>
+                        You are approving the password reset request for <strong id="approveStaffName"></strong>.
+                        Please set a new temporary password that the staff member can use to login.
+                    </div>
+                    
+                    <form id="approveResetForm">
+                        <input type="hidden" id="approveRequestId" name="request_id">
+                        <input type="hidden" name="action" value="approve">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        
+                        <div class="mb-3">
+                            <label for="newResetPassword" class="form-label">New Temporary Password</label>
+                            <input type="password" class="form-control" id="newResetPassword" name="new_password" 
+                                   placeholder="Enter temporary password" required>
+                            <div class="form-text">
+                                The staff member should change this password after first login.
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="confirmResetPassword" class="form-label">Confirm Password</label>
+                            <input type="password" class="form-control" id="confirmResetPassword" 
+                                   placeholder="Confirm the password" required>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" id="confirmApproveReset">
+                        <i class="bi bi-check"></i> Approve & Set Password
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reject Password Reset Modal -->
+    <div class="modal fade" id="rejectResetModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-x-circle"></i> Reject Password Reset
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Are you sure you want to reject the password reset request for <strong id="rejectStaffName"></strong>?
+                    </div>
+                    
+                    <form id="rejectResetForm">
+                        <input type="hidden" id="rejectRequestId" name="request_id">
+                        <input type="hidden" name="action" value="reject">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="confirmRejectReset">
+                        <i class="bi bi-x"></i> Reject Request
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Password Reset Requests Management
+        const passwordResetModal = new bootstrap.Modal(document.getElementById('passwordResetModal'));
+        const approveResetModal = new bootstrap.Modal(document.getElementById('approveResetModal'));
+        const rejectResetModal = new bootstrap.Modal(document.getElementById('rejectResetModal'));
+
+        // Load password reset requests when modal opens
+        document.getElementById('passwordResetModal').addEventListener('shown.bs.modal', function() {
+            // Initialize with current month by default if not already set
+            const monthFilter = document.getElementById('monthFilter');
+            if (!monthFilter.value) {
+                monthFilter.value = 'current';
+            }
+            loadPasswordResetRequests();
+        });
+
+        function loadPasswordResetRequests() {
+            const content = document.getElementById('passwordResetContent');
+            const monthFilter = document.getElementById('monthFilter').value;
+            const customMonth = document.getElementById('customMonth').value;
+            
+            // Show/hide custom month input based on selection
+            const customMonthContainer = document.getElementById('customMonthContainer');
+            if (monthFilter === 'custom') {
+                customMonthContainer.style.display = 'block';
+            } else {
+                customMonthContainer.style.display = 'none';
+            }
+            
+            content.innerHTML = `
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading password reset requests...</p>
+                </div>
+            `;
+
+            // Build query parameters for filtering
+            let url = '/api/password_reset_requests';
+            const params = new URLSearchParams();
+            
+            if (monthFilter && monthFilter !== '') {
+                params.append('month_filter', monthFilter);
+                if (monthFilter === 'custom' && customMonth) {
+                    params.append('custom_month', customMonth);
+                }
+            }
+            
+            if (params.toString()) {
+                url += '?' + params.toString();
+            }
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayPasswordResetRequests(data.requests, monthFilter);
+                        updateResetRequestCount();
+                    } else {
+                        content.innerHTML = `
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                Error loading requests: ${data.error}
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    content.innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            Network error loading requests. Please try again.
+                        </div>
+                    `;
+                });
+        }
+
+        function displayPasswordResetRequests(requests, monthFilter = '') {
+            const content = document.getElementById('passwordResetContent');
+            
+            // Show filter information
+            let filterInfo = '';
+            if (monthFilter) {
+                const filterLabels = {
+                    'current': 'Current Month',
+                    'previous': 'Previous Month',
+                    'custom': 'Selected Month'
+                };
+                filterInfo = `
+                    <div class="alert alert-primary alert-dismissible fade show">
+                        <i class="bi bi-funnel"></i>
+                        <strong>Filter Active:</strong> Showing requests from ${filterLabels[monthFilter] || monthFilter}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" onclick="clearMonthFilter()"></button>
+                    </div>
+                `;
+            }
+            
+            if (!requests || requests.length === 0) {
+                const noDataMessage = monthFilter ? 
+                    `No password reset requests found for the selected month period.` :
+                    `There are currently no password reset requests from staff members.`;
+                    
+                content.innerHTML = filterInfo + `
+                    <div class="text-center py-5">
+                        <div class="mb-4">
+                            <i class="bi bi-key text-muted" style="font-size: 4rem;"></i>
+                        </div>
+                        <h5 class="text-muted">No Password Reset Requests</h5>
+                        <p class="text-muted">${noDataMessage}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let tableHTML = `
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Staff Details</th>
+                                <th>Department</th>
+                                <th>Reason</th>
+                                <th>Status</th>
+                                <th>Request Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            requests.forEach(request => {
+                const statusBadge = getStatusBadge(request.status);
+                const actionButtons = request.status === 'pending' ? 
+                    `<div class="btn-group" role="group">
+                        <button type="button" class="btn btn-success btn-sm" 
+                                onclick="approvePasswordReset(${request.id}, '${request.staff_name}')">
+                            <i class="bi bi-check"></i> Approve
+                        </button>
+                        <button type="button" class="btn btn-danger btn-sm" 
+                                onclick="rejectPasswordReset(${request.id}, '${request.staff_name}')">
+                            <i class="bi bi-x"></i> Reject
+                        </button>
+                    </div>` : 
+                    `<span class="text-muted"><i class="bi bi-check-square"></i> Processed</span>`;
+
+                tableHTML += `
+                    <tr>
+                        <td>
+                            <div>
+                                <strong>${request.staff_name}</strong>
+                                <br>
+                                <small class="text-muted">ID: ${request.staff_user_id}</small>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-info">${request.department || 'Not Set'}</span>
+                            ${request.position ? `<br><small class="text-muted">${request.position}</small>` : ''}
+                        </td>
+                        <td>
+                            <span class="text-muted">${request.reason || 'No reason provided'}</span>
+                        </td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <small>${request.created_at}</small>
+                            ${request.approved_at ? `<br><small class="text-muted">Processed: ${request.approved_at}</small>` : ''}
+                        </td>
+                        <td>${actionButtons}</td>
+                    </tr>
+                `;
+            });
+
+            tableHTML += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            content.innerHTML = filterInfo + tableHTML;
+        }
+
+        function getStatusBadge(status) {
+            switch(status) {
+                case 'pending':
+                    return '<span class="badge bg-warning text-dark"><i class="bi bi-clock"></i> Pending</span>';
+                case 'approved':
+                    return '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Approved</span>';
+                case 'rejected':
+                    return '<span class="badge bg-danger"><i class="bi bi-x-circle"></i> Rejected</span>';
+                default:
+                    return '<span class="badge bg-secondary">Unknown</span>';
+            }
+        }
+
+        function approvePasswordReset(requestId, staffName) {
+            document.getElementById('approveRequestId').value = requestId;
+            document.getElementById('approveStaffName').textContent = staffName;
+            document.getElementById('newResetPassword').value = '';
+            document.getElementById('confirmResetPassword').value = '';
+            approveResetModal.show();
+        }
+
+        function rejectPasswordReset(requestId, staffName) {
+            document.getElementById('rejectRequestId').value = requestId;
+            document.getElementById('rejectStaffName').textContent = staffName;
+            rejectResetModal.show();
+        }
+
+        // Handle approve confirmation
+        document.getElementById('confirmApproveReset').addEventListener('click', function() {
+            const password = document.getElementById('newResetPassword').value;
+            const confirmPassword = document.getElementById('confirmResetPassword').value;
+            
+            if (!password) {
+                showAlert('Please enter a new password', 'warning');
+                return;
+            }
+            
+            if (password !== confirmPassword) {
+                showAlert('Passwords do not match', 'warning');
+                return;
+            }
+            
+            if (password.length < 6) {
+                showAlert('Password must be at least 6 characters long', 'warning');
+                return;
+            }
+            
+            processPasswordResetRequest('approveResetForm');
+        });
+
+        // Handle reject confirmation
+        document.getElementById('confirmRejectReset').addEventListener('click', function() {
+            processPasswordResetRequest('rejectResetForm');
+        });
+
+        function processPasswordResetRequest(formId) {
+            const form = document.getElementById(formId);
+            const formData = new FormData(form);
+            
+            const submitBtn = document.getElementById(formId === 'approveResetForm' ? 'confirmApproveReset' : 'confirmRejectReset');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
+            
+            fetch('/admin/approve_password_reset', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    approveResetModal.hide();
+                    rejectResetModal.hide();
+                    loadPasswordResetRequests(); // Reload the requests
+                    updateResetRequestCount(); // Update the badge count
+                } else {
+                    showAlert(data.error || 'Operation failed', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Network error. Please try again.', 'danger');
+            })
+            .finally(() => {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            });
+        }
+
+        // Update reset request count badge
+        function updateResetRequestCount() {
+            fetch('/api/password_reset_count')
+                .then(response => response.json())
+                .then(data => {
+                    const badge = document.getElementById('resetRequestCount');
+                    if (data.success && data.count > 0) {
+                        badge.textContent = data.count;
+                        badge.classList.remove('d-none');
+                    } else {
+                        badge.classList.add('d-none');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching reset request count:', error);
+                });
+        }
+
+        // Load count on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            updateResetRequestCount();
+        });
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+            alertDiv.style.cssText = 'top: 1rem; right: 1rem; z-index: 9999; min-width: 300px;';
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+
+        function clearMonthFilter() {
+            document.getElementById('monthFilter').value = '';
+            document.getElementById('customMonth').value = '';
+            document.getElementById('customMonthContainer').style.display = 'none';
+            loadPasswordResetRequests();
+        }
+    </script>
+
     <script src="{{ url_for('static', filename='js/staff_management.js') }}"></script>
 </body>
 </html>

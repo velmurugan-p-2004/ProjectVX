@@ -9525,6 +9525,328 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
+# Forgot Password Routes
+@app.route('/forgot_password_request', methods=['POST'])
+def forgot_password_request():
+    """Handle staff forgot password requests"""
+    try:
+        school_id = request.form.get('school_id')
+        user_id = request.form.get('user_id')
+        reason = request.form.get('reason', '')
+        
+        if not school_id or not user_id:
+            return jsonify({'success': False, 'error': 'Institution and User ID are required'})
+        
+        db = get_db()
+        
+        # Check if staff exists
+        staff = db.execute('''
+            SELECT id, full_name, staff_id FROM staff 
+            WHERE school_id = ? AND staff_id = ?
+        ''', (school_id, user_id)).fetchone()
+        
+        if not staff:
+            return jsonify({'success': False, 'error': 'Staff member not found with the provided details'})
+        
+        # Check if there's already a pending request
+        existing_request = db.execute('''
+            SELECT id FROM password_reset_requests 
+            WHERE staff_id = ? AND status = 'pending'
+        ''', (staff['id'],)).fetchone()
+        
+        if existing_request:
+            return jsonify({'success': False, 'error': 'You already have a pending password reset request'})
+        
+        # Create password reset request
+        db.execute('''
+            INSERT INTO password_reset_requests (staff_id, school_id, staff_name, staff_user_id, reason, status, created_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'))
+        ''', (staff['id'], school_id, staff['full_name'], staff['staff_id'], reason))
+        db.commit()
+        
+        return jsonify({'success': True, 'message': 'Password reset request submitted successfully'})
+        
+    except Exception as e:
+        print(f"Error in forgot password request: {e}")
+        return jsonify({'success': False, 'error': 'An error occurred while processing your request'})
+
+@app.route('/admin/password_reset_requests')
+def admin_password_reset_requests():
+    """Admin page to view and manage password reset requests with month filtering"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return redirect(url_for('index'))
+    
+    try:
+        from datetime import datetime, timedelta
+        import calendar
+        
+        db = get_db()
+        school_id = session.get('school_id')
+        
+        # Get filter parameters
+        month_filter = request.args.get('month_filter', 'current')  # Default to current month
+        custom_month = request.args.get('custom_month', '')
+        
+        # Build the base query
+        base_query = '''
+            SELECT pr.*, s.department, s.position
+            FROM password_reset_requests pr
+            LEFT JOIN staff s ON pr.staff_id = s.id
+            WHERE pr.school_id = ?
+        '''
+        query_params = [school_id]
+        
+        # Add month filtering
+        if month_filter == 'current':
+            # Current month
+            now = datetime.now()
+            start_date = datetime(now.year, now.month, 1)
+            # Get last day of current month
+            last_day = calendar.monthrange(now.year, now.month)[1]
+            end_date = datetime(now.year, now.month, last_day, 23, 59, 59)
+            
+            base_query += ' AND pr.created_at >= ? AND pr.created_at <= ?'
+            query_params.extend([start_date.strftime('%Y-%m-%d %H:%M:%S'), 
+                               end_date.strftime('%Y-%m-%d %H:%M:%S')])
+            
+        elif month_filter == 'previous':
+            # Previous month
+            now = datetime.now()
+            if now.month == 1:
+                prev_month = 12
+                prev_year = now.year - 1
+            else:
+                prev_month = now.month - 1
+                prev_year = now.year
+                
+            start_date = datetime(prev_year, prev_month, 1)
+            # Get last day of previous month
+            last_day = calendar.monthrange(prev_year, prev_month)[1]
+            end_date = datetime(prev_year, prev_month, last_day, 23, 59, 59)
+            
+            base_query += ' AND pr.created_at >= ? AND pr.created_at <= ?'
+            query_params.extend([start_date.strftime('%Y-%m-%d %H:%M:%S'), 
+                               end_date.strftime('%Y-%m-%d %H:%M:%S')])
+            
+        elif month_filter == 'custom' and custom_month:
+            # Custom month from input (format: YYYY-MM)
+            try:
+                year, month = map(int, custom_month.split('-'))
+                start_date = datetime(year, month, 1)
+                # Get last day of selected month
+                last_day = calendar.monthrange(year, month)[1]
+                end_date = datetime(year, month, last_day, 23, 59, 59)
+                
+                base_query += ' AND pr.created_at >= ? AND pr.created_at <= ?'
+                query_params.extend([start_date.strftime('%Y-%m-%d %H:%M:%S'), 
+                                   end_date.strftime('%Y-%m-%d %H:%M:%S')])
+            except (ValueError, IndexError):
+                flash('Invalid custom month format', 'error')
+                return redirect(url_for('admin_dashboard'))
+        
+        # Add ordering
+        base_query += ' ORDER BY pr.created_at DESC'
+        
+        # Execute query
+        requests = db.execute(base_query, query_params).fetchall()
+        
+        return render_template('admin_password_reset_requests.html', 
+                             requests=requests, 
+                             month_filter=month_filter, 
+                             custom_month=custom_month)
+        
+    except Exception as e:
+        print(f"Error loading password reset requests: {e}")
+        flash('Error loading password reset requests', 'error')
+        return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/approve_password_reset', methods=['POST'])
+def approve_password_reset():
+    """Approve or reject password reset request"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+    
+    try:
+        request_id = request.form.get('request_id')
+        action = request.form.get('action')  # 'approve' or 'reject'
+        new_password = request.form.get('new_password', '')
+        
+        if not request_id or not action:
+            return jsonify({'success': False, 'error': 'Missing parameters'})
+        
+        db = get_db()
+        school_id = session.get('school_id')
+        
+        # Get the request details
+        reset_request = db.execute('''
+            SELECT * FROM password_reset_requests 
+            WHERE id = ? AND school_id = ?
+        ''', (request_id, school_id)).fetchone()
+        
+        if not reset_request:
+            return jsonify({'success': False, 'error': 'Request not found'})
+        
+        if action == 'approve':
+            if not new_password:
+                return jsonify({'success': False, 'error': 'New password is required for approval'})
+            
+            # Update staff password
+            password_hash = generate_password_hash(new_password)
+            db.execute('''
+                UPDATE staff SET password_hash = ? WHERE id = ?
+            ''', (password_hash, reset_request['staff_id']))
+            
+            # Update request status
+            db.execute('''
+                UPDATE password_reset_requests 
+                SET status = 'approved', approved_at = datetime('now'), approved_by = ?
+                WHERE id = ?
+            ''', (session['user_id'], request_id))
+            
+            message = f"Password reset approved and new password set for {reset_request['staff_name']}"
+            
+        elif action == 'reject':
+            # Update request status
+            db.execute('''
+                UPDATE password_reset_requests 
+                SET status = 'rejected', approved_at = datetime('now'), approved_by = ?
+                WHERE id = ?
+            ''', (session['user_id'], request_id))
+            
+            message = f"Password reset request rejected for {reset_request['staff_name']}"
+        
+        else:
+            return jsonify({'success': False, 'error': 'Invalid action'})
+        
+        db.commit()
+        return jsonify({'success': True, 'message': message})
+        
+    except Exception as e:
+        print(f"Error in approve password reset: {e}")
+        return jsonify({'success': False, 'error': 'An error occurred while processing the request'})
+
+@app.route('/api/password_reset_count')
+def get_password_reset_count():
+    """API endpoint to get count of pending password reset requests"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+    
+    try:
+        db = get_db()
+        school_id = session.get('school_id')
+        
+        count = db.execute('''
+            SELECT COUNT(*) as count FROM password_reset_requests 
+            WHERE school_id = ? AND status = 'pending'
+        ''', (school_id,)).fetchone()
+        
+        return jsonify({'success': True, 'count': count['count'] if count else 0})
+        
+    except Exception as e:
+        print(f"Error getting password reset count: {e}")
+        return jsonify({'success': False, 'error': 'An error occurred'})
+
+@app.route('/api/password_reset_requests')
+def get_password_reset_requests():
+    """API endpoint to get password reset requests for AJAX loading with month filtering"""
+    if 'user_id' not in session or session['user_type'] != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+    
+    try:
+        from datetime import datetime, timedelta
+        import calendar
+        
+        db = get_db()
+        school_id = session.get('school_id')
+        
+        # Get filter parameters
+        month_filter = request.args.get('month_filter', '')
+        custom_month = request.args.get('custom_month', '')
+        
+        # Build the base query
+        base_query = '''
+            SELECT pr.*, s.department, s.position
+            FROM password_reset_requests pr
+            LEFT JOIN staff s ON pr.staff_id = s.id
+            WHERE pr.school_id = ?
+        '''
+        query_params = [school_id]
+        
+        # Add month filtering
+        if month_filter == 'current':
+            # Current month
+            now = datetime.now()
+            start_date = datetime(now.year, now.month, 1)
+            # Get last day of current month
+            last_day = calendar.monthrange(now.year, now.month)[1]
+            end_date = datetime(now.year, now.month, last_day, 23, 59, 59)
+            
+            base_query += ' AND pr.created_at >= ? AND pr.created_at <= ?'
+            query_params.extend([start_date.strftime('%Y-%m-%d %H:%M:%S'), 
+                               end_date.strftime('%Y-%m-%d %H:%M:%S')])
+            
+        elif month_filter == 'previous':
+            # Previous month
+            now = datetime.now()
+            if now.month == 1:
+                prev_month = 12
+                prev_year = now.year - 1
+            else:
+                prev_month = now.month - 1
+                prev_year = now.year
+                
+            start_date = datetime(prev_year, prev_month, 1)
+            # Get last day of previous month
+            last_day = calendar.monthrange(prev_year, prev_month)[1]
+            end_date = datetime(prev_year, prev_month, last_day, 23, 59, 59)
+            
+            base_query += ' AND pr.created_at >= ? AND pr.created_at <= ?'
+            query_params.extend([start_date.strftime('%Y-%m-%d %H:%M:%S'), 
+                               end_date.strftime('%Y-%m-%d %H:%M:%S')])
+            
+        elif month_filter == 'custom' and custom_month:
+            # Custom month from input (format: YYYY-MM)
+            try:
+                year, month = map(int, custom_month.split('-'))
+                start_date = datetime(year, month, 1)
+                # Get last day of selected month
+                last_day = calendar.monthrange(year, month)[1]
+                end_date = datetime(year, month, last_day, 23, 59, 59)
+                
+                base_query += ' AND pr.created_at >= ? AND pr.created_at <= ?'
+                query_params.extend([start_date.strftime('%Y-%m-%d %H:%M:%S'), 
+                                   end_date.strftime('%Y-%m-%d %H:%M:%S')])
+            except (ValueError, IndexError):
+                return jsonify({'success': False, 'error': 'Invalid custom month format'})
+        
+        # Add ordering
+        base_query += ' ORDER BY pr.created_at DESC'
+        
+        # Execute query
+        requests = db.execute(base_query, query_params).fetchall()
+        
+        # Convert to list of dictionaries for JSON response
+        requests_list = []
+        for req in requests:
+            requests_list.append({
+                'id': req['id'],
+                'staff_id': req['staff_id'],
+                'staff_name': req['staff_name'],
+                'staff_user_id': req['staff_user_id'],
+                'department': req['department'],
+                'position': req['position'],
+                'reason': req['reason'],
+                'status': req['status'],
+                'created_at': req['created_at'],
+                'approved_at': req['approved_at']
+            })
+        
+        return jsonify({'success': True, 'requests': requests_list})
+        
+    except Exception as e:
+        print(f"Error loading password reset requests: {e}")
+        return jsonify({'success': False, 'error': 'An error occurred while loading requests'})
+
 # Database migration - Add created_at column to staff table (commented out to prevent errors)
 # This should be run only once during initial setup
 # import sqlite3

@@ -412,6 +412,24 @@ def init_db(app):
         )
         ''')
 
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS password_reset_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER NOT NULL,
+            school_id INTEGER NOT NULL,
+            staff_name TEXT NOT NULL,
+            staff_user_id TEXT NOT NULL,
+            reason TEXT,
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            approved_at TIMESTAMP,
+            approved_by INTEGER,
+            FOREIGN KEY (staff_id) REFERENCES staff (id),
+            FOREIGN KEY (school_id) REFERENCES schools (id),
+            FOREIGN KEY (approved_by) REFERENCES admins (id)
+        )
+        ''')
+
         # Initialize default shift definitions
         cursor.execute('SELECT COUNT(*) FROM shift_definitions')
         if cursor.fetchone()[0] == 0:
