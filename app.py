@@ -3464,15 +3464,24 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
         permission_info = permission_map.get(staff_id, {'applications': 0, 'hours': 0})
         permission_days = round(float(permission_info['hours']) / 8, 1) if permission_info['hours'] else 0
         
+        # Calculate correct absent days
+        # Absent = Working days - Present days - Approved leave days - Approved OD days
+        days_present = perf['days_present']
+        days_on_leave = int(leave_info['days'])
+        days_on_od = int(od_info['days'])
+        
+        # Calculate actual absent days (excluding leave and OD)
+        calculated_absent_days = max(0, working_days - days_present - days_on_leave - days_on_od)
+        
         final_performance_rows.append({
             'staff_id': perf['staff_id'],
             'staff_name': perf['staff_name'],
             'department': perf['department'],
             'position': perf['position'],
-            'days_present': perf['days_present'],
-            'days_absent': perf['days_absent'],
-            'days_on_od_applied': int(od_info['days']),
-            'days_on_leave_applied': int(leave_info['days']),
+            'days_present': days_present,
+            'days_absent': calculated_absent_days,  # Use calculated absent days
+            'days_on_od_applied': days_on_od,
+            'days_on_leave_applied': days_on_leave,
             'days_with_permission_applied': permission_days,
             'total_working_days': working_days,
             'total_attendance_records': perf['total_attendance_records'],
@@ -3498,6 +3507,25 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
                 row['days_present'], row['days_absent'], row['days_late'], row['days_on_od_applied'],
                 row['days_on_leave_applied'], row['days_with_permission_applied'],
                 row['total_working_days'], row['total_attendance_records']
+            ])
+        
+        # Add summary totals
+        if final_performance_rows:
+            writer.writerow([])
+            writer.writerow(['SUMMARY TOTALS'])
+            total_staff = len(final_performance_rows)
+            total_present = sum(row['days_present'] for row in final_performance_rows)
+            total_absent = sum(row['days_absent'] for row in final_performance_rows)
+            total_late = sum(row['days_late'] for row in final_performance_rows)
+            total_od = sum(row['days_on_od_applied'] for row in final_performance_rows)
+            total_leave = sum(row['days_on_leave_applied'] for row in final_performance_rows)
+            total_permission = sum(row['days_with_permission_applied'] for row in final_performance_rows)
+            total_attendance_records = sum(row['total_attendance_records'] for row in final_performance_rows)
+            
+            writer.writerow([
+                f'Total Staff: {total_staff}', '', '', '',
+                total_present, total_absent, total_late, total_od,
+                total_leave, total_permission, working_days, total_attendance_records
             ])
         
         resp = make_response(output.getvalue())
@@ -3539,8 +3567,26 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
                     str(row['total_attendance_records'])
                 ])
             
+            # Add summary totals row
+            if final_performance_rows:
+                total_staff = len(final_performance_rows)
+                total_present = sum(row['days_present'] for row in final_performance_rows)
+                total_absent = sum(row['days_absent'] for row in final_performance_rows)
+                total_late = sum(row['days_late'] for row in final_performance_rows)
+                total_od = sum(row['days_on_od_applied'] for row in final_performance_rows)
+                total_leave = sum(row['days_on_leave_applied'] for row in final_performance_rows)
+                total_permission = sum(row['days_with_permission_applied'] for row in final_performance_rows)
+                total_attendance_records = sum(row['total_attendance_records'] for row in final_performance_rows)
+                
+                table_data.append([
+                    f'TOTALS ({total_staff} Staff)', '', '', '',
+                    str(total_present), str(total_absent), str(total_late), str(total_od),
+                    str(total_leave), str(total_permission), str(working_days), str(total_attendance_records)
+                ])
+            
             table = Table(table_data, repeatRows=1)
-            table.setStyle(TableStyle([
+            # Style the table
+            table_style = [
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#366092')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -3548,7 +3594,17 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
                 ('FONTSIZE', (0, 0), (-1, 0), 8),
                 ('FONTSIZE', (0, 1), (-1, -1), 7),
                 ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
-            ]))
+            ]
+            
+            # If there are totals, highlight the last row
+            if final_performance_rows and len(table_data) > len(final_performance_rows) + 1:
+                last_row = len(table_data) - 1
+                table_style.extend([
+                    ('BACKGROUND', (0, last_row), (-1, last_row), colors.HexColor('#E6F3FF')),
+                    ('FONTNAME', (0, last_row), (-1, last_row), 'Helvetica-Bold'),
+                ])
+            
+            table.setStyle(TableStyle(table_style))
             elements.append(table)
             
             doc.build(elements)
@@ -3616,6 +3672,40 @@ def generate_performance_report(school_id, year=None, month=None, department=Non
             cell.border = border
             if col >= 5:  # Numeric columns - center align
                 cell.alignment = Alignment(horizontal='center')
+
+    # Add summary totals row
+    if final_performance_rows:
+        summary_row = data_start_row + len(final_performance_rows) + 1
+        
+        # Calculate totals
+        total_staff = len(final_performance_rows)
+        total_present = sum(row['days_present'] for row in final_performance_rows)
+        total_absent = sum(row['days_absent'] for row in final_performance_rows)
+        total_late = sum(row['days_late'] for row in final_performance_rows)
+        total_od = sum(row['days_on_od_applied'] for row in final_performance_rows)
+        total_leave = sum(row['days_on_leave_applied'] for row in final_performance_rows)
+        total_permission = sum(row['days_with_permission_applied'] for row in final_performance_rows)
+        total_attendance_records = sum(row['total_attendance_records'] for row in final_performance_rows)
+        
+        # Summary header
+        summary_header_cell = ws.cell(row=summary_row, column=1, value="SUMMARY TOTALS")
+        summary_header_cell.font = Font(bold=True, size=12)
+        summary_header_cell.fill = PatternFill(start_color='E6F3FF', end_color='E6F3FF', fill_type='solid')
+        
+        # Summary values
+        summary_values = [
+            f"Total Staff: {total_staff}", "", "", "",
+            total_present, total_absent, total_late, total_od, 
+            total_leave, total_permission, working_days, total_attendance_records
+        ]
+        
+        for col, value in enumerate(summary_values, 1):
+            cell = ws.cell(row=summary_row, column=col, value=value)
+            if col >= 5:  # Numeric columns
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill(start_color='E6F3FF', end_color='E6F3FF', fill_type='solid')
+                cell.alignment = Alignment(horizontal='center')
+            cell.border = border
 
     # Auto-adjust column widths
     column_widths = [12, 25, 18, 18, 12, 12, 12, 12, 14, 16, 16, 18]

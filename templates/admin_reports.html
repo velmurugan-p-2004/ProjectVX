@@ -589,6 +589,13 @@
                 currentDateElement.textContent = dateStr;
             }
 
+            // Set default month to current month in report filters
+            const reportMonthElement = document.getElementById('reportMonth');
+            if (reportMonthElement) {
+                const currentMonth = new Date().getMonth() + 1; // getMonth() returns 0-11, so add 1
+                reportMonthElement.value = currentMonth.toString();
+            }
+
             // Update total staff count in sidebar footer
             const totalStaffCountElement = document.getElementById('totalStaffCount');
             if (totalStaffCountElement) {
