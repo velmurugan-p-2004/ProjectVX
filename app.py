@@ -1616,11 +1616,13 @@ def test_performance_report_json():
         return jsonify({'success': False, 'error': f'Test failed: {str(e)}'})
 
 def generate_monthly_salary_report(school_id, year, month, department, format_type):
-    """Generate monthly salary report"""
+    """Generate monthly salary report with comprehensive deduction calculation"""
     import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
     from io import BytesIO
+    import calendar
+    import datetime
 
     db = get_db()
 
@@ -1632,13 +1634,11 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
         where_conditions.append('s.department = ?')
         params.append(department)
 
-    # Get staff with salary information
+    # Get staff basic information
     staff_query = f'''
         SELECT s.id, s.staff_id, s.full_name, s.department, s.destination as position,
-               s.basic_salary,
-               (COALESCE(s.hra, 0) + COALESCE(s.transport_allowance, 0) + COALESCE(s.other_allowances, 0)) as allowances,
-               (COALESCE(s.pf_deduction, 0) + COALESCE(s.esi_deduction, 0) + COALESCE(s.professional_tax, 0) + COALESCE(s.other_deductions, 0)) as deductions,
-               COALESCE(s.basic_salary, 0) + (COALESCE(s.hra, 0) + COALESCE(s.transport_allowance, 0) + COALESCE(s.other_allowances, 0)) - (COALESCE(s.pf_deduction, 0) + COALESCE(s.esi_deduction, 0) + COALESCE(s.professional_tax, 0) + COALESCE(s.other_deductions, 0)) as net_salary,
+               s.basic_salary, s.hra, s.transport_allowance, s.other_allowances,
+               s.pf_deduction, s.esi_deduction, s.professional_tax, s.other_deductions,
                s.date_of_joining
         FROM staff s
         WHERE {' AND '.join(where_conditions)}
@@ -1646,6 +1646,100 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
     '''
 
     staff_data = db.execute(staff_query, params).fetchall()
+    
+    # Calculate working days in the month (excluding holidays)
+    if year and month:
+        total_days = calendar.monthrange(year, month)[1]
+        working_days = 0
+        current_dt = datetime.date(year, month, 1)
+        end_dt = datetime.date(year, month, total_days)
+        
+        while current_dt <= end_dt:
+            if current_dt.weekday() < 6:  # Monday-Saturday = 0-5, Sunday = 6
+                working_days += 1
+            current_dt += datetime.timedelta(days=1)
+    else:
+        working_days = 26  # Default working days
+    
+    # Use SalaryCalculator for consistent deduction calculations
+    current_school_id = session.get('school_id')
+    salary_calculator = SalaryCalculator(school_id=current_school_id)
+    
+    processed_staff_data = []
+    for staff in staff_data:
+        staff_db_id = staff['id']
+        
+        # Calculate salary using SalaryCalculator for consistency
+        if year and month:
+            salary_result = salary_calculator.calculate_monthly_salary(staff_db_id, year, month)
+            if salary_result['success']:
+                breakdown = salary_result['salary_breakdown']
+                earnings = breakdown['earnings']
+                deductions = breakdown['deductions']
+                
+                processed_staff_data.append({
+                    'id': staff['id'],
+                    'staff_id': staff['staff_id'],
+                    'full_name': staff['full_name'],
+                    'department': staff['department'],
+                    'position': staff['position'],
+                    'basic_salary': earnings['basic_salary'],
+                    'allowances': earnings['hra'] + earnings['transport_allowance'] + earnings['other_allowances'],
+                    'deductions': deductions['total_deductions'],  # Uses SalaryCalculator's comprehensive calculation
+                    'net_salary': breakdown['net_salary'],
+                    'date_of_joining': staff['date_of_joining'],
+                    'salary_breakdown': breakdown  # Store full breakdown for detailed report generation
+                })
+            else:
+                # Fallback to basic calculation if SalaryCalculator fails
+                base_salary = float(staff['basic_salary'] or 0)
+                allowances = (float(staff['hra'] or 0) + 
+                             float(staff['transport_allowance'] or 0) + 
+                             float(staff['other_allowances'] or 0))
+                static_deductions = (float(staff['pf_deduction'] or 0) + 
+                                   float(staff['esi_deduction'] or 0) + 
+                                   float(staff['professional_tax'] or 0) + 
+                                   float(staff['other_deductions'] or 0))
+                gross_salary = base_salary + allowances
+                net_salary = gross_salary - static_deductions
+                
+                processed_staff_data.append({
+                    'id': staff['id'],
+                    'staff_id': staff['staff_id'],
+                    'full_name': staff['full_name'],
+                    'department': staff['department'],
+                    'position': staff['position'],
+                    'basic_salary': base_salary,
+                    'allowances': allowances,
+                    'deductions': static_deductions,
+                    'net_salary': net_salary,
+                    'date_of_joining': staff['date_of_joining']
+                })
+        else:
+            # No year/month specified - use basic calculation
+            base_salary = float(staff['basic_salary'] or 0)
+            allowances = (float(staff['hra'] or 0) + 
+                         float(staff['transport_allowance'] or 0) + 
+                         float(staff['other_allowances'] or 0))
+            static_deductions = (float(staff['pf_deduction'] or 0) + 
+                               float(staff['esi_deduction'] or 0) + 
+                               float(staff['professional_tax'] or 0) + 
+                               float(staff['other_deductions'] or 0))
+            gross_salary = base_salary + allowances
+            net_salary = gross_salary - static_deductions
+            
+            processed_staff_data.append({
+                'id': staff['id'],
+                'staff_id': staff['staff_id'],
+                'full_name': staff['full_name'],
+                'department': staff['department'],
+                'position': staff['position'],
+                'basic_salary': base_salary,
+                'allowances': allowances,
+                'deductions': static_deductions,
+                'net_salary': net_salary,
+                'date_of_joining': staff['date_of_joining']
+            })
 
     # Create workbook
     wb = openpyxl.Workbook()
@@ -1663,9 +1757,9 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
 
     # Add title
     month_name = calendar.month_name[month] if month else 'All Months'
-    ws.merge_cells('A1:H1')
+    ws.merge_cells('A1:R1')  # Updated to cover all 18 columns
     title_cell = ws['A1']
-    title_cell.value = f"Monthly Salary Report - {month_name} {year}"
+    title_cell.value = f"Payroll Summary Report - {month_name} {year}"
     title_cell.font = title_font
     title_cell.alignment = Alignment(horizontal='center')
 
@@ -1674,8 +1768,12 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
     if department:
         ws['A4'] = f"Department: {department}"
 
-    # Headers
-    headers = ['S.No', 'Staff ID', 'Name', 'Department', 'Position', 'Basic Salary', 'Allowances', 'Deductions', 'Net Salary']
+    # Headers - Updated to include detailed deduction breakdown
+    headers = [
+        'S.No', 'Staff ID', 'Name', 'Department', 'Position', 'Basic Salary', 
+        'HRA', 'Transport', 'Other Allow.', 'Absent Ded.', 'Late Penalty', 'Early Dept.',
+        'PF', 'ESI', 'Prof. Tax', 'Other Ded.', 'Total Ded.', 'Net Salary'
+    ]
     header_row = 6
 
     for col, header in enumerate(headers, 1):
@@ -1686,41 +1784,121 @@ def generate_monthly_salary_report(school_id, year, month, department, format_ty
         cell.border = border
         cell.alignment = Alignment(horizontal='center')
 
-    # Add data
-    total_basic = total_allowances = total_deductions = total_net = 0
+    # Add data with detailed deduction breakdown
+    total_basic = total_hra = total_transport = total_other_allow = 0
+    total_absent_ded = total_late_penalty = total_early_dept = 0
+    total_pf = total_esi = total_prof_tax = total_other_ded = total_deductions = total_net = 0
 
-    for row_idx, staff in enumerate(staff_data, header_row + 1):
+    for row_idx, staff in enumerate(processed_staff_data, header_row + 1):
+        # Use the already calculated SalaryCalculator data for consistency
+        if year and month and 'salary_breakdown' in staff:
+            # Use the breakdown data stored during processed_staff_data creation
+            breakdown = staff['salary_breakdown']
+            earnings = breakdown['earnings']
+            deductions = breakdown['deductions']
+            
+            hra = earnings.get('hra', 0)
+            transport = earnings.get('transport_allowance', 0)
+            other_allow = earnings.get('other_allowances', 0)
+            absent_ded = deductions.get('absent_deduction', 0)
+            late_penalty = deductions.get('late_arrival_penalty', 0)
+            early_dept = deductions.get('early_departure_penalty', 0)
+            pf = deductions.get('pf_deduction', 0)
+            esi = deductions.get('esi_deduction', 0)
+            prof_tax = deductions.get('professional_tax', 0)
+            other_ded = deductions.get('other_deductions', 0)
+            total_deductions_calculated = deductions.get('total_deductions', 0)
+        else:
+            # Calculate detailed breakdown using SalaryCalculator if not already stored
+            if year and month:
+                salary_result = salary_calculator.calculate_monthly_salary(staff['id'], year, month)
+                if salary_result['success']:
+                    breakdown = salary_result['salary_breakdown']
+                    earnings = breakdown['earnings']
+                    deductions = breakdown['deductions']
+                    
+                    hra = earnings.get('hra', 0)
+                    transport = earnings.get('transport_allowance', 0)
+                    other_allow = earnings.get('other_allowances', 0)
+                    absent_ded = deductions.get('absent_deduction', 0)
+                    late_penalty = deductions.get('late_arrival_penalty', 0)
+                    early_dept = deductions.get('early_departure_penalty', 0)
+                    pf = deductions.get('pf_deduction', 0)
+                    esi = deductions.get('esi_deduction', 0)
+                    prof_tax = deductions.get('professional_tax', 0)
+                    other_ded = deductions.get('other_deductions', 0)
+                    total_deductions_calculated = deductions.get('total_deductions', 0)
+                else:
+                    # Fallback to basic data
+                    hra = transport = other_allow = 0
+                    absent_ded = late_penalty = early_dept = 0
+                    pf = esi = prof_tax = other_ded = 0
+                    total_deductions_calculated = staff.get('deductions', 0)
+            else:
+                # No year/month - use basic data
+                hra = transport = other_allow = 0
+                absent_ded = late_penalty = early_dept = 0  
+                pf = esi = prof_tax = other_ded = 0
+                total_deductions_calculated = staff.get('deductions', 0)
+
         ws.cell(row=row_idx, column=1, value=row_idx - header_row)
         ws.cell(row=row_idx, column=2, value=staff['staff_id'] or 'N/A')
         ws.cell(row=row_idx, column=3, value=staff['full_name'])
         ws.cell(row=row_idx, column=4, value=staff['department'] or 'N/A')
         ws.cell(row=row_idx, column=5, value=staff['position'] or 'N/A')
         ws.cell(row=row_idx, column=6, value=staff['basic_salary'] or 0)
-        ws.cell(row=row_idx, column=7, value=staff['allowances'] or 0)
-        ws.cell(row=row_idx, column=8, value=staff['deductions'] or 0)
-        ws.cell(row=row_idx, column=9, value=staff['net_salary'] or 0)
+        ws.cell(row=row_idx, column=7, value=hra)
+        ws.cell(row=row_idx, column=8, value=transport)
+        ws.cell(row=row_idx, column=9, value=other_allow)
+        ws.cell(row=row_idx, column=10, value=absent_ded)
+        ws.cell(row=row_idx, column=11, value=late_penalty)
+        ws.cell(row=row_idx, column=12, value=early_dept)
+        ws.cell(row=row_idx, column=13, value=pf)
+        ws.cell(row=row_idx, column=14, value=esi)
+        ws.cell(row=row_idx, column=15, value=prof_tax)
+        ws.cell(row=row_idx, column=16, value=other_ded)
+        ws.cell(row=row_idx, column=17, value=total_deductions_calculated)
+        ws.cell(row=row_idx, column=18, value=staff['net_salary'] or 0)
 
         # Add to totals
         total_basic += staff['basic_salary'] or 0
-        total_allowances += staff['allowances'] or 0
-        total_deductions += staff['deductions'] or 0
+        total_hra += hra
+        total_transport += transport
+        total_other_allow += other_allow
+        total_absent_ded += absent_ded
+        total_late_penalty += late_penalty
+        total_early_dept += early_dept
+        total_pf += pf
+        total_esi += esi
+        total_prof_tax += prof_tax
+        total_other_ded += other_ded
+        total_deductions += total_deductions_calculated
         total_net += staff['net_salary'] or 0
 
         # Apply border to all cells
-        for col in range(1, 10):
+        for col in range(1, 19):  # Updated to cover all 18 columns
             ws.cell(row=row_idx, column=col).border = border
 
     # Add totals row
-    total_row = len(staff_data) + header_row + 1
+    total_row = len(processed_staff_data) + header_row + 1
     ws.cell(row=total_row, column=5, value="TOTAL").font = Font(bold=True)
     ws.cell(row=total_row, column=6, value=total_basic).font = Font(bold=True)
-    ws.cell(row=total_row, column=7, value=total_allowances).font = Font(bold=True)
-    ws.cell(row=total_row, column=8, value=total_deductions).font = Font(bold=True)
-    ws.cell(row=total_row, column=9, value=total_net).font = Font(bold=True)
+    ws.cell(row=total_row, column=7, value=total_hra).font = Font(bold=True)
+    ws.cell(row=total_row, column=8, value=total_transport).font = Font(bold=True)
+    ws.cell(row=total_row, column=9, value=total_other_allow).font = Font(bold=True)
+    ws.cell(row=total_row, column=10, value=total_absent_ded).font = Font(bold=True)
+    ws.cell(row=total_row, column=11, value=total_late_penalty).font = Font(bold=True)
+    ws.cell(row=total_row, column=12, value=total_early_dept).font = Font(bold=True)
+    ws.cell(row=total_row, column=13, value=total_pf).font = Font(bold=True)
+    ws.cell(row=total_row, column=14, value=total_esi).font = Font(bold=True)
+    ws.cell(row=total_row, column=15, value=total_prof_tax).font = Font(bold=True)
+    ws.cell(row=total_row, column=16, value=total_other_ded).font = Font(bold=True)
+    ws.cell(row=total_row, column=17, value=total_deductions).font = Font(bold=True)
+    ws.cell(row=total_row, column=18, value=total_net).font = Font(bold=True)
 
     # Auto-adjust column widths
-    for col in range(1, 10):
-        ws.column_dimensions[get_column_letter(col)].width = 15
+    for col in range(1, 19):  # Updated to cover all 18 columns
+        ws.column_dimensions[get_column_letter(col)].width = 12
 
     # Save to BytesIO
     output = BytesIO()
@@ -2012,7 +2190,10 @@ def generate_payroll_summary_report(school_id, year, month, format_type):
     
     holiday_days = len(holiday_dates)
 
-    # Process each staff member for detailed payroll calculation
+    # Process each staff member for detailed payroll calculation using SalaryCalculator
+    current_school_id = session.get('school_id')
+    salary_calculator = SalaryCalculator(school_id=current_school_id)
+    
     payroll_records = []
     total_payroll_expense = 0.0
     department_totals = {}
@@ -2021,52 +2202,56 @@ def generate_payroll_summary_report(school_id, year, month, format_type):
         staff_db_id = staff['staff_db_id']
         staff_id = staff['staff_id']
         
-        # Get attendance data for deduction calculations
-        attendance_data = db.execute("""
-            SELECT 
-                COUNT(*) as total_records,
-                SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) as days_present,
-                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as days_absent,
-                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as days_late
-            FROM attendance 
-            WHERE staff_id = ? AND date BETWEEN ? AND ?
-        """, (staff_db_id, start_str, end_str)).fetchone()
-        
-        days_present = int(attendance_data['days_present'] or 0)
-        days_absent = int(attendance_data['days_absent'] or 0)
-        days_late = int(attendance_data['days_late'] or 0)
-        
-        # Calculate base salary components
-        base_salary = float(staff['base_salary'])
-        hra_allowance = float(staff['hra_allowance'])
-        transport_allowance = float(staff['transport_allowance'])
-        other_allowances = float(staff['other_allowances'])
-        
-        # Calculate total allowances
-        total_allowances = hra_allowance + transport_allowance + other_allowances
-        gross_pay = base_salary + total_allowances
-        
-        # Calculate attendance-based deductions
-        if working_days > 0:
-            daily_salary = base_salary / working_days
-            absent_days_deduction = days_absent * daily_salary
-            late_arrival_deduction = days_late * (daily_salary * 0.1)  # 10% penalty for late arrivals
+        # Use SalaryCalculator for consistent calculations
+        salary_result = salary_calculator.calculate_monthly_salary(staff_db_id, year, month)
+        if salary_result['success']:
+            breakdown = salary_result['salary_breakdown']
+            earnings = breakdown['earnings']
+            deductions = breakdown['deductions']
+            attendance = breakdown['attendance_summary']
+            
+            # Extract key values from SalaryCalculator
+            base_salary = earnings['basic_salary']
+            hra_allowance = earnings['hra']
+            transport_allowance = earnings['transport_allowance']
+            other_allowances = earnings['other_allowances']
+            total_allowances = hra_allowance + transport_allowance + other_allowances
+            gross_pay = earnings['total_earnings']
+            total_deductions = deductions['total_deductions']  # Comprehensive deductions from SalaryCalculator
+            net_payroll = breakdown['net_salary']
+            days_present = attendance['present_days']
+            days_absent = attendance['absent_days']
+            days_late = attendance.get('late_days', 0)  # May not exist in older versions
         else:
-            absent_days_deduction = 0
-            late_arrival_deduction = 0
-        
-        # Static deductions from staff record
-        pf_deduction = float(staff['pf_deduction'])
-        esi_deduction = float(staff['esi_deduction'])
-        professional_tax = float(staff['professional_tax'])
-        other_deductions = float(staff['other_deductions'])
-        
-        # Total deductions
-        total_deductions = (absent_days_deduction + late_arrival_deduction + 
-                           pf_deduction + esi_deduction + professional_tax + other_deductions)
-        
-        # Net payroll (final amount to be paid)
-        net_payroll = gross_pay - total_deductions
+            # Fallback to basic calculation if SalaryCalculator fails
+            base_salary = float(staff['base_salary'])
+            hra_allowance = float(staff['hra_allowance'])
+            transport_allowance = float(staff['transport_allowance'])
+            other_allowances = float(staff['other_allowances'])
+            total_allowances = hra_allowance + transport_allowance + other_allowances
+            gross_pay = base_salary + total_allowances
+            
+            # Get attendance data for fallback calculation
+            attendance_data = db.execute("""
+                SELECT 
+                    SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) as days_present,
+                    SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as days_absent,
+                    SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as days_late
+                FROM attendance 
+                WHERE staff_id = ? AND date BETWEEN ? AND ?
+            """, (staff_db_id, start_str, end_str)).fetchone()
+            
+            days_present = int(attendance_data['days_present'] or 0)
+            days_absent = int(attendance_data['days_absent'] or 0)
+            days_late = int(attendance_data['days_late'] or 0)
+            
+            # Basic deductions calculation
+            pf_deduction = float(staff['pf_deduction'])
+            esi_deduction = float(staff['esi_deduction'])
+            professional_tax = float(staff['professional_tax'])
+            other_deductions = float(staff['other_deductions'])
+            total_deductions = pf_deduction + esi_deduction + professional_tax + other_deductions
+            net_payroll = gross_pay - total_deductions
         
         # Add to department totals
         dept = staff['department']
@@ -2078,7 +2263,46 @@ def generate_payroll_summary_report(school_id, year, month, format_type):
         # Add to total payroll expense
         total_payroll_expense += net_payroll
         
-        # Create detailed staff record
+        # Create detailed staff record using appropriate data source
+        if salary_result and salary_result['success']:
+            # Use SalaryCalculator data
+            attendance_summary = attendance
+            deduction_details = deductions
+            record_deductions = {
+                'absent_days': {'count': attendance_summary.get('absent_days', 0), 'amount': deduction_details.get('absent_deduction', 0)},
+                'late_arrivals': {'count': attendance_summary.get('late_days', 0), 'amount': deduction_details.get('late_arrival_penalty', 0)},
+                'early_departure': {'count': attendance_summary.get('early_departure_days', 0), 'amount': deduction_details.get('early_departure_penalty', 0)},
+                'pf': deduction_details.get('pf_deduction', 0),
+                'esi': deduction_details.get('esi_deduction', 0),
+                'professional_tax': deduction_details.get('professional_tax', 0),
+                'other': deduction_details.get('other_deductions', 0),
+                'total': total_deductions
+            }
+            attendance_data_record = {
+                'days_present': attendance_summary.get('present_days', 0),
+                'days_absent': attendance_summary.get('absent_days', 0),
+                'days_late': attendance_summary.get('late_days', 0),
+                'working_days': working_days
+            }
+        else:
+            # Use fallback data
+            record_deductions = {
+                'absent_days': {'count': days_absent, 'amount': 0},
+                'late_arrivals': {'count': days_late, 'amount': 0},
+                'early_departure': {'count': 0, 'amount': 0},
+                'pf': pf_deduction,
+                'esi': esi_deduction,
+                'professional_tax': professional_tax,
+                'other': other_deductions,
+                'total': total_deductions
+            }
+            attendance_data_record = {
+                'days_present': days_present,
+                'days_absent': days_absent,
+                'days_late': days_late,
+                'working_days': working_days
+            }
+        
         payroll_records.append({
             'staff_id': staff_id,
             'staff_name': staff['full_name'],
@@ -2092,22 +2316,9 @@ def generate_payroll_summary_report(school_id, year, month, format_type):
                 'total': total_allowances
             },
             'gross_pay': gross_pay,
-            'deductions': {
-                'absent_days': {'count': days_absent, 'amount': absent_days_deduction},
-                'late_arrivals': {'count': days_late, 'amount': late_arrival_deduction},
-                'pf': pf_deduction,
-                'esi': esi_deduction,
-                'professional_tax': professional_tax,
-                'other': other_deductions,
-                'total': total_deductions
-            },
+            'deductions': record_deductions,
             'net_payroll': net_payroll,
-            'attendance_summary': {
-                'days_present': days_present,
-                'days_absent': days_absent,
-                'days_late': days_late,
-                'working_days': working_days
-            }
+            'attendance_summary': attendance_data_record
         })
 
     # Create summary section
@@ -2170,7 +2381,7 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
     current_row = 1
 
     # TITLE SECTION
-    ws.merge_cells(f'A{current_row}:O{current_row}')
+    ws.merge_cells(f'A{current_row}:R{current_row}')  # Updated to R to cover 18 columns
     title_cell = ws[f'A{current_row}']
     title_cell.value = 'PAYROLL SUMMARY REPORT'
     title_cell.font = title_font
@@ -2180,7 +2391,7 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
     current_row += 2
 
     # SUMMARY SECTION
-    ws.merge_cells(f'A{current_row}:O{current_row}')
+    ws.merge_cells(f'A{current_row}:R{current_row}')  # Updated to R to cover 18 columns
     summary_title = ws[f'A{current_row}']
     summary_title.value = 'PAYROLL SUMMARY'
     summary_title.font = header_font
@@ -2247,7 +2458,7 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
         current_row += 1
 
     # DETAILED STAFF RECORDS SECTION
-    ws.merge_cells(f'A{current_row}:O{current_row}')
+    ws.merge_cells(f'A{current_row}:R{current_row}')  # Updated to R to cover 18 columns
     details_title = ws[f'A{current_row}']
     details_title.value = 'DETAILED STAFF PAYROLL RECORDS'
     details_title.font = header_font
@@ -2256,11 +2467,11 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
     details_title.border = border
     current_row += 1
 
-    # Main table headers
+    # Main table headers - Updated to show comprehensive deduction breakdown
     headers = [
         'Staff ID', 'Staff Name', 'Department', 'Position', 'Base Salary',
         'HRA', 'Transport', 'Other Allow.', 'Gross Pay',
-        'Absent Days', 'Late Count', 'PF', 'Other Ded.', 'Total Ded.', 'Net Pay'
+        'Absent Ded.', 'Late Penalty', 'Early Dept.', 'PF', 'ESI', 'Prof. Tax', 'Other Ded.', 'Total Ded.', 'Net Pay'
     ]
     
     for col, header in enumerate(headers, 1):
@@ -2280,7 +2491,7 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
     for idx, record in enumerate(payroll_records):
         row_fill = light_fill if idx % 2 == 0 else None
         
-        # Prepare row data
+        # Prepare row data - Updated to match new header structure
         row_data = [
             record['staff_id'],
             record['staff_name'],
@@ -2291,11 +2502,14 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
             f"₹{record['allowances']['transport']:,.2f}",
             f"₹{record['allowances']['other']:,.2f}",
             f"₹{record['gross_pay']:,.2f}",
-            f"{record['deductions']['absent_days']['count']} (₹{record['deductions']['absent_days']['amount']:,.0f})",
-            f"{record['deductions']['late_arrivals']['count']} (₹{record['deductions']['late_arrivals']['amount']:,.0f})",
+            f"₹{record['deductions']['absent_days']['amount']:,.2f}",  # Absent Deduction Amount
+            f"₹{record['deductions']['late_arrivals']['amount']:,.2f}",  # Late Penalty Amount
+            f"₹{record['deductions'].get('early_departure', {}).get('amount', 0):,.2f}",  # Early Departure Penalty
             f"₹{record['deductions']['pf']:,.2f}",
+            f"₹{record['deductions']['esi']:,.2f}",
+            f"₹{record['deductions']['professional_tax']:,.2f}",
             f"₹{record['deductions']['other']:,.2f}",
-            f"₹{record['deductions']['total']:,.2f}",
+            f"₹{record['deductions']['total']:,.2f}",  # Total Deductions (now includes ALL types)
             f"₹{record['net_payroll']:,.2f}"
         ]
         
@@ -2305,7 +2519,7 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
             cell.border = border
             if row_fill:
                 cell.fill = row_fill
-            if col >= 5:  # Right align numeric columns
+            if col >= 5:  # Right align numeric columns (salary and deduction columns)
                 cell.alignment = right_align
             else:
                 cell.alignment = center_align
@@ -2317,11 +2531,11 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
         
         current_row += 1
 
-    # TOTALS ROW
+    # TOTALS ROW - Updated to match new column structure
     totals_data = [
         'TOTALS', '', '', '', '',
         '', '', '', f"₹{total_gross_pay:,.2f}",
-        '', '', '', '', f"₹{total_deductions:,.2f}", f"₹{total_net_pay:,.2f}"
+        '', '', '', '', '', '', f"₹{total_deductions:,.2f}", f"₹{total_net_pay:,.2f}"
     ]
     
     for col, value in enumerate(totals_data, 1):
@@ -2331,8 +2545,8 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
         cell.border = border
         cell.alignment = right_align if col >= 5 else center_align
 
-    # Auto-adjust column widths
-    column_widths = [12, 25, 18, 18, 15, 12, 12, 12, 15, 15, 15, 12, 12, 15, 15]
+    # Auto-adjust column widths - Updated for new column structure
+    column_widths = [12, 25, 18, 18, 15, 12, 12, 12, 15, 12, 12, 12, 12, 12, 12, 15, 15]
     for col, width in enumerate(column_widths, 1):
         ws.column_dimensions[get_column_letter(col)].width = width
 
@@ -2351,19 +2565,28 @@ def _generate_payroll_summary_excel(payroll_records, summary_data, start_date, e
     return resp
 
 def generate_department_salary_report(school_id, year, department, format_type):
-    """Generate comprehensive department-wise salary report with detailed breakdown"""
+    """Generate comprehensive department-wise salary report with detailed breakdown including attendance-based deductions"""
     import datetime
+    import calendar
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
     from openpyxl.utils import get_column_letter
     from io import BytesIO
+    from flask import request
     
     db = get_db()
+    
+    # Get current month as default or from request parameters
+    current_month = datetime.datetime.now().month
+    current_year = year or datetime.datetime.now().year
+    
+    # Check if month is specified in request
+    month = request.args.get('month', current_month, type=int)
     
     # Build query with optional department filtering
     query = """
         SELECT 
-            staff_id, full_name, department, destination as position,
+            id, staff_id, full_name, department, destination as position,
             COALESCE(basic_salary, 0) as basic_salary,
             COALESCE(hra, 0) as hra,
             COALESCE(transport_allowance, 0) as transport_allowance,
@@ -2387,48 +2610,107 @@ def generate_department_salary_report(school_id, year, department, format_type):
     
     staff_data = db.execute(query, params).fetchall()
     
-    # Group staff by department
+    # Calculate working days for the specified month
+    total_days = calendar.monthrange(current_year, month)[1]
+    working_days = 0
+    current_dt = datetime.date(current_year, month, 1)
+    end_dt = datetime.date(current_year, month, total_days)
+    
+    while current_dt <= end_dt:
+        if current_dt.weekday() < 6:  # Monday-Saturday = 0-5, Sunday = 6
+            working_days += 1
+        current_dt += datetime.timedelta(days=1)
+    
+    # Group staff by department using SalaryCalculator for consistent calculations
+    current_school_id = session.get('school_id')
+    salary_calculator = SalaryCalculator(school_id=current_school_id)
+    
     departments = {}
     for staff in staff_data:
         dept = staff['department'] or 'Unassigned'
         if dept not in departments:
             departments[dept] = []
         
-        # Calculate totals
-        total_allowances = (
-            float(staff['hra']) + 
-            float(staff['transport_allowance']) + 
-            float(staff['other_allowances'])
-        )
-        total_deductions = (
-            float(staff['pf_deduction']) + 
-            float(staff['esi_deduction']) + 
-            float(staff['professional_tax']) + 
-            float(staff['other_deductions'])
-        )
-        base_salary = float(staff['basic_salary'])
-        gross_pay = base_salary + total_allowances - total_deductions
+        staff_db_id = staff['id']
         
-        staff_record = {
-            'staff_id': staff['staff_id'],
-            'name': staff['full_name'],
-            'position': staff['position'] or 'N/A',
-            'base_salary': base_salary,
-            'allowances': {
-                'hra': float(staff['hra']),
-                'transport': float(staff['transport_allowance']),
-                'other': float(staff['other_allowances']),
-                'total': total_allowances
-            },
-            'deductions': {
-                'pf': float(staff['pf_deduction']),
-                'esi': float(staff['esi_deduction']),
-                'professional_tax': float(staff['professional_tax']),
-                'other': float(staff['other_deductions']),
-                'total': total_deductions
-            },
-            'gross_pay': gross_pay
-        }
+        # Use SalaryCalculator for consistent calculations
+        salary_result = salary_calculator.calculate_monthly_salary(staff_db_id, current_year, month)
+        if salary_result['success']:
+            breakdown = salary_result['salary_breakdown']
+            earnings = breakdown['earnings']
+            deductions = breakdown['deductions']
+            
+            base_salary = earnings['basic_salary']
+            total_allowances = earnings['hra'] + earnings['transport_allowance'] + earnings['other_allowances']
+            total_deductions = deductions['total_deductions']  # Comprehensive deductions from SalaryCalculator
+            gross_pay = earnings['total_earnings']  # Total earnings before deductions
+        else:
+            # Fallback to basic calculation if SalaryCalculator fails
+            base_salary = float(staff['basic_salary'] or 0)
+            hra = float(staff['hra'] or 0)
+            transport_allowance = float(staff['transport_allowance'] or 0)
+            other_allowances = float(staff['other_allowances'] or 0)
+            total_allowances = hra + transport_allowance + other_allowances
+            
+            pf_deduction = float(staff['pf_deduction'] or 0)
+            esi_deduction = float(staff['esi_deduction'] or 0)
+            professional_tax = float(staff['professional_tax'] or 0)
+            other_deductions = float(staff['other_deductions'] or 0)
+            total_deductions = pf_deduction + esi_deduction + professional_tax + other_deductions
+            gross_pay = base_salary + total_allowances
+        
+        # Create staff record with calculated values
+        if salary_result and salary_result['success']:
+            # Use SalaryCalculator data
+            attendance = breakdown['attendance_summary']
+            staff_record = {
+                'staff_id': staff['staff_id'],
+                'name': staff['full_name'],
+                'position': staff['position'] or 'N/A',
+                'base_salary': base_salary,
+                'allowances': {
+                    'hra': earnings['hra'],
+                    'transport': earnings['transport_allowance'],
+                    'other': earnings['other_allowances'],
+                    'total': total_allowances
+                },
+                'deductions': {
+                    'absent_days': {'count': attendance.get('absent_days', 0), 'amount': deductions.get('absent_deduction', 0)},
+                    'late_arrivals': {'count': attendance.get('late_days', 0), 'amount': deductions.get('late_arrival_penalty', 0)},
+                    'early_departure': {'count': attendance.get('early_departure_days', 0), 'amount': deductions.get('early_departure_penalty', 0)},
+                    'pf': deductions.get('pf_deduction', 0),
+                    'esi': deductions.get('esi_deduction', 0),
+                    'professional_tax': deductions.get('professional_tax', 0),
+                    'other': deductions.get('other_deductions', 0),
+                    'total': total_deductions
+                },
+                'gross_pay': gross_pay
+            }
+        else:
+            # Use fallback data
+            staff_record = {
+                'staff_id': staff['staff_id'],
+                'name': staff['full_name'],
+                'position': staff['position'] or 'N/A',
+                'base_salary': base_salary,
+                'allowances': {
+                    'hra': hra,
+                    'transport': transport_allowance,
+                    'other': other_allowances,
+                    'total': total_allowances
+                },
+                'deductions': {
+                    'absent_days': {'count': 0, 'amount': 0},
+                    'late_arrivals': {'count': 0, 'amount': 0},
+                    'early_departure': {'count': 0, 'amount': 0},
+                    'pf': pf_deduction,
+                    'esi': esi_deduction,
+                    'professional_tax': professional_tax,
+                    'other': other_deductions,
+                    'total': total_deductions
+                },
+                'gross_pay': gross_pay
+            }
         departments[dept].append(staff_record)
     
     if format_type == 'json':
@@ -2492,8 +2774,8 @@ def _generate_department_salary_excel(departments, school_id, year):
     
     current_row = 1
     
-    # Title section
-    ws.merge_cells(f'A{current_row}:I{current_row}')
+    # Title section - Updated to cover 15 columns (A to O)
+    ws.merge_cells(f'A{current_row}:P{current_row}')
     title_cell = ws[f'A{current_row}']
     title_cell.value = f"DEPARTMENT WISE SALARY REPORT - {year}"
     title_cell.font = title_font
@@ -2531,19 +2813,19 @@ def _generate_department_salary_excel(departments, school_id, year):
         cell.font = Font(name='Arial', size=10, bold=True)
     current_row += 2
     
-    # Main table headers
+    # Main table headers - Updated to include attendance-based deductions
     headers = [
         'Staff ID', 'Staff Name', 'Position/Job Title', 'Base Salary', 
-        'HRA', 'Transport', 'Other Allow.', 'PF Deduction', 'ESI Deduction', 
-        'Prof. Tax', 'Other Ded.', 'Total Deductions', 'Gross Pay'
+        'HRA', 'Transport', 'Other Allow.', 'Absent Ded.', 'Late Penalty', 'Early Dept.',
+        'PF Deduction', 'ESI Deduction', 'Prof. Tax', 'Other Ded.', 'Total Deductions', 'Gross Pay'
     ]
     
     # Process each department
     for dept_name in sorted(departments.keys()):
         dept_staff = departments[dept_name]
         
-        # Department header
-        ws.merge_cells(f'A{current_row}:M{current_row}')
+        # Department header - Updated to cover 16 columns (A to P)
+        ws.merge_cells(f'A{current_row}:P{current_row}')
         dept_header_cell = ws[f'A{current_row}']
         dept_header_cell.value = f"{dept_name.upper()} DEPARTMENT ({len(dept_staff)} Staff)"
         dept_header_cell.font = dept_header_font
@@ -2573,11 +2855,14 @@ def _generate_department_salary_excel(departments, school_id, year):
                 f"₹{staff['allowances']['hra']:,.2f}",
                 f"₹{staff['allowances']['transport']:,.2f}",
                 f"₹{staff['allowances']['other']:,.2f}",
+                f"₹{staff['deductions']['absent_days']['amount']:,.2f}",  # Absent Deduction
+                f"₹{staff['deductions']['late_arrivals']['amount']:,.2f}",  # Late Penalty
+                f"₹{staff['deductions'].get('early_departure', {}).get('amount', 0):,.2f}",  # Early Departure Penalty
                 f"₹{staff['deductions']['pf']:,.2f}",
                 f"₹{staff['deductions']['esi']:,.2f}",
                 f"₹{staff['deductions']['professional_tax']:,.2f}",
                 f"₹{staff['deductions']['other']:,.2f}",
-                f"₹{staff['deductions']['total']:,.2f}",
+                f"₹{staff['deductions']['total']:,.2f}",  # Total Deductions (now includes ALL types)
                 f"₹{staff['gross_pay']:,.2f}"
             ]
             
@@ -2600,8 +2885,8 @@ def _generate_department_salary_excel(departments, school_id, year):
                     cell.alignment = Alignment(horizontal='right', vertical='center')
             current_row += 1
         
-        # Department total row
-        ws.merge_cells(f'A{current_row}:L{current_row}')
+        # Department total row - Updated to cover columns A to N
+        ws.merge_cells(f'A{current_row}:N{current_row}')
         total_cell = ws[f'A{current_row}']
         total_cell.value = f"DEPARTMENT TOTAL"
         total_cell.font = Font(name='Arial', size=11, bold=True)
@@ -2609,7 +2894,7 @@ def _generate_department_salary_excel(departments, school_id, year):
         total_cell.alignment = center_alignment
         total_cell.border = thin_border
         
-        gross_total_cell = ws[f'M{current_row}']
+        gross_total_cell = ws[f'O{current_row}']  # Updated to column O (15th column)
         gross_total_cell.value = f"₹{dept_total_gross:,.2f}"
         gross_total_cell.font = Font(name='Arial', size=11, bold=True)
         gross_total_cell.fill = PatternFill(start_color='E2EFDA', end_color='E2EFDA', fill_type='solid')
@@ -2618,8 +2903,8 @@ def _generate_department_salary_excel(departments, school_id, year):
         
         current_row += 2  # Space between departments
     
-    # Adjust column widths
-    column_widths = [12, 25, 20, 15, 12, 12, 12, 12, 12, 12, 12, 15, 15]
+    # Adjust column widths - Updated for 15 columns
+    column_widths = [12, 25, 20, 15, 12, 12, 12, 12, 12, 12, 12, 12, 12, 15, 15]
     for col, width in enumerate(column_widths, 1):
         ws.column_dimensions[get_column_letter(col)].width = width
     
