@@ -294,101 +294,266 @@ def service_worker():
 @app.route('/iclock/cdata.aspx', methods=['GET', 'POST'])
 def iclock_cdata():
     """
-    Handle iClock protocol requests from ZK devices
-    This is the traditional ZKTeco communication protocol (not ADMS)
+    UNIVERSAL ADMS RECEIVER - Protocol Agnostic Endpoint
+    Supports all ZK device types: Fingerprint, Face, Palm, Card
+    Auto-detects format: Text/Tab-separated, JSON, XML
     """
     try:
-        # Get device serial number from query string
+        from universal_adms_parser import UniversalADMSParser
+        
+        # Get device parameters from query string
         sn = request.args.get('SN', '')
         options = request.args.get('options', '')
+        table = request.args.get('table', '')  # Some devices send table=ATTLOG
         
-        logger.info(f"iClock request from device SN: {sn}, options: {options}, method: {request.method}")
+        # Extract additional device info from query params (for handshake)
+        device_model = request.args.get('model', request.args.get('~DeviceName', ''))
+        firmware_ver = request.args.get('FWVersion', request.args.get('~ZKFPVersion', ''))
+        platform = request.args.get('~Platform', request.args.get('platform', ''))
         
-        # GET request - Device checking for commands or handshake
+        logger.info(f"Universal ADMS request from SN: {sn}, method: {request.method}, "
+                   f"model: {device_model}, fw: {firmware_ver}, options: {options}")
+        
+        db = get_db()
+        
+        # ===== STEP 1: HANDSHAKE & IDENTIFICATION (GET Request) =====
         if request.method == 'GET':
-            # Device is requesting commands or initial handshake
-            # Return OK response to acknowledge device
+            # Device is requesting commands or performing handshake
+            
+            # If device provides serial number, capture/update device metadata
+            if sn:
+                device = db.execute(
+                    'SELECT * FROM biometric_devices WHERE serial_number = ?',
+                    (sn,)
+                ).fetchone()
+                
+                if device:
+                    # Update device metadata from handshake
+                    update_fields = []
+                    update_values = []
+                    
+                    if device_model:
+                        update_fields.append('device_model = ?')
+                        update_values.append(device_model)
+                    
+                    if firmware_ver:
+                        update_fields.append('firmware_ver = ?')
+                        update_values.append(firmware_ver)
+                    
+                    if platform:
+                        update_fields.append('platform = ?')
+                        update_values.append(platform)
+                    
+                    update_fields.append('last_handshake = ?')
+                    update_values.append(datetime.now())
+                    
+                    # Store raw options for debugging
+                    if options:
+                        update_fields.append('raw_options_data = ?')
+                        update_values.append(options)
+                    
+                    if update_fields:
+                        update_values.append(device['id'])
+                        db.execute(
+                            f"UPDATE biometric_devices SET {', '.join(update_fields)} WHERE id = ?",
+                            tuple(update_values)
+                        )
+                        db.commit()
+                        logger.info(f"✓ Updated device metadata for {sn}: {device_model}")
+                else:
+                    # Unknown device - log for manual registration
+                    client_ip = request.remote_addr
+                    
+                    # Check if this unknown device has been seen before
+                    unknown_device = db.execute(
+                        'SELECT * FROM unknown_device_log WHERE serial_number = ?',
+                        (sn,)
+                    ).fetchone()
+                    
+                    if unknown_device:
+                        # Update last seen and increment count
+                        db.execute('''
+                            UPDATE unknown_device_log 
+                            SET last_seen = ?, attempt_count = attempt_count + 1,
+                                device_model = COALESCE(?, device_model),
+                                firmware_ver = COALESCE(?, firmware_ver),
+                                platform = COALESCE(?, platform)
+                            WHERE serial_number = ?
+                        ''', (datetime.now(), device_model or None, firmware_ver or None, 
+                             platform or None, sn))
+                    else:
+                        # New unknown device - create log entry
+                        db.execute('''
+                            INSERT INTO unknown_device_log 
+                            (serial_number, ip_address, device_model, firmware_ver, platform, 
+                             request_type, raw_payload)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ''', (sn, client_ip, device_model or 'Unknown', firmware_ver or 'Unknown',
+                             platform or 'Unknown', 'GET/handshake', options or ''))
+                    
+                    db.commit()
+                    logger.warning(f"⚠ Unknown device {sn} ({device_model}) attempted handshake from {client_ip}")
+            
+            # Return OK to acknowledge device
             response = make_response("OK")
             response.headers['Content-Type'] = 'text/plain'
             return response
         
-        # POST request - Device sending attendance data
+        # ===== STEP 2: DATA PUSH (POST Request) - UNIVERSAL PARSER =====
         if request.method == 'POST':
-            # Get the raw POST data
-            data = request.get_data(as_text=True)
-            logger.info(f"iClock POST data from {sn}: {data[:200]}...")  # Log first 200 chars
+            # Get raw POST data and content type
+            raw_data = request.get_data(as_text=True)
+            content_type = request.content_type
+            
+            logger.info(f"Universal ADMS POST from {sn}: Content-Type={content_type}, "
+                       f"Size={len(raw_data)} bytes")
+            logger.debug(f"Raw data sample (first 300 chars): {raw_data[:300]}")
             
             if not sn:
                 logger.warning("iClock request missing SN parameter")
+                # Log to protocol detection for debugging
+                db.execute('''
+                    INSERT INTO protocol_detection_log 
+                    (serial_number, request_method, request_path, content_type, raw_body, 
+                     detected_format, parsed_successfully, error_message)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', ('UNKNOWN', 'POST', request.path, content_type, raw_data[:1000],
+                     'N/A', False, 'Missing SN parameter'))
+                db.commit()
                 return make_response("ERROR: SN required", 400)
             
             # Check if device is registered
-            db = get_db()
             device = db.execute(
                 'SELECT * FROM biometric_devices WHERE serial_number = ?',
                 (sn,)
             ).fetchone()
             
             if not device:
-                logger.warning(f"Device {sn} not registered in system")
-                # Still return OK to avoid device errors, but log warning
+                # Log unknown device attempt
+                client_ip = request.remote_addr
+                
+                unknown_device = db.execute(
+                    'SELECT * FROM unknown_device_log WHERE serial_number = ?',
+                    (sn,)
+                ).fetchone()
+                
+                if unknown_device:
+                    db.execute('''
+                        UPDATE unknown_device_log 
+                        SET last_seen = ?, attempt_count = attempt_count + 1,
+                            raw_payload = ?
+                        WHERE serial_number = ?
+                    ''', (datetime.now(), raw_data[:5000], sn))
+                else:
+                    db.execute('''
+                        INSERT INTO unknown_device_log 
+                        (serial_number, ip_address, request_type, raw_payload)
+                        VALUES (?, ?, ?, ?)
+                    ''', (sn, client_ip, 'POST/attendance', raw_data[:5000]))
+                
+                db.commit()
+                logger.warning(f"⚠ Device {sn} not registered - attendance data logged for review")
+                
+                # Still return OK to avoid device errors
                 return make_response("OK")
             
-            # Parse attendance data from POST body
-            # iClock format: ATTLOG lines or User data
-            lines = data.strip().split('\n')
-            processed_count = 0
+            # ===== STEP 3: UNIVERSAL PARSING - THE SMART LISTENER =====
+            parser = UniversalADMSParser()
+            parse_result = parser.parse(raw_data, content_type)
             
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
+            detected_format = parse_result.get('format', 'unknown')
+            
+            # Update device's protocol_type if detected
+            if detected_format and detected_format not in ['empty', 'unknown', 'error']:
+                format_map = {'text': 'Text', 'json': 'JSON', 'xml': 'XML'}
+                protocol_type = format_map.get(detected_format, 'Auto')
                 
-                # Handle ATTLOG (attendance log) format
-                # Format: ATTLOG pin\ttimestamp\tstatus\tverify_type
-                # Example: ATTLOG 101\t2025-12-08 10:30:45\t0\t1
-                if line.startswith('ATTLOG'):
-                    try:
-                        parts = line.split('\t')
-                        if len(parts) >= 4:
-                            pin = parts[1]  # Staff ID
-                            timestamp = parts[2]
-                            # status = parts[3]  # 0=check-in, 1=check-out, etc.
-                            
-                            # Find staff by staff_id or biometric_id
-                            staff = db.execute(
-                                '''SELECT s.*, sch.name as school_name 
-                                   FROM staff s 
-                                   JOIN schools sch ON s.school_id = sch.id 
-                                   WHERE (s.staff_id = ? OR s.biometric_id = ?) 
-                                   AND s.school_id = ?''',
-                                (pin, pin, device['school_id'])
-                            ).fetchone()
-                            
-                            if staff:
-                                # Insert into biometric_verifications
-                                db.execute('''
-                                    INSERT INTO biometric_verifications 
-                                    (staff_id, device_ip, device_name, verification_time, status)
-                                    VALUES (?, ?, ?, ?, ?)
-                                ''', (
-                                    staff['id'],
-                                    f"iClock:{sn}",
-                                    device['device_name'],
-                                    timestamp,
-                                    'success'
-                                ))
-                                db.commit()
-                                processed_count += 1
-                                logger.info(f"✓ Processed iClock attendance: {staff['full_name']} at {timestamp}")
-                            else:
-                                logger.warning(f"Staff with ID/PIN {pin} not found for device {sn}")
-                    
-                    except Exception as e:
-                        logger.error(f"Error parsing ATTLOG line: {line}, error: {e}")
-                        continue
+                db.execute(
+                    'UPDATE biometric_devices SET protocol_type = ? WHERE id = ?',
+                    (protocol_type, device['id'])
+                )
             
-            logger.info(f"iClock: Processed {processed_count} attendance records from device {sn}")
+            # Log protocol detection for debugging
+            db.execute('''
+                INSERT INTO protocol_detection_log 
+                (device_id, serial_number, request_method, request_path, content_type, 
+                 raw_body, detected_format, parsed_successfully, error_message, raw_headers)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (device['id'], sn, 'POST', request.path, content_type, 
+                 raw_data[:1000], detected_format, parse_result['success'],
+                 parse_result.get('error', ''), str(dict(request.headers))[:500]))
+            
+            db.commit()
+            
+            if not parse_result['success']:
+                logger.error(f"❌ Parse failed for device {sn}: {parse_result.get('error')}")
+                logger.error(f"Raw data sample: {raw_data[:500]}")
+                
+                # Still return OK to prevent device from retrying infinitely
+                return make_response("OK")
+            
+            # ===== STEP 4: PROCESS NORMALIZED ATTENDANCE RECORDS =====
+            records = parse_result.get('records', [])
+            processed_count = 0
+            rejected_count = 0
+            
+            logger.info(f"✓ Parsed {len(records)} record(s) from {detected_format.upper()} format")
+            
+            for record in records:
+                try:
+                    user_id = record['user_id']
+                    timestamp = record['timestamp']
+                    verification_type = record['verification_type']
+                    biometric_method = record['biometric_method']
+                    
+                    # Find staff by staff_id or biometric_id
+                    staff = db.execute(
+                        '''SELECT s.*, sch.name as school_name 
+                           FROM staff s 
+                           JOIN schools sch ON s.school_id = sch.id 
+                           WHERE (s.staff_id = ? OR s.biometric_id = ?) 
+                           AND s.school_id = ?''',
+                        (user_id, user_id, device['school_id'])
+                    ).fetchone()
+                    
+                    if staff:
+                        # Use UnifiedAttendanceProcessor for consistency
+                        from zk_biometric import UnifiedAttendanceProcessor
+                        
+                        processor = UnifiedAttendanceProcessor()
+                        punch_result = processor.process_attendance_punch(
+                            device_id=device['id'],
+                            user_id=user_id,
+                            timestamp=timestamp,
+                            punch_code=record['punch_code'],
+                            verification_method=biometric_method
+                        )
+                        
+                        if punch_result['success']:
+                            processed_count += 1
+                            logger.info(f"✓ Processed: {staff['full_name']} - {verification_type} "
+                                      f"at {record['timestamp_str']} via {biometric_method}")
+                        else:
+                            rejected_count += 1
+                            logger.warning(f"⚠ Rejected: {punch_result.get('message')}")
+                    else:
+                        rejected_count += 1
+                        logger.warning(f"⚠ Staff with ID {user_id} not found for device {sn}")
+                
+                except Exception as e:
+                    rejected_count += 1
+                    logger.error(f"❌ Error processing record: {e}, record: {record}")
+                    continue
+            
+            logger.info(f"✓ Universal ADMS processed {processed_count}/{len(records)} records "
+                       f"from device {sn} (format: {detected_format.upper()})")
+            
+            # Update device sync status
+            db.execute(
+                'UPDATE biometric_devices SET last_sync = ?, sync_status = ? WHERE id = ?',
+                (datetime.now(), 'success', device['id'])
+            )
+            db.commit()
             
             # Return OK to acknowledge receipt
             response = make_response("OK")
@@ -396,9 +561,24 @@ def iclock_cdata():
             return response
     
     except Exception as e:
-        logger.error(f"Error handling iClock request: {e}")
+        logger.error(f"❌ Error in Universal ADMS handler: {e}")
         import traceback
         logger.error(traceback.format_exc())
+        
+        # Try to log the error
+        try:
+            db = get_db()
+            db.execute('''
+                INSERT INTO protocol_detection_log 
+                (serial_number, request_method, raw_body, detected_format, 
+                 parsed_successfully, error_message)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (request.args.get('SN', 'UNKNOWN'), request.method, 
+                 str(request.get_data(as_text=True))[:1000], 'error', False, str(e)[:500]))
+            db.commit()
+        except:
+            pass
+        
         return make_response("ERROR", 500)
 
 # In app.py, update the index route
@@ -14928,4 +15108,4 @@ def api_deactivate_agent(agent_id):
 
 if __name__ == '__main__':
     init_db(app)
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5500)

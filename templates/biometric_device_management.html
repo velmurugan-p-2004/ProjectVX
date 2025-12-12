@@ -549,11 +549,11 @@
                                 </div>
                                 <div class="config-item">
                                     <span class="config-label">Server Port:</span>
-                                    <span class="config-value" id="serverPort">5000</span>
+                                    <span class="config-value" id="serverPort">Loading...</span>
                                 </div>
                                 <div class="config-item">
                                     <span class="config-label">Endpoint Path:</span>
-                                    <span class="config-value">/api/cloud/adms/push</span>
+                                    <span class="config-value">/iclock/cdata.aspx</span>
                                 </div>
                                 <small class="text-muted d-block mt-2">
                                     <i class="bi bi-info-circle me-1"></i>
@@ -832,7 +832,15 @@
         function loadServerConfig() {
             // Try to detect server IP/hostname
             const serverAddress = window.location.hostname || 'YOUR_SERVER_IP';
-            const serverPort = window.location.port || '5000';
+            
+            // Get actual port from current URL
+            // If port is not specified in URL, it means default port (80 for HTTP, 443 for HTTPS)
+            let serverPort = window.location.port;
+            if (!serverPort) {
+                // No port in URL means default port, but for Flask dev it's usually on a specific port
+                // Try to get from current URL or default to 5000 for Flask development
+                serverPort = '5000';
+            }
             
             document.getElementById('serverAddress').textContent = serverAddress;
             document.getElementById('serverPort').textContent = serverPort;

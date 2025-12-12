@@ -37,7 +37,7 @@ Your server must be accessible from the device. Options:
 
 - Flask server running on accessible IP
 - Port open (default: 5000 or your configured port)
-- ADMS endpoint active: `/api/cloud/adms/push`
+- ADMS endpoint active: `/iclock/cdata.aspx`
 
 ### 3. Device Requirements
 
@@ -142,7 +142,7 @@ Check the back or bottom of the device for a sticker with the serial number.
    -------------------------------------------------------
    |  Server Address: 203.0.113.45                        |
    |  Server Port:    5000                                |
-   |  Endpoint Path:  /api/cloud/adms/push               |
+   |  Endpoint Path:  /iclock/cdata.aspx                 |
    -------------------------------------------------------
    ```
 
@@ -181,7 +181,7 @@ Check the back or bottom of the device for a sticker with the serial number.
    | **Server Port** | `5000` (your server port) |
    | **Protocol** | HTTP |
    | **Push Interval** | `60` seconds (recommended) |
-   | **Endpoint URL** | `/api/cloud/adms/push` |
+   | **Endpoint URL** | `/iclock/cdata.aspx` |
    | **Connection Timeout** | `30` seconds |
    | **Retry Count** | `3` |
 
@@ -322,7 +322,7 @@ sudo ufw allow 5000/tcp
 **Solutions:**
 
 **Check 1: Verify Endpoint**
-Device endpoint should be EXACTLY: `/api/cloud/adms/push`
+Device endpoint should be EXACTLY: `/iclock/cdata.aspx`
 
 **Check 2: Check Serial Number**
 ```sql
@@ -443,7 +443,7 @@ HAVING push_count > 1000;  -- Alert if > 1000 pushes per day
 - [ ] ADMS enabled
 - [ ] Server IP/domain configured
 - [ ] Server port configured (5000)
-- [ ] Endpoint path: `/api/cloud/adms/push`
+- [ ] Endpoint path: `/iclock/cdata.aspx`
 - [ ] Push interval: 60 seconds
 - [ ] Connection test: SUCCESS
 
@@ -469,7 +469,7 @@ Device A (Serial: ZK001) → Institution 1
 Device B (Serial: ZK002) → Institution 2
 Device C (Serial: ZK003) → Institution 1
 
-All push to: http://server:5000/api/cloud/adms/push
+All push to: http://server:5000/iclock/cdata.aspx
 
 Server automatically routes:
   - ZK001 punches → Institution 1 staff only
@@ -502,7 +502,7 @@ Enable=1
 ServerAddress=203.0.113.45
 ServerPort=5000
 Protocol=HTTP
-EndpointURL=/api/cloud/adms/push
+EndpointURL=/iclock/cdata.aspx
 PushInterval=60
 ConnectionTimeout=30
 RetryCount=3
@@ -520,7 +520,7 @@ PushOnInterval=1
 
 **Server Endpoint:**
 - Health Check: `http://YOUR_SERVER:5000/api/cloud/health`
-- ADMS Push: `http://YOUR_SERVER:5000/api/cloud/adms/push` (POST only)
+- ADMS Push: `http://YOUR_SERVER:5000/iclock/cdata.aspx` (GET/POST)
 - Device List: `http://YOUR_SERVER:5000/api/cloud/adms/devices` (requires API key)
 
 **Need Help?**
