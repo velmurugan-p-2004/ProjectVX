@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, g, make_response
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, g, make_response, flash, send_from_directory
 import sqlite3
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -6,7 +6,12 @@ from werkzeug.utils import secure_filename
 import datetime
 import calendar
 import time
+import logging
 from database import get_db, init_db
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 from zk_biometric import sync_attendance_from_device, ZKBiometricDevice, verify_staff_biometric, process_device_attendance_automatically
 from shift_management import ShiftManager
 from excel_reports import ExcelReportGenerator
@@ -17,6 +22,8 @@ from data_visualization import DataVisualization
 from notification_system import NotificationManager
 from backup_manager import BackupManager
 from salary_calculator import SalaryCalculator
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
 import os
 import json
 import calendar
@@ -40,6 +47,17 @@ csrf = CSRFProtect(app)
 
 # Initialize database with the app
 init_db(app)
+
+# Initialize APScheduler for automatic sync
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+# Shut down the scheduler when exiting the app
+atexit.register(lambda: scheduler.shutdown())
+
+# Auto-sync configuration (interval in minutes) - Load from database
+from database import get_system_setting
+AUTO_SYNC_INTERVAL_MINUTES = int(get_system_setting('auto_sync_interval_minutes', 15))
 
 # Add custom Jinja2 filters
 @app.template_filter('dateformat')
@@ -148,6 +166,33 @@ with app.app_context():
     ensure_on_duty_permission_table()
 
 
+########################################
+# HELPER: Get Primary Device for Institution
+########################################
+
+def get_institution_device():
+    """
+    Get the primary Direct_LAN biometric device for the logged-in institution.
+    Returns tuple: (device_ip, port) or (None, None) if no device configured.
+    
+    This helper ensures backward compatibility while supporting the new multi-device system.
+    """
+    if 'school_id' not in session:
+        return None, None
+    
+    try:
+        from database import get_primary_device_for_institution
+        device = get_primary_device_for_institution(session['school_id'])
+        
+        if device and device.get('connection_type') == 'Direct_LAN':
+            return device.get('ip_address'), device.get('port', 4370)
+        
+        return None, None
+    except Exception as e:
+        logger.error(f"Error getting institution device: {e}")
+        return None, None
+
+
 # Route for admin to process OD permission (ensure only one definition)
 @app.route('/process_on_duty_permission', methods=['POST'])
 def process_on_duty_permission():
@@ -214,6 +259,147 @@ def close_db(error):
     db = getattr(g, '_database', None)
     if db is not None:
         db.close()
+
+# Favicon route
+@app.route('/favicon.ico')
+def favicon():
+    """Serve favicon from static/images directory"""
+    return send_from_directory(
+        os.path.join(app.root_path, 'static', 'images'),
+        'favicon.ico',
+        mimetype='image/vnd.microsoft.icon'
+    )
+
+# Manifest route for PWA
+@app.route('/manifest.json')
+def manifest():
+    """Serve PWA manifest with proper MIME type"""
+    return send_from_directory(
+        os.path.join(app.root_path, 'static'),
+        'manifest.json',
+        mimetype='application/manifest+json'
+    )
+
+# Service Worker route
+@app.route('/sw.js')
+def service_worker():
+    """Serve service worker from static directory"""
+    return send_from_directory(
+        os.path.join(app.root_path, 'static'),
+        'sw.js',
+        mimetype='application/javascript'
+    )
+
+# iClock Protocol Endpoint (Traditional ZKTeco protocol)
+@app.route('/iclock/cdata.aspx', methods=['GET', 'POST'])
+def iclock_cdata():
+    """
+    Handle iClock protocol requests from ZK devices
+    This is the traditional ZKTeco communication protocol (not ADMS)
+    """
+    try:
+        # Get device serial number from query string
+        sn = request.args.get('SN', '')
+        options = request.args.get('options', '')
+        
+        logger.info(f"iClock request from device SN: {sn}, options: {options}, method: {request.method}")
+        
+        # GET request - Device checking for commands or handshake
+        if request.method == 'GET':
+            # Device is requesting commands or initial handshake
+            # Return OK response to acknowledge device
+            response = make_response("OK")
+            response.headers['Content-Type'] = 'text/plain'
+            return response
+        
+        # POST request - Device sending attendance data
+        if request.method == 'POST':
+            # Get the raw POST data
+            data = request.get_data(as_text=True)
+            logger.info(f"iClock POST data from {sn}: {data[:200]}...")  # Log first 200 chars
+            
+            if not sn:
+                logger.warning("iClock request missing SN parameter")
+                return make_response("ERROR: SN required", 400)
+            
+            # Check if device is registered
+            db = get_db()
+            device = db.execute(
+                'SELECT * FROM biometric_devices WHERE serial_number = ?',
+                (sn,)
+            ).fetchone()
+            
+            if not device:
+                logger.warning(f"Device {sn} not registered in system")
+                # Still return OK to avoid device errors, but log warning
+                return make_response("OK")
+            
+            # Parse attendance data from POST body
+            # iClock format: ATTLOG lines or User data
+            lines = data.strip().split('\n')
+            processed_count = 0
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Handle ATTLOG (attendance log) format
+                # Format: ATTLOG pin\ttimestamp\tstatus\tverify_type
+                # Example: ATTLOG 101\t2025-12-08 10:30:45\t0\t1
+                if line.startswith('ATTLOG'):
+                    try:
+                        parts = line.split('\t')
+                        if len(parts) >= 4:
+                            pin = parts[1]  # Staff ID
+                            timestamp = parts[2]
+                            # status = parts[3]  # 0=check-in, 1=check-out, etc.
+                            
+                            # Find staff by staff_id or biometric_id
+                            staff = db.execute(
+                                '''SELECT s.*, sch.name as school_name 
+                                   FROM staff s 
+                                   JOIN schools sch ON s.school_id = sch.id 
+                                   WHERE (s.staff_id = ? OR s.biometric_id = ?) 
+                                   AND s.school_id = ?''',
+                                (pin, pin, device['school_id'])
+                            ).fetchone()
+                            
+                            if staff:
+                                # Insert into biometric_verifications
+                                db.execute('''
+                                    INSERT INTO biometric_verifications 
+                                    (staff_id, device_ip, device_name, verification_time, status)
+                                    VALUES (?, ?, ?, ?, ?)
+                                ''', (
+                                    staff['id'],
+                                    f"iClock:{sn}",
+                                    device['device_name'],
+                                    timestamp,
+                                    'success'
+                                ))
+                                db.commit()
+                                processed_count += 1
+                                logger.info(f"✓ Processed iClock attendance: {staff['full_name']} at {timestamp}")
+                            else:
+                                logger.warning(f"Staff with ID/PIN {pin} not found for device {sn}")
+                    
+                    except Exception as e:
+                        logger.error(f"Error parsing ATTLOG line: {line}, error: {e}")
+                        continue
+            
+            logger.info(f"iClock: Processed {processed_count} attendance records from device {sn}")
+            
+            # Return OK to acknowledge receipt
+            response = make_response("OK")
+            response.headers['Content-Type'] = 'text/plain'
+            return response
+    
+    except Exception as e:
+        logger.error(f"Error handling iClock request: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return make_response("ERROR", 500)
 
 # In app.py, update the index route
 @app.route('/')
@@ -4955,6 +5141,72 @@ def admin_dashboard():
                              today=today)
 
 
+@app.route('/api/dashboard/attendance_stats')
+def api_dashboard_attendance_stats():
+    """Get real-time attendance statistics for dashboard auto-refresh"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        db = get_db()
+        school_id = session['school_id']
+        today = datetime.date.today()
+        
+        # Get all staff for attendance calculation
+        all_staff = db.execute('''
+            SELECT s.id as staff_id
+            FROM staff s
+            WHERE s.school_id = ?
+        ''', (school_id,)).fetchall()
+        
+        # Calculate attendance summary
+        status_counts = {
+            'total_staff': 0,
+            'present': 0,
+            'absent': 0,
+            'late': 0,
+            'on_leave': 0,
+            'on_duty': 0,
+            'on_permission': 0,
+            'holiday': 0
+        }
+        
+        for staff in all_staff:
+            status = get_staff_status_for_date(staff['staff_id'], today, school_id, db)
+            status_counts['total_staff'] += 1
+            
+            if status == 'Holiday':
+                status_counts['holiday'] += 1
+            elif status == 'On Leave':
+                status_counts['on_leave'] += 1
+            elif status == 'On Duty':
+                status_counts['on_duty'] += 1
+            elif status == 'On Permission':
+                status_counts['on_permission'] += 1
+            elif status == 'present':
+                status_counts['present'] += 1
+            elif status == 'late':
+                status_counts['late'] += 1
+            else:
+                status_counts['absent'] += 1
+        
+        return jsonify({
+            'success': True,
+            'present': status_counts['present'],
+            'absent': status_counts['absent'],
+            'late': status_counts['late'],
+            'on_leave': status_counts['on_leave'],
+            'on_duty': status_counts['on_duty'],
+            'on_permission': status_counts['on_permission'],
+            'holiday': status_counts['holiday'],
+            'total_staff': status_counts['total_staff']
+        })
+        
+    except Exception as e:
+        print(f"Error getting attendance stats: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/admin/export_dashboard_data')
 def export_dashboard_data():
     """Comprehensive admin dashboard data export with multiple format support"""
@@ -5041,7 +5293,7 @@ def export_applications_data(school_id, export_format='excel'):
         ws_leave.cell(row=row_idx, column=3, value=app['leave_type'])
         ws_leave.cell(row=row_idx, column=4, value=app['start_date'])
         ws_leave.cell(row=row_idx, column=5, value=app['end_date'])
-        ws_leave.cell(row=row_idx, column=6, value=app.get('total_days', 'N/A'))
+        ws_leave.cell(row=row_idx, column=6, value=app['total_days'] if 'total_days' in app.keys() else 'N/A')
         ws_leave.cell(row=row_idx, column=7, value=app['reason'] or 'N/A')
         ws_leave.cell(row=row_idx, column=8, value=app['status'])
         ws_leave.cell(row=row_idx, column=9, value=app['applied_at'])
@@ -5360,7 +5612,11 @@ def check_device_verification():
             return jsonify({'success': False, 'error': 'Staff ID required for admin verification'})
 
     school_id = session['school_id']
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured for your institution'})
 
     current_datetime = datetime.datetime.now()
     db = get_db()
@@ -6386,21 +6642,24 @@ def add_staff_enhanced():
                 shift_type = 'general'  # fallback
 
     # Always create staff in both app and device, do not check for staff ID existence
-    device_ip = '192.168.1.201'  # Default device IP
+    device_ip, device_port = get_institution_device()
     biometric_created = False
     biometric_error = None
-    try:
-        zk_device = ZKBiometricDevice(device_ip)
-        if zk_device.connect():
-            # Always overwrite user on device, do not check existence
-            biometric_created = zk_device.create_user(user_id=staff_id, name=full_name, overwrite=True)
-            zk_device.disconnect()
-            if not biometric_created:
-                biometric_error = 'Failed to create staff on biometric device. Please check device connection.'
-        else:
-            biometric_error = 'Cannot connect to biometric device. Staff not added.'
-    except Exception as e:
-        biometric_error = f'Biometric device error: {e}'
+    if not device_ip:
+        biometric_error = 'No biometric device configured for your institution'
+    else:
+        try:
+            zk_device = ZKBiometricDevice(device_ip)
+            if zk_device.connect():
+                # Always overwrite user on device, do not check existence
+                biometric_created = zk_device.create_user(user_id=staff_id, name=full_name, overwrite=True)
+                zk_device.disconnect()
+                if not biometric_created:
+                    biometric_error = 'Failed to create staff on biometric device. Please check device connection.'
+            else:
+                biometric_error = 'Cannot connect to biometric device. Staff not added.'
+        except Exception as e:
+            biometric_error = f'Biometric device error: {e}'
 
     # Handle photo upload (if any)
     photo_url = None
@@ -6504,21 +6763,24 @@ def add_staff():
     db = get_db()
 
     # Always create staff in both app and device, do not check for staff ID existence
-    device_ip = '192.168.1.201'  # Default device IP
+    device_ip, device_port = get_institution_device()
     biometric_created = False
     biometric_error = None
-    try:
-        zk_device = ZKBiometricDevice(device_ip)
-        if zk_device.connect():
-            # Always overwrite user on device, do not check existence
-            biometric_created = zk_device.create_user(user_id=staff_id, name=full_name, overwrite=True)
-            zk_device.disconnect()
-            if not biometric_created:
-                biometric_error = 'Failed to create staff on biometric device. Please check device connection.'
-        else:
-            biometric_error = 'Cannot connect to biometric device. Staff not added.'
-    except Exception as e:
-        biometric_error = f'Biometric device error: {e}'
+    if not device_ip:
+        biometric_error = 'No biometric device configured for your institution'
+    else:
+        try:
+            zk_device = ZKBiometricDevice(device_ip)
+            if zk_device.connect():
+                # Always overwrite user on device, do not check existence
+                biometric_created = zk_device.create_user(user_id=staff_id, name=full_name, overwrite=True)
+                zk_device.disconnect()
+                if not biometric_created:
+                    biometric_error = 'Failed to create staff on biometric device. Please check device connection.'
+            else:
+                biometric_error = 'Cannot connect to biometric device. Staff not added.'
+        except Exception as e:
+            biometric_error = f'Biometric device error: {e}'
 
     # Handle photo upload
     photo_url = None
@@ -7136,16 +7398,19 @@ def delete_staff():
     biometric_deleted = False
     biometric_error = None
     if staff:
-        device_ip = '192.168.1.201'  # Default device IP, adjust if needed
-        try:
-            zk_device = ZKBiometricDevice(device_ip)
-            if zk_device.connect():
-                biometric_deleted = zk_device.delete_user(staff['staff_id'])
-                zk_device.disconnect()
-            else:
-                biometric_error = 'Failed to connect to biometric device'
-        except Exception as e:
-            biometric_error = str(e)
+        device_ip, device_port = get_institution_device()
+        if not device_ip:
+            biometric_error = 'No biometric device configured'
+        else:
+            try:
+                zk_device = ZKBiometricDevice(device_ip)
+                if zk_device.connect():
+                    biometric_deleted = zk_device.delete_user(staff['staff_id'])
+                    zk_device.disconnect()
+                else:
+                    biometric_error = 'Failed to connect to biometric device'
+            except Exception as e:
+                biometric_error = str(e)
 
     db.execute('DELETE FROM staff WHERE id = ? AND school_id = ?', (staff_id, school_id))
     db.commit()
@@ -7486,7 +7751,12 @@ def sync_biometric_attendance():
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
     school_id = session['school_id']
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured for your institution'})
+    
     auto_create_missing_staff = request.form.get('auto_create_staff', 'true').lower() == 'true'
 
     try:
@@ -7633,7 +7903,11 @@ def process_device_attendance():
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
     school_id = session['school_id']
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
 
     try:
         zk_device = ZKBiometricDevice(device_ip)
@@ -7652,7 +7926,11 @@ def verify_staff_biometric_route():
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
     staff_id = request.form.get('staff_id')
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
 
     try:
         zk_device = ZKBiometricDevice(device_ip)
@@ -7702,7 +7980,15 @@ def test_biometric_connection():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    # Get device for this institution or allow override for testing
+    device_ip_override = request.form.get('device_ip')
+    if device_ip_override:
+        device_ip = device_ip_override
+    else:
+        device_ip, device_port = get_institution_device()
+        if not device_ip:
+            return jsonify({'success': False, 'error': 'No biometric device configured'})
+    
     device_id = request.form.get('device_id', f"ZK_{device_ip.replace('.', '_')}")
     use_cloud = request.form.get('use_cloud', 'false').lower() == 'true'
 
@@ -7932,7 +8218,9 @@ def get_biometric_users():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.args.get('device_ip', '192.168.1.201')
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured for your institution'})
 
     try:
         zk_device = ZKBiometricDevice(device_ip)
@@ -7962,7 +8250,11 @@ def enroll_biometric_user():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
+    
     user_id = request.form.get('user_id')
     name = request.form.get('name')
     privilege = int(request.form.get('privilege', 0))
@@ -8032,7 +8324,11 @@ def check_biometric_user():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
+    
     user_id = request.form.get('user_id')
 
     if not user_id:
@@ -8079,7 +8375,9 @@ def start_biometric_enrollment():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured for your institution'})
 
     try:
         zk_device = ZKBiometricDevice(device_ip)
@@ -8115,7 +8413,10 @@ def end_biometric_enrollment():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
 
     try:
         zk_device = ZKBiometricDevice(device_ip)
@@ -8150,7 +8451,11 @@ def verify_biometric_enrollment():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
+    
     user_id = request.form.get('user_id')
     trigger_enrollment = request.form.get('trigger_enrollment', 'false').lower() == 'true'
 
@@ -8253,7 +8558,11 @@ def delete_biometric_user():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
+    
     user_id = request.form.get('user_id')
 
     if not user_id:
@@ -8292,7 +8601,11 @@ def resolve_biometric_conflict():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
+    
     user_id = request.form.get('user_id')
     action = request.form.get('action')  # 'overwrite', 'delete', 'check'
     new_name = request.form.get('new_name', '')
@@ -8366,7 +8679,11 @@ def poll_device_attendance():
     if 'user_id' not in session:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
+    
     school_id = session.get('school_id', 1)
 
     try:
@@ -8385,7 +8702,9 @@ def get_latest_device_verifications():
     if 'user_id' not in session:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
-    device_ip = request.args.get('device_ip', '192.168.1.201')
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured for your institution'})
     since_minutes = int(request.args.get('since_minutes', 5))  # Default to last 5 minutes
 
     try:
@@ -9730,7 +10049,12 @@ def create_staff_from_device_user():
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
     school_id = session['school_id']
-    device_ip = request.form.get('device_ip', '192.168.1.201')
+    
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
+    
     device_user_id = request.form.get('device_user_id')
     full_name = request.form.get('full_name')
     # Defer hashing until we know if device user has a password
@@ -9815,8 +10139,12 @@ def resolve_user_conflict():
     if 'user_id' not in session or session['user_type'] not in ['admin', 'company_admin']:
         return jsonify({'success': False, 'error': 'Unauthorized'})
 
+    # Get device for this institution
+    device_ip, device_port = get_institution_device()
+    if not device_ip:
+        return jsonify({'success': False, 'error': 'No biometric device configured'})
+    
     action = request.form.get('action')  # 'overwrite', 'use_different_id', 'create_from_existing'
-    device_ip = request.form.get('device_ip', '192.168.1.201')
 
     if action == 'overwrite':
         # Overwrite existing user on device
@@ -13332,6 +13660,1270 @@ def initialize_staff_quotas(staff_id, school_id, year):
         
     except Exception as e:
         print(f"Error initializing quotas: {e}")
+
+
+# =============================================================================
+# LOCAL AGENT API ENDPOINTS (Desktop Bridge Software)
+# =============================================================================
+
+@app.route('/api/agent/register', methods=['POST'])
+@csrf.exempt
+def register_agent():
+    """
+    Register a new Local Agent (Desktop Bridge Software)
+    
+    Expected JSON:
+    {
+        "school_id": 1,
+        "agent_name": "Front Desk PC",
+        "admin_token": "secure_token"  # For authentication
+    }
+    
+    Returns agent_id and api_key
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+        
+        school_id = data.get('school_id')
+        agent_name = data.get('agent_name')
+        admin_token = data.get('admin_token')
+        
+        if not all([school_id, agent_name]):
+            return jsonify({
+                'success': False,
+                'error': 'school_id and agent_name are required'
+            }), 400
+        
+        # Optional: Validate admin_token here if you want extra security
+        # For now, we'll allow registration with valid school_id
+        
+        # Verify school exists
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('SELECT id FROM schools WHERE id = ?', (school_id,))
+        school = cursor.fetchone()
+        
+        if not school:
+            return jsonify({
+                'success': False,
+                'error': f'School ID {school_id} not found'
+            }), 404
+        
+        # Create agent using database function
+        from database import create_biometric_agent
+        
+        result = create_biometric_agent(school_id, agent_name)
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'agent_id': result['agent_id'],
+                'api_key': result['api_key'],
+                'message': result['message']
+            }), 201
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['message']
+            }), 400
+        
+    except Exception as e:
+        logger.error(f"Error registering agent: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/agent/heartbeat', methods=['POST'])
+@csrf.exempt
+def agent_heartbeat():
+    """
+    Agent heartbeat endpoint - agents should call this every 30-60 seconds
+    
+    Requires: Authorization header with API key
+    
+    Returns agent status and any pending commands
+    """
+    try:
+        # Get API key from header
+        auth_header = request.headers.get('Authorization')
+        
+        if not auth_header:
+            return jsonify({
+                'success': False,
+                'error': 'Authorization header required'
+            }), 401
+        
+        # Extract API key (support both "Bearer TOKEN" and plain "TOKEN")
+        api_key = auth_header.replace('Bearer ', '').strip()
+        
+        # Update heartbeat using database function
+        from database import update_agent_heartbeat
+        
+        result = update_agent_heartbeat(api_key)
+        
+        if not result['success']:
+            return jsonify({
+                'success': False,
+                'error': result.get('message', 'Invalid API key')
+            }), 401
+        
+        # Return status and any commands (future: commands for device management)
+        return jsonify({
+            'success': True,
+            'agent_id': result['agent_id'],
+            'school_id': result['school_id'],
+            'timestamp': datetime.datetime.utcnow().isoformat() + 'Z',
+            'last_heartbeat': result.get('last_heartbeat'),
+            'commands': []  # Future: Return pending commands
+        })
+        
+    except Exception as e:
+        print(f"Error processing heartbeat: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/agent/info', methods=['GET'])
+@csrf.exempt
+def agent_info():
+    """Get agent information from API key"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return jsonify({'success': False, 'error': 'Authorization header required'}), 401
+        
+        api_key = auth_header.replace('Bearer ', '').strip()
+        
+        from database import verify_agent_api_key
+        agent_info = verify_agent_api_key(api_key)
+        
+        if not agent_info:
+            return jsonify({'success': False, 'error': 'Invalid API key'}), 401
+        
+        return jsonify({
+            'success': True,
+            'agent_id': agent_info['id'],
+            'agent_name': agent_info['agent_name'],
+            'school_id': agent_info['school_id'],
+            'is_active': agent_info['is_active']
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/agent/push_logs', methods=['POST'])
+@csrf.exempt
+def agent_push_logs():
+    """
+    Receive attendance logs from Local Agent
+    
+    Expected JSON:
+    {
+        "device_id": 1,  # From biometric_devices table
+        "records": [
+            {
+                "user_id": "101",
+                "timestamp": "2025-12-02T09:15:23",
+                "punch_code": 0,
+                "verify_method": 1
+            }
+        ]
+    }
+    
+    Requires: Authorization header with API key
+    """
+    try:
+        # Authenticate agent
+        auth_header = request.headers.get('Authorization')
+        
+        if not auth_header:
+            return jsonify({
+                'success': False,
+                'error': 'Authorization header required'
+            }), 401
+        
+        api_key = auth_header.replace('Bearer ', '').strip()
+        
+        # Verify API key
+        from database import verify_agent_api_key
+        
+        agent_info = verify_agent_api_key(api_key)
+        
+        if not agent_info:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid API key'
+            }), 401
+        
+        agent_id = agent_info['id']
+        agent_school_id = agent_info['school_id']
+        
+        # Parse request data
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+        
+        device_id = data.get('device_id')
+        records = data.get('records', [])
+        
+        if not device_id:
+            return jsonify({
+                'success': False,
+                'error': 'device_id required'
+            }), 400
+        
+        if not records:
+            return jsonify({
+                'success': False,
+                'error': 'No records provided'
+            }), 400
+        
+        # Verify device belongs to agent
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+            SELECT d.id, d.school_id, d.device_name, d.is_active
+            FROM biometric_devices d
+            WHERE d.id = ? AND d.agent_id = ? AND d.connection_type = 'Agent_LAN'
+        ''', (device_id, agent_id))
+        
+        device = cursor.fetchone()
+        
+        if not device:
+            # Check if device exists but is not assigned to this agent
+            cursor.execute('SELECT device_name, agent_id FROM biometric_devices WHERE id = ?', (device_id,))
+            device_check = cursor.fetchone()
+            
+            if device_check:
+                device_name_check, current_agent_id = device_check
+                if current_agent_id is None:
+                    error_msg = f'Device "{device_name_check}" (ID: {device_id}) exists but is not assigned to any agent. Your agent ID is {agent_id}. Please edit the device in the web interface and assign it to agent ID {agent_id}.'
+                else:
+                    error_msg = f'Device "{device_name_check}" (ID: {device_id}) is assigned to agent ID {current_agent_id}, but your API key belongs to agent ID {agent_id}. Please edit the device and change the agent assignment to ID {agent_id}.'
+            else:
+                error_msg = f'Device ID {device_id} not found in database.'
+            
+            return jsonify({
+                'success': False,
+                'error': error_msg
+            }), 403
+        
+        device_school_id = device[1]
+        device_name = device[2]
+        is_active = device[3]
+        
+        if not is_active:
+            return jsonify({
+                'success': False,
+                'error': f'Device {device_name} is inactive'
+            }), 403
+        
+        # Security check: Ensure device school matches agent school
+        if device_school_id != agent_school_id:
+            return jsonify({
+                'success': False,
+                'error': 'Device institution mismatch'
+            }), 403
+        
+        # Process records using UnifiedAttendanceProcessor
+        from zk_biometric import UnifiedAttendanceProcessor
+        
+        processor = UnifiedAttendanceProcessor()
+        punches = []
+        
+        for record in records:
+            try:
+                # Parse timestamp (support ISO format)
+                timestamp_str = record.get('timestamp')
+                
+                # Try ISO format first
+                try:
+                    from datetime import datetime as dt
+                    timestamp = dt.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                except:
+                    # Fallback to standard format
+                    from datetime import datetime as dt
+                    timestamp = dt.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                
+                # Map verify method
+                verify_method_map = {
+                    1: 'fingerprint',
+                    2: 'face',
+                    3: 'password',
+                    4: 'card'
+                }
+                verify_method = verify_method_map.get(record.get('verify_method', 1), 'fingerprint')
+                
+                punches.append({
+                    'user_id': record.get('user_id'),
+                    'timestamp': timestamp,
+                    'punch_code': record.get('punch_code', 0),
+                    'verification_method': verify_method
+                })
+                
+            except Exception as e:
+                print(f"Error parsing agent record: {e}")
+                continue
+        
+        # Process all punches
+        result = processor.process_batch_punches(device_id, punches)
+        
+        # Update device sync status
+        from database import update_device_sync_status
+        update_device_sync_status(device_id, datetime.datetime.now(), 'success')
+        
+        # Update agent heartbeat
+        from database import update_agent_heartbeat
+        update_agent_heartbeat(api_key)
+        
+        print(f"✓ Agent '{agent_info['agent_name']}' pushed {len(records)} records from device '{device_name}' (ID:{device_id})")
+        print(f"  → Processed: {result['processed']}, Rejected: {result['rejected']}, Ignored: {result['ignored']}")
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'device_name': device_name,
+            'agent_id': agent_id,
+            'records_received': len(records),
+            'processed': result['processed'],
+            'rejected': result['rejected'],
+            'ignored': result['ignored'],
+            'message': f'Successfully processed {result["processed"]} attendance record(s)'
+        })
+        
+    except Exception as e:
+        print(f"Error processing agent logs: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/agent/devices', methods=['GET'])
+def get_agent_devices():
+    """
+    Get devices assigned to the authenticated agent
+    
+    Requires: Authorization header with API key
+    """
+    try:
+        # Authenticate agent
+        auth_header = request.headers.get('Authorization')
+        
+        if not auth_header:
+            return jsonify({
+                'success': False,
+                'error': 'Authorization header required'
+            }), 401
+        
+        api_key = auth_header.replace('Bearer ', '').strip()
+        
+        # Verify API key
+        from database import verify_agent_api_key
+        
+        agent_info = verify_agent_api_key(api_key)
+        
+        if not agent_info:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid API key'
+            }), 401
+        
+        agent_id = agent_info['id']
+        
+        # Get devices for this agent
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+            SELECT id, device_name, ip_address, port, is_active, last_sync, sync_status
+            FROM biometric_devices
+            WHERE agent_id = ? AND connection_type = 'Agent_LAN'
+            ORDER BY device_name
+        ''', (agent_id,))
+        
+        devices = []
+        for row in cursor.fetchall():
+            devices.append({
+                'id': row[0],
+                'device_name': row[1],
+                'ip_address': row[2],
+                'port': row[3],
+                'is_active': bool(row[4]),
+                'last_sync': row[5],
+                'sync_status': row[6]
+            })
+        
+        return jsonify({
+            'success': True,
+            'agent_id': agent_id,
+            'agent_name': agent_info['agent_name'],
+            'school_id': agent_info['school_id'],
+            'device_count': len(devices),
+            'devices': devices
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting agent devices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+########################################
+# AUTOMATIC SYNC SCHEDULER
+########################################
+
+def auto_sync_direct_lan_devices():
+    """Background job to automatically sync all Direct LAN devices"""
+    print("Starting automatic sync for Direct LAN devices...")
+    
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Get all active Direct_LAN devices
+        cursor.execute("""
+            SELECT d.id, d.device_name, d.ip_address, d.port, d.school_id, s.name as school_name
+            FROM biometric_devices d
+            LEFT JOIN schools s ON d.school_id = s.id
+            WHERE d.is_active = 1 AND d.connection_type = 'Direct_LAN'
+        """)
+        
+        devices = cursor.fetchall()
+        print(f"Found {len(devices)} Direct LAN devices to sync")
+        
+        from database import update_device_sync_status
+        from zk_biometric import UnifiedAttendanceProcessor
+        
+        for device in devices:
+            device_id = device[0]
+            device_name = device[1]
+            ip_address = device[2]
+            port = device[3] or 4370
+            school_id = device[4]
+            school_name = device[5]
+            
+            try:
+                print(f"Syncing device: {device_name} ({ip_address}:{port}) - {school_name}")
+                
+                # Connect to device
+                zk_device = ZKBiometricDevice(ip_address, port)
+                
+                if zk_device.connect():
+                    # Get attendance records
+                    attendance_records = zk_device.get_attendance_records()
+                    
+                    if attendance_records:
+                        # Process records using UnifiedAttendanceProcessor
+                        processor = UnifiedAttendanceProcessor()
+                        
+                        # Convert records to format expected by processor
+                        punches = []
+                        for record in attendance_records:
+                            punches.append({
+                                'user_id': str(record['user_id']),
+                                'timestamp': record['timestamp'],
+                                'punch_code': record.get('punch', 0),
+                                'verification_method': record.get('verification_type', 'fingerprint')
+                            })
+                        
+                        results = processor.process_batch_punches(device_id, punches)
+                        
+                        print(f"Device {device_name}: Processed {results['processed']} records, "
+                              f"Rejected {results['rejected']}, Ignored {results.get('ignored', 0)}")
+                        
+                        # Update last sync time
+                        update_device_sync_status(device_id)
+                    else:
+                        print(f"No new attendance records for {device_name}")
+                    
+                    zk_device.disconnect()
+                else:
+                    print(f"Failed to connect to device {device_name} ({ip_address}:{port})")
+                    update_device_sync_status(device_id, sync_status='failed')
+                    
+            except Exception as e:
+                print(f"Error syncing device {device_name}: {str(e)}")
+                update_device_sync_status(device_id, sync_status='failed')
+                
+        db.commit()
+        print("Automatic sync completed")
+        
+    except Exception as e:
+        print(f"Error in auto_sync_direct_lan_devices: {str(e)}")
+    finally:
+        if 'db' in locals():
+            db.close()
+
+# Schedule the sync job with configurable interval
+def schedule_auto_sync():
+    """Schedule or reschedule the auto-sync job"""
+    scheduler.add_job(
+        func=auto_sync_direct_lan_devices,
+        trigger="interval",
+        minutes=AUTO_SYNC_INTERVAL_MINUTES,
+        id='auto_sync_biometric',
+        name='Auto Sync Direct LAN Devices',
+        replace_existing=True
+    )
+
+schedule_auto_sync()
+
+########################################
+# AUTO-SYNC CONFIGURATION
+########################################
+
+@app.route('/api/biometric/sync-config', methods=['GET', 'POST'])
+@csrf.exempt
+def api_sync_config():
+    """Get or update auto-sync interval configuration"""
+    global AUTO_SYNC_INTERVAL_MINUTES
+    
+    if request.method == 'GET':
+        return jsonify({
+            'success': True,
+            'interval_minutes': AUTO_SYNC_INTERVAL_MINUTES,
+            'interval_display': f"{AUTO_SYNC_INTERVAL_MINUTES} minutes"
+        })
+    
+    elif request.method == 'POST':
+        try:
+            data = request.get_json()
+            new_interval = data.get('interval_minutes')
+            
+            # Validate interval
+            if not new_interval or not isinstance(new_interval, (int, float)):
+                return jsonify({'success': False, 'message': 'Invalid interval value'}), 400
+            
+            if new_interval < 1:
+                return jsonify({'success': False, 'message': 'Interval must be at least 1 minute'}), 400
+            
+            if new_interval > 1440:
+                return jsonify({'success': False, 'message': 'Interval cannot exceed 1440 minutes (24 hours)'}), 400
+            
+            # Update interval and reschedule
+            AUTO_SYNC_INTERVAL_MINUTES = int(new_interval)
+            
+            # Save to database for persistence
+            from database import set_system_setting
+            set_system_setting('auto_sync_interval_minutes', AUTO_SYNC_INTERVAL_MINUTES, 'Auto-sync interval in minutes')
+            
+            schedule_auto_sync()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Auto-sync interval updated to {AUTO_SYNC_INTERVAL_MINUTES} minutes',
+                'interval_minutes': AUTO_SYNC_INTERVAL_MINUTES
+            })
+            
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
+
+########################################
+# DEVICE MANAGEMENT UI ROUTES
+########################################
+
+@app.route('/biometric_devices')
+def biometric_devices_page():
+    """Render the device management page"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        flash('Please login as administrator', 'error')
+        return redirect(url_for('admin_dashboard'))
+    
+    return render_template('biometric_device_management.html')
+
+
+@app.route('/api/schools', methods=['GET'])
+@csrf.exempt
+def api_get_schools():
+    """Get list of all schools for dropdowns"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        from database import get_all_schools
+        schools = get_all_schools()
+        return jsonify({
+            'success': True,
+            'schools': schools
+        })
+    except Exception as e:
+        print(f"Error fetching schools: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/devices/list', methods=['GET'])
+@csrf.exempt
+def api_list_devices():
+    """Get list of all devices for the logged-in institution"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        school_id = session.get('school_id')
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Get devices for this institution with agent info
+        cursor.execute('''
+            SELECT 
+                d.id,
+                d.device_name,
+                d.connection_type,
+                d.ip_address,
+                d.port,
+                d.serial_number,
+                d.sync_status,
+                d.last_sync,
+                d.school_id,
+                s.name as school_name,
+                a.agent_name
+            FROM biometric_devices d
+            LEFT JOIN schools s ON d.school_id = s.id
+            LEFT JOIN biometric_agents a ON d.agent_id = a.id
+            WHERE d.school_id = ? AND d.is_active = 1
+            ORDER BY d.device_name
+        ''', (school_id,))
+        
+        devices = []
+        for row in cursor.fetchall():
+            devices.append({
+                'id': row[0],
+                'device_name': row[1],
+                'connection_type': row[2],
+                'ip_address': row[3],
+                'port': row[4],
+                'serial_number': row[5],
+                'sync_status': row[6],
+                'last_sync': row[7],
+                'school_id': row[8],
+                'school_name': row[9],
+                'agent_name': row[10]
+            })
+        
+        return jsonify({
+            'success': True,
+            'devices': devices
+        })
+        
+    except Exception as e:
+        print(f"Error listing devices: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/devices/add', methods=['POST'])
+@csrf.exempt
+def api_add_device():
+    """Add a new biometric device"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        from database import create_biometric_device
+        data = request.json
+        
+        # Validate required fields
+        required = ['device_name', 'school_id', 'connection_type']
+        if not all(field in data for field in required):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        # Connection-specific validation
+        connection_type = data['connection_type']
+        if connection_type == 'Direct_LAN':
+            if not data.get('ip_address'):
+                return jsonify({'success': False, 'error': 'IP address required for Direct LAN'}), 400
+        elif connection_type == 'ADMS':
+            if not data.get('serial_number'):
+                return jsonify({'success': False, 'error': 'Serial number required for ADMS'}), 400
+        elif connection_type == 'Agent_LAN':
+            if not data.get('agent_id') or not data.get('ip_address'):
+                return jsonify({'success': False, 'error': 'Agent and IP address required for Agent LAN'}), 400
+        
+        # Create device
+        result = create_biometric_device(
+            school_id=data['school_id'],
+            device_name=data['device_name'],
+            connection_type=connection_type,
+            ip_address=data.get('ip_address'),
+            port=data.get('port', 4370),
+            serial_number=data.get('serial_number'),
+            agent_id=data.get('agent_id')
+        )
+        
+        if not result.get('success'):
+            return jsonify({'success': False, 'error': result.get('message', 'Unknown error')}), 400
+        
+        print(f"Device created: ID={result['device_id']}, Name={data['device_name']}, Type={connection_type}")
+        
+        return jsonify({
+            'success': True,
+            'device_id': result['device_id'],
+            'message': result.get('message', 'Device added successfully')
+        })
+        
+    except Exception as e:
+        print(f"Error adding device: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/devices/<int:device_id>', methods=['PUT'])
+@csrf.exempt
+def api_update_device(device_id):
+    """Update an existing device"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        from database import get_device_for_institution, update_biometric_device
+        data = request.json
+        school_id = session.get('school_id')
+        
+        # Verify ownership
+        device = get_device_for_institution(school_id, device_id)
+        if not device:
+            return jsonify({'success': False, 'error': 'Device not found or access denied'}), 404
+        
+        # Update device
+        result = update_biometric_device(
+            device_id=device_id,
+            school_id=school_id,
+            device_name=data.get('device_name'),
+            ip_address=data.get('ip_address'),
+            port=data.get('port'),
+            serial_number=data.get('serial_number'),
+            agent_id=data.get('agent_id')
+        )
+        
+        if not result.get('success'):
+            return jsonify({'success': False, 'error': result.get('message', 'Unknown error')}), 500
+        
+        print(f"Device updated: ID={device_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Device updated successfully'
+        })
+        
+    except Exception as e:
+        print(f"Error updating device: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/devices/<int:device_id>', methods=['DELETE'])
+@csrf.exempt
+def api_delete_device(device_id):
+    """Soft delete a device"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        from database import get_device_for_institution, delete_biometric_device
+        school_id = session.get('school_id')
+        
+        # Verify ownership
+        device = get_device_for_institution(school_id, device_id)
+        if not device:
+            return jsonify({'success': False, 'error': 'Device not found or access denied'}), 404
+        
+        # Soft delete
+        result = delete_biometric_device(device_id, school_id)
+        
+        if not result.get('success'):
+            return jsonify({'success': False, 'error': result.get('message', 'Unknown error')}), 500
+        
+        print(f"Device deleted: ID={device_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Device deleted successfully'
+        })
+        
+    except Exception as e:
+        print(f"Error deleting device: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/agents/list', methods=['GET'])
+@csrf.exempt
+def api_list_agents():
+    """Get list of all agents for the logged-in institution"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        school_id = session.get('school_id')
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Get agents with device count
+        cursor.execute('''
+            SELECT 
+                a.id,
+                a.agent_name,
+                a.last_heartbeat,
+                a.is_active,
+                a.school_id,
+                s.name as school_name,
+                COUNT(d.id) as device_count
+            FROM biometric_agents a
+            LEFT JOIN schools s ON a.school_id = s.id
+            LEFT JOIN biometric_devices d ON d.agent_id = a.id AND d.is_active = 1
+            WHERE a.school_id = ? AND a.is_active = 1
+            GROUP BY a.id
+            ORDER BY a.agent_name
+        ''', (school_id,))
+        
+        agents = []
+        for row in cursor.fetchall():
+            # Convert SQLite timestamp to ISO format with UTC timezone for JavaScript
+            last_heartbeat = row[2]
+            if last_heartbeat:
+                try:
+                    # Parse SQLite timestamp (stored as UTC) and add Z suffix for UTC
+                    dt = datetime.datetime.strptime(last_heartbeat, '%Y-%m-%d %H:%M:%S')
+                    last_heartbeat = dt.isoformat() + 'Z'
+                except:
+                    # If already in ISO format or other format, keep as is
+                    pass
+            
+            agents.append({
+                'id': row[0],
+                'agent_name': row[1],
+                'last_heartbeat': last_heartbeat,
+                'is_active': row[3],
+                'school_id': row[4],
+                'school_name': row[5],
+                'device_count': row[6]
+            })
+        
+        return jsonify({
+            'success': True,
+            'agents': agents
+        })
+        
+    except Exception as e:
+        print(f"Error listing agents: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/devices/<int:device_id>/sync', methods=['POST'])
+@csrf.exempt
+def api_sync_device(device_id):
+    """Manually trigger sync for a specific device"""
+    try:
+        if session.get('user_type') not in ['admin', 'company_admin']:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        
+        school_id = session.get('school_id')
+        
+        from database import update_device_sync_status
+        from zk_biometric import UnifiedAttendanceProcessor
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Get device details
+        cursor.execute("""
+            SELECT device_name, connection_type, ip_address, port, school_id, serial_number, agent_id
+            FROM biometric_devices
+            WHERE id = ? AND school_id = ? AND is_active = 1
+        """, (device_id, school_id))
+        
+        device = cursor.fetchone()
+        
+        if not device:
+            return jsonify({'success': False, 'error': 'Device not found or access denied'}), 404
+        
+        device_name, connection_type, ip_address, port, dev_school_id, serial_number, agent_id = device
+        
+        # Only Direct_LAN can be manually synced from web interface
+        if connection_type != 'Direct_LAN':
+            return jsonify({
+                'success': False, 
+                'error': f'{connection_type} devices sync automatically. No manual sync needed.'
+            }), 400
+        
+        # Connect and sync
+        zk_device = ZKBiometricDevice(ip_address, port or 4370)
+        
+        if not zk_device.connect():
+            update_device_sync_status(device_id, sync_status='failed')
+            return jsonify({
+                'success': False, 
+                'error': f'Failed to connect to device at {ip_address}:{port}. Check IP address and network connectivity.'
+            }), 500
+        
+        try:
+            attendance_records = zk_device.get_attendance_records()
+            
+            if not attendance_records:
+                zk_device.disconnect()
+                update_device_sync_status(device_id)
+                return jsonify({
+                    'success': True, 
+                    'message': 'No new attendance records found',
+                    'processed': 0,
+                    'inserted': 0,
+                    'rejected': 0
+                })
+            
+            # Process records
+            processor = UnifiedAttendanceProcessor()
+            
+            # Convert records to format expected by processor
+            punches = []
+            for record in attendance_records:
+                punches.append({
+                    'user_id': str(record['user_id']),
+                    'timestamp': record['timestamp'],
+                    'punch_code': record.get('punch', 0),
+                    'verification_method': record.get('verification_type', 'fingerprint')
+                })
+            
+            results = processor.process_batch_punches(device_id, punches)
+            
+            # Update sync status
+            update_device_sync_status(device_id)
+            db.commit()
+            
+            zk_device.disconnect()
+            
+            # Analyze rejection reasons
+            rejection_summary = {}
+            for detail in results.get('details', []):
+                if detail['action'] == 'rejected':
+                    reason = detail.get('reason', 'unknown')
+                    rejection_summary[reason] = rejection_summary.get(reason, 0) + 1
+            
+            # Build detailed message
+            message_parts = [f"Processed: {results['processed']}"]
+            if results['rejected'] > 0:
+                message_parts.append(f"Rejected: {results['rejected']}")
+                for reason, count in rejection_summary.items():
+                    if reason == 'institution_mismatch':
+                        message_parts.append(f"  • {count} staff IDs not found in your institution")
+                    elif reason == 'duplicate':
+                        message_parts.append(f"  • {count} duplicate records")
+                    else:
+                        message_parts.append(f"  • {count} {reason}")
+            
+            return jsonify({
+                'success': True,
+                'message': '\n'.join(message_parts),
+                'processed': results['processed'],
+                'inserted': results['processed'],
+                'rejected': results['rejected'],
+                'rejection_summary': rejection_summary,
+                'details': results.get('details', [])[:10]  # First 10 for debugging
+            })
+            
+        except Exception as e:
+            zk_device.disconnect()
+            update_device_sync_status(device_id, sync_status='failed')
+            return jsonify({'success': False, 'error': f'Error processing attendance: {str(e)}'}), 500
+            
+    except Exception as e:
+        print(f"Error in api_sync_device: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/devices/<int:device_id>/diagnose', methods=['POST'])
+@csrf.exempt
+def api_diagnose_device(device_id):
+    """Diagnose sync issues - compare device users with database staff"""
+    try:
+        if session.get('user_type') not in ['admin', 'company_admin']:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        
+        school_id = session.get('school_id')
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Get device details
+        cursor.execute("""
+            SELECT device_name, connection_type, ip_address, port, school_id
+            FROM biometric_devices
+            WHERE id = ? AND school_id = ? AND is_active = 1
+        """, (device_id, school_id))
+        
+        device = cursor.fetchone()
+        
+        if not device:
+            return jsonify({'success': False, 'error': 'Device not found'}), 404
+        
+        device_name, connection_type, ip_address, port, dev_school_id = device
+        
+        if connection_type != 'Direct_LAN':
+            return jsonify({
+                'success': False,
+                'error': f'{connection_type} devices cannot be diagnosed from web interface'
+            }), 400
+        
+        # Connect to device and get users
+        zk_device = ZKBiometricDevice(ip_address, port or 4370)
+        
+        if not zk_device.connect():
+            return jsonify({
+                'success': False,
+                'error': f'Failed to connect to device at {ip_address}:{port}'
+            }), 500
+        
+        try:
+            # Get users from device
+            device_users = zk_device.get_users()
+            device_user_ids = set()
+            
+            for u in device_users:
+                # Handle both dict and object formats
+                if isinstance(u, dict):
+                    device_user_ids.add(str(u.get('user_id', '')))
+                else:
+                    device_user_ids.add(str(getattr(u, 'user_id', '')))
+            
+            # Remove empty strings
+            device_user_ids.discard('')
+            
+            zk_device.disconnect()
+            
+            # Get staff from database for this institution
+            cursor.execute("""
+                SELECT staff_id, full_name, department 
+                FROM staff 
+                WHERE school_id = ?
+                ORDER BY staff_id
+            """, (dev_school_id,))
+            
+            db_staff = cursor.fetchall()
+            db_staff_ids = set([row[0] for row in db_staff])
+            
+            # Compare
+            matched = device_user_ids.intersection(db_staff_ids)
+            in_device_not_db = device_user_ids - db_staff_ids
+            in_db_not_device = db_staff_ids - device_user_ids
+            
+            # Get details for mismatches
+            device_only_details = []
+            for uid in sorted(in_device_not_db):
+                # Find user in device_users list
+                user = None
+                for u in device_users:
+                    if isinstance(u, dict):
+                        if str(u.get('user_id', '')) == uid:
+                            user = u
+                            break
+                    else:
+                        if str(getattr(u, 'user_id', '')) == uid:
+                            user = u
+                            break
+                
+                if user:
+                    if isinstance(user, dict):
+                        device_only_details.append({
+                            'user_id': uid,
+                            'name': user.get('name', 'Unknown')
+                        })
+                    else:
+                        device_only_details.append({
+                            'user_id': uid,
+                            'name': getattr(user, 'name', 'Unknown')
+                        })
+            
+            db_only_details = []
+            for staff in db_staff:
+                if staff[0] in in_db_not_device:
+                    db_only_details.append({
+                        'staff_id': staff[0],
+                        'name': staff[1],
+                        'department': staff[2]
+                    })
+            
+            return jsonify({
+                'success': True,
+                'device_name': device_name,
+                'institution_id': dev_school_id,
+                'summary': {
+                    'device_users': len(device_user_ids),
+                    'database_staff': len(db_staff_ids),
+                    'matched': len(matched),
+                    'device_only': len(in_device_not_db),
+                    'database_only': len(in_db_not_device)
+                },
+                'matched_ids': sorted(list(matched)),
+                'device_only': device_only_details[:20],  # Limit to 20
+                'database_only': db_only_details[:20]
+            })
+            
+        except Exception as e:
+            zk_device.disconnect()
+            return jsonify({'success': False, 'error': f'Error getting device users: {str(e)}'}), 500
+            
+    except Exception as e:
+        print(f"Error in api_diagnose_device: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/devices/<int:device_id>/test', methods=['POST'])
+@csrf.exempt
+def api_test_device_connection(device_id):
+    """Test connection to a specific device"""
+    try:
+        if session.get('user_type') not in ['admin', 'company_admin']:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        
+        school_id = session.get('school_id')
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Get device details
+        cursor.execute("""
+            SELECT device_name, connection_type, ip_address, port
+            FROM biometric_devices
+            WHERE id = ? AND school_id = ? AND is_active = 1
+        """, (device_id, school_id))
+        
+        device = cursor.fetchone()
+        
+        if not device:
+            return jsonify({'success': False, 'error': 'Device not found'}), 404
+        
+        device_name, connection_type, ip_address, port = device
+        
+        if connection_type != 'Direct_LAN':
+            return jsonify({
+                'success': False,
+                'error': f'{connection_type} devices cannot be tested from web interface'
+            }), 400
+        
+        # Test connection
+        zk_device = ZKBiometricDevice(ip_address, port or 4370)
+        
+        if zk_device.connect():
+            try:
+                # Try to get device info
+                users = zk_device.conn.get_users() if hasattr(zk_device.conn, 'get_users') else []
+                device_info = {
+                    'firmware_version': getattr(zk_device.conn, 'firmware_version', 'Unknown'),
+                    'platform': getattr(zk_device.conn, 'platform', 'Unknown'),
+                    'device_name': getattr(zk_device.conn, 'device_name', device_name),
+                    'user_count': len(users)
+                }
+            except:
+                device_info = {
+                    'firmware_version': 'Unknown',
+                    'platform': 'Unknown',
+                    'device_name': device_name,
+                    'user_count': 0
+                }
+            
+            zk_device.disconnect()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully connected to {device_name}',
+                'device_info': device_info
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to connect to {ip_address}:{port}. Check device power, network, and firewall settings.'
+            }), 500
+            
+    except Exception as e:
+        print(f"Error testing device: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/agents/create', methods=['POST'])
+@csrf.exempt
+def api_create_agent():
+    """Create a new local agent and generate API key"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        from database import create_biometric_agent
+        data = request.json
+        
+        if not data.get('agent_name') or not data.get('school_id'):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        # Create agent
+        result = create_biometric_agent(
+            school_id=data['school_id'],
+            agent_name=data['agent_name']
+        )
+        
+        if not result.get('success'):
+            return jsonify({'success': False, 'error': result.get('message', 'Unknown error')}), 400
+        
+        print(f"Agent created: ID={result['agent_id']}, Name={data['agent_name']}")
+        
+        return jsonify({
+            'success': True,
+            'agent_id': result['agent_id'],
+            'api_key': result['api_key'],
+            'message': result.get('message', 'Agent created successfully')
+        })
+        
+    except Exception as e:
+        print(f"Error creating agent: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/agents/<int:agent_id>', methods=['DELETE'])
+@csrf.exempt
+def api_deactivate_agent(agent_id):
+    """Deactivate a local agent"""
+    if 'user_id' not in session or session.get('user_type') not in ['admin', 'company_admin']:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    try:
+        from database import deactivate_biometric_agent
+        school_id = session.get('school_id')
+        
+        # Verify ownership
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('SELECT school_id FROM biometric_agents WHERE id = ?', (agent_id,))
+        row = cursor.fetchone()
+        
+        if not row or row[0] != school_id:
+            return jsonify({'success': False, 'error': 'Agent not found or access denied'}), 404
+        
+        # Deactivate
+        result = deactivate_biometric_agent(agent_id, school_id)
+        if not result.get('success'):
+            return jsonify({'success': False, 'error': result.get('message', 'Unknown error')}), 500
+        
+        print(f"Agent deactivated: ID={agent_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Agent deactivated successfully'
+        })
+        
+    except Exception as e:
+        print(f"Error deactivating agent: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 if __name__ == '__main__':

@@ -1334,6 +1334,347 @@ def sync_attendance_from_device(device_ip: str = '192.168.1.201', school_id: int
 
     return result
 
+# =============================================================================
+# UNIFIED ATTENDANCE PROCESSOR (Multi-Device, Multi-Institution Support)
+# =============================================================================
+
+class UnifiedAttendanceProcessor:
+    """
+    Unified processor for attendance data from multiple sources:
+    - Direct LAN (ZK Device via Ethernet)
+    - ADMS Cloud Push (HTTP webhook from ZK devices)
+    - Local Agent (Desktop bridge software)
+    
+    Implements institution firewall to prevent cross-institution data leakage.
+    """
+    
+    def __init__(self):
+        """Initialize the unified processor"""
+        self.logger = logging.getLogger(__name__ + '.UnifiedProcessor')
+    
+    def process_attendance_punch(self, device_id: int, user_id: str, timestamp: datetime.datetime,
+                                punch_code: int = 0, verification_method: str = 'fingerprint') -> Dict:
+        """
+        Process a single attendance punch with institution firewall validation
+        
+        Args:
+            device_id: ID from biometric_devices table
+            user_id: Staff ID from device (not database ID)
+            timestamp: Punch timestamp
+            punch_code: 0=check-in, 1=check-out, 2=overtime-in, 3=overtime-out
+            verification_method: 'fingerprint', 'face', 'card', 'password'
+        
+        Returns:
+            dict: {'success': bool, 'message': str, 'staff_id': int, 'action': str}
+        """
+        db = None
+        result = {
+            'success': False,
+            'message': '',
+            'staff_id': None,
+            'action': 'rejected',
+            'reason': ''
+        }
+        
+        try:
+            from database import get_db
+            db = get_db()
+            cursor = db.cursor()
+            
+            # Step 1: Get device information and institution
+            cursor.execute('''
+                SELECT school_id, device_name, connection_type 
+                FROM biometric_devices 
+                WHERE id = ? AND is_active = 1
+            ''', (device_id,))
+            
+            device = cursor.fetchone()
+            if not device:
+                result['message'] = f'Device ID {device_id} not found or inactive'
+                result['reason'] = 'invalid_device'
+                self.logger.warning(f"Punch rejected: Device {device_id} not found")
+                return result
+            
+            school_id = device[0]
+            device_name = device[1]
+            connection_type = device[2]
+            
+            self.logger.info(f"Processing punch from device '{device_name}' (ID: {device_id}, Type: {connection_type})")
+            
+            # Step 2: INSTITUTION FIREWALL - Verify staff belongs to device's institution
+            cursor.execute('''
+                SELECT id, full_name, department, COALESCE(shift_type, 'general') as shift_type
+                FROM staff 
+                WHERE staff_id = ? AND school_id = ?
+            ''', (user_id, school_id))
+            
+            staff = cursor.fetchone()
+            
+            if not staff:
+                # FIREWALL BLOCKED: Staff doesn't exist in this institution
+                result['message'] = f'Staff ID {user_id} not found in institution (school_id: {school_id})'
+                result['reason'] = 'institution_mismatch'
+                
+                self.logger.warning(
+                    f"🚫 FIREWALL BLOCKED: Staff ID '{user_id}' punched on device '{device_name}' "
+                    f"(Institution: {school_id}), but staff not found in that institution"
+                )
+                
+                # Validate biometric method for logging
+                valid_methods = ['fingerprint', 'face', 'card', 'password']
+                normalized_method = verification_method.lower() if verification_method else 'fingerprint'
+                if normalized_method not in valid_methods:
+                    normalized_method = 'fingerprint'
+                
+                # Log the blocked attempt for audit
+                cursor.execute('''
+                    INSERT INTO biometric_verifications
+                    (staff_id, school_id, verification_type, verification_time, 
+                     device_ip, biometric_method, verification_status, notes)
+                    VALUES (NULL, ?, ?, ?, ?, ?, 'failed', ?)
+                ''', (
+                    school_id,
+                    self._map_punch_to_verification_type(punch_code),
+                    timestamp,
+                    f'Device:{device_id}',
+                    normalized_method,
+                    f'Institution firewall: Staff {user_id} not in institution {school_id}'
+                ))
+                db.commit()
+                
+                return result
+            
+            # Step 3: Staff validated - extract info
+            staff_db_id = staff[0]
+            staff_name = staff[1]
+            department = staff[2]
+            shift_type = staff[3]
+            
+            result['staff_id'] = staff_db_id
+            
+            self.logger.info(
+                f"✓ Firewall passed: Staff '{staff_name}' (ID: {user_id}, DB_ID: {staff_db_id}) "
+                f"validated for institution {school_id}"
+            )
+            
+            # Step 4: Process the attendance punch
+            verification_type = self._map_punch_to_verification_type(punch_code)
+            current_time = timestamp.strftime('%H:%M:%S')
+            today = timestamp.date()
+            
+            # Validate and normalize biometric method
+            valid_methods = ['fingerprint', 'face', 'card', 'password']
+            normalized_method = verification_method.lower() if verification_method else 'fingerprint'
+            if normalized_method not in valid_methods:
+                normalized_method = 'fingerprint'  # Default to fingerprint if invalid
+            
+            # Log the biometric verification
+            cursor.execute('''
+                INSERT INTO biometric_verifications
+                (staff_id, school_id, verification_type, verification_time, 
+                 device_ip, biometric_method, verification_status)
+                VALUES (?, ?, ?, ?, ?, ?, 'success')
+            ''', (
+                staff_db_id, school_id, verification_type, timestamp,
+                f'Device:{device_id}', normalized_method
+            ))
+            
+            # Get existing attendance record
+            cursor.execute('''
+                SELECT * FROM attendance WHERE staff_id = ? AND date = ?
+            ''', (staff_db_id, today))
+            
+            existing_attendance = cursor.fetchone()
+            
+            # Process based on verification type
+            if verification_type == 'check-in':
+                # Duplicate check-in prevention
+                if existing_attendance and existing_attendance['time_in']:
+                    result['message'] = f'Duplicate check-in blocked (original: {existing_attendance["time_in"]})'
+                    result['reason'] = 'duplicate_checkin'
+                    result['action'] = 'ignored'
+                    self.logger.warning(f"Duplicate check-in blocked for staff {staff_db_id}")
+                    return result
+                
+                # Calculate attendance status using shift management
+                from shift_management import ShiftManager
+                shift_manager = ShiftManager()
+                attendance_result = shift_manager.calculate_attendance_status(
+                    shift_type, timestamp.time()
+                )
+                
+                status = attendance_result['status']
+                late_minutes = attendance_result.get('late_duration_minutes', 0)
+                shift_start = attendance_result.get('shift_start_time')
+                shift_end = attendance_result.get('shift_end_time')
+                
+                if existing_attendance:
+                    cursor.execute('''
+                        UPDATE attendance 
+                        SET time_in = ?, status = ?, late_duration_minutes = ?,
+                            shift_start_time = ?, shift_end_time = ?
+                        WHERE staff_id = ? AND date = ?
+                    ''', (
+                        current_time, status, late_minutes,
+                        shift_start.strftime('%H:%M:%S') if shift_start else None,
+                        shift_end.strftime('%H:%M:%S') if shift_end else None,
+                        staff_db_id, today
+                    ))
+                else:
+                    cursor.execute('''
+                        INSERT INTO attendance 
+                        (staff_id, school_id, date, time_in, status, late_duration_minutes,
+                         shift_start_time, shift_end_time)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        staff_db_id, school_id, today, current_time, status, late_minutes,
+                        shift_start.strftime('%H:%M:%S') if shift_start else None,
+                        shift_end.strftime('%H:%M:%S') if shift_end else None
+                    ))
+                
+                result['action'] = 'check-in'
+                result['message'] = f'Check-in processed: {staff_name} at {current_time} (Status: {status})'
+                
+            elif verification_type == 'check-out':
+                # Duplicate check-out prevention
+                if existing_attendance and existing_attendance['time_out']:
+                    result['message'] = f'Duplicate check-out blocked (original: {existing_attendance["time_out"]})'
+                    result['reason'] = 'duplicate_checkout'
+                    result['action'] = 'ignored'
+                    self.logger.warning(f"Duplicate check-out blocked for staff {staff_db_id}")
+                    return result
+                
+                if existing_attendance:
+                    # Calculate early departure if applicable
+                    from shift_management import ShiftManager
+                    shift_manager = ShiftManager()
+                    
+                    shift_end_time = None
+                    if existing_attendance['shift_end_time']:
+                        shift_end_time = datetime.datetime.strptime(
+                            existing_attendance['shift_end_time'], '%H:%M:%S'
+                        ).time()
+                    
+                    early_departure_minutes = 0
+                    if shift_end_time and timestamp.time() < shift_end_time:
+                        time_diff = datetime.datetime.combine(today, shift_end_time) - \
+                                  datetime.datetime.combine(today, timestamp.time())
+                        early_departure_minutes = int(time_diff.total_seconds() / 60)
+                    
+                    cursor.execute('''
+                        UPDATE attendance 
+                        SET time_out = ?, early_departure_minutes = ?
+                        WHERE staff_id = ? AND date = ?
+                    ''', (current_time, early_departure_minutes, staff_db_id, today))
+                    
+                    result['action'] = 'check-out'
+                    result['message'] = f'Check-out processed: {staff_name} at {current_time}'
+                else:
+                    # No check-in record - create absent/left record
+                    cursor.execute('''
+                        INSERT INTO attendance 
+                        (staff_id, school_id, date, time_out, status)
+                        VALUES (?, ?, ?, ?, 'absent')
+                    ''', (staff_db_id, school_id, today, current_time))
+                    
+                    result['action'] = 'check-out-no-checkin'
+                    result['message'] = f'Check-out without check-in: {staff_name}'
+            
+            elif verification_type in ['overtime-in', 'overtime-out']:
+                # Handle overtime punches
+                if existing_attendance:
+                    if verification_type == 'overtime-in':
+                        cursor.execute('''
+                            UPDATE attendance SET overtime_in = ?
+                            WHERE staff_id = ? AND date = ?
+                        ''', (current_time, staff_db_id, today))
+                    else:
+                        cursor.execute('''
+                            UPDATE attendance SET overtime_out = ?
+                            WHERE staff_id = ? AND date = ?
+                        ''', (current_time, staff_db_id, today))
+                    
+                    result['action'] = verification_type
+                    result['message'] = f'{verification_type} processed: {staff_name} at {current_time}'
+                else:
+                    result['action'] = 'ignored'
+                    result['message'] = f'{verification_type} ignored: No attendance record for today'
+                    result['reason'] = 'no_attendance_record'
+            
+            # Commit the transaction
+            db.commit()
+            result['success'] = True
+            
+            self.logger.info(
+                f"✓ Punch processed successfully: {staff_name} ({verification_type}) "
+                f"at {current_time} on device {device_name}"
+            )
+            
+        except Exception as e:
+            result['message'] = f'Error processing punch: {str(e)}'
+            result['reason'] = 'exception'
+            self.logger.error(f"Error processing attendance punch: {str(e)}")
+            if db:
+                db.rollback()
+        
+        return result
+    
+    def process_batch_punches(self, device_id: int, punches: List[Dict]) -> Dict:
+        """
+        Process multiple attendance punches from a device
+        
+        Args:
+            device_id: Device ID
+            punches: List of punch dicts with keys: user_id, timestamp, punch_code, verification_method
+        
+        Returns:
+            dict: {'processed': int, 'rejected': int, 'ignored': int, 'details': list}
+        """
+        result = {
+            'processed': 0,
+            'rejected': 0,
+            'ignored': 0,
+            'details': []
+        }
+        
+        for punch in punches:
+            punch_result = self.process_attendance_punch(
+                device_id=device_id,
+                user_id=punch.get('user_id'),
+                timestamp=punch.get('timestamp'),
+                punch_code=punch.get('punch_code', 0),
+                verification_method=punch.get('verification_method', 'fingerprint')
+            )
+            
+            if punch_result['success']:
+                if punch_result['action'] == 'ignored':
+                    result['ignored'] += 1
+                else:
+                    result['processed'] += 1
+            else:
+                result['rejected'] += 1
+            
+            result['details'].append({
+                'user_id': punch.get('user_id'),
+                'timestamp': punch.get('timestamp').isoformat() if punch.get('timestamp') else None,
+                'action': punch_result.get('action'),
+                'message': punch_result.get('message'),
+                'reason': punch_result.get('reason')
+            })
+        
+        return result
+    
+    def _map_punch_to_verification_type(self, punch_code: int) -> str:
+        """Map device punch code to verification type"""
+        punch_mapping = {
+            0: 'check-in',
+            1: 'check-out',
+            2: 'overtime-in',
+            3: 'overtime-out'
+        }
+        return punch_mapping.get(punch_code, 'check-in')
+
+
 if __name__ == '__main__':
     # Test the ZK device connection
     result = sync_attendance_from_device()

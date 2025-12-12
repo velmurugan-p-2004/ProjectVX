@@ -466,6 +466,668 @@ def health_check():
         'service': 'ZK Biometric Cloud API'
     })
 
+
+# =============================================================================
+# ADMS CLOUD PUSH ENDPOINTS
+# =============================================================================
+
+@cloud_api.route('/adms/push', methods=['POST'])
+def adms_push_attendance():
+    """
+    Receive attendance logs pushed from ADMS-configured ZK devices
+    
+    Expected JSON payload:
+    {
+        "serial_number": "ZKDEV123456",
+        "device_time": "2025-12-02 10:30:45",
+        "records": [
+            {
+                "user_id": "101",
+                "timestamp": "2025-12-02 09:15:23",
+                "punch_code": 0,
+                "verify_method": 1
+            }
+        ]
+    }
+    
+    Returns:
+        JSON response with processing results
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+        
+        serial_number = data.get('serial_number')
+        records = data.get('records', [])
+        
+        if not serial_number:
+            return jsonify({
+                'success': False,
+                'error': 'Serial number required'
+            }), 400
+        
+        if not records:
+            return jsonify({
+                'success': False,
+                'error': 'No records provided'
+            }), 400
+        
+        logger.info(f"ADMS Push received from device {serial_number}: {len(records)} record(s)")
+        
+        # Step 1: Find device by serial number
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+            SELECT id, school_id, device_name, is_active
+            FROM biometric_devices
+            WHERE serial_number = ? AND connection_type = 'ADMS'
+        ''', (serial_number,))
+        
+        device = cursor.fetchone()
+        
+        if not device:
+            logger.warning(f"ADMS Push rejected: Unknown device with serial {serial_number}")
+            return jsonify({
+                'success': False,
+                'error': f'Device with serial number {serial_number} not registered',
+                'hint': 'Please register this device in the Device Management interface'
+            }), 404
+        
+        device_id = device[0]
+        school_id = device[1]
+        device_name = device[2]
+        is_active = device[3]
+        
+        if not is_active:
+            return jsonify({
+                'success': False,
+                'error': f'Device {device_name} is inactive'
+            }), 403
+        
+        # Step 2: Process records using UnifiedAttendanceProcessor (same as agent)
+        from zk_biometric import UnifiedAttendanceProcessor
+        
+        processor = UnifiedAttendanceProcessor()
+        processed_count = 0
+        rejected_count = 0
+        ignored_count = 0
+        duplicate_count = 0
+        details = []
+        
+        for record in records:
+            try:
+                # Parse timestamp
+                timestamp_str = record.get('timestamp')
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                
+                user_id = record.get('user_id')
+                punch_code = record.get('punch_code', 0)
+                verify_method = record.get('verify_method', 1)
+                
+                # Map verify method: 1=fingerprint, 2=face, 3=password, 4=card
+                verify_method_map = {
+                    1: 'fingerprint',
+                    2: 'face',
+                    3: 'password',
+                    4: 'card'
+                }
+                verification_method = verify_method_map.get(verify_method, 'fingerprint')
+                
+                # DUPLICATE CHECK: Check if this exact log already exists (same as agent)
+                cursor.execute('''
+                    SELECT id FROM biometric_verifications
+                    WHERE staff_id IN (SELECT id FROM staff WHERE staff_id = ? AND school_id = ?)
+                    AND verification_time = ?
+                    AND verification_type = ?
+                ''', (
+                    user_id,
+                    school_id,
+                    timestamp,
+                    processor._map_punch_to_verification_type(punch_code)
+                ))
+                
+                existing_log = cursor.fetchone()
+                
+                if existing_log:
+                    # Skip duplicate - already processed
+                    duplicate_count += 1
+                    logger.debug(f"Skipping duplicate log: Staff {user_id}, Time {timestamp}")
+                    details.append({
+                        'user_id': user_id,
+                        'timestamp': timestamp_str,
+                        'action': 'skipped',
+                        'reason': 'duplicate_log',
+                        'message': 'Log already exists'
+                    })
+                    continue
+                
+                # Process the attendance punch
+                punch_result = processor.process_attendance_punch(
+                    device_id=device_id,
+                    user_id=user_id,
+                    timestamp=timestamp,
+                    punch_code=punch_code,
+                    verification_method=verification_method
+                )
+                
+                if punch_result['success']:
+                    if punch_result['action'] == 'ignored':
+                        ignored_count += 1
+                    else:
+                        processed_count += 1
+                else:
+                    rejected_count += 1
+                
+                details.append({
+                    'user_id': user_id,
+                    'timestamp': timestamp_str,
+                    'action': punch_result.get('action'),
+                    'message': punch_result.get('message'),
+                    'reason': punch_result.get('reason')
+                })
+                
+            except Exception as e:
+                logger.error(f"Error parsing ADMS record: {e}")
+                rejected_count += 1
+                details.append({
+                    'user_id': record.get('user_id', 'unknown'),
+                    'timestamp': record.get('timestamp', 'unknown'),
+                    'action': 'rejected',
+                    'reason': 'parse_error',
+                    'message': str(e)
+                })
+                continue
+        
+        # Update device sync status
+        from database import update_device_sync_status
+        update_device_sync_status(device_id, datetime.now(), 'success')
+        
+        logger.info(
+            f"ADMS Push processed for device {device_name}: "
+            f"{processed_count} processed, {rejected_count} rejected, "
+            f"{ignored_count} ignored, {duplicate_count} duplicates"
+        )
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'device_name': device_name,
+            'school_id': school_id,
+            'records_received': len(records),
+            'processed': processed_count,
+            'rejected': rejected_count,
+            'ignored': ignored_count,
+            'duplicates': duplicate_count,
+            'details': details,
+            'message': f'Successfully processed {processed_count} attendance record(s), skipped {duplicate_count} duplicates'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error processing ADMS push: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@cloud_api.route('/adms/devices', methods=['GET'])
+@require_api_key
+def list_adms_devices():
+    """List all ADMS-configured devices"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+            SELECT d.id, d.device_name, d.serial_number, d.is_active, 
+                   d.last_sync, d.sync_status, s.name as school_name
+            FROM biometric_devices d
+            LEFT JOIN schools s ON d.school_id = s.id
+            WHERE d.connection_type = 'ADMS'
+            ORDER BY s.name, d.device_name
+        ''')
+        
+        devices = []
+        for row in cursor.fetchall():
+            devices.append({
+                'id': row[0],
+                'device_name': row[1],
+                'serial_number': row[2],
+                'is_active': bool(row[3]),
+                'last_sync': row[4],
+                'sync_status': row[5],
+                'school_name': row[6]
+            })
+        
+        return jsonify({
+            'success': True,
+            'device_count': len(devices),
+            'devices': devices
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing ADMS devices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# =============================================================================
+# AGENT LAN ENDPOINTS (Local Agent Bridge)
+# =============================================================================
+
+@cloud_api.route('/agent/push_logs', methods=['POST'])
+def agent_push_logs():
+    """
+    Receive attendance logs pushed from Local Agent (Agent_LAN mode)
+    
+    Expected JSON payload:
+    {
+        "device_id": 123,
+        "records": [
+            {
+                "user_id": "101",
+                "timestamp": "2025-12-02T09:15:23",
+                "punch_code": 0,
+                "verify_method": 1
+            }
+        ]
+    }
+    
+    Requires: Bearer token (API key) in Authorization header
+    
+    Returns:
+        JSON response with processing results
+    """
+    try:
+        # Check API key authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({
+                'success': False,
+                'error': 'Missing or invalid Authorization header'
+            }), 401
+        
+        api_key = auth_header[7:]  # Remove 'Bearer ' prefix
+        
+        # Validate agent API key
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+            SELECT id, agent_name, school_id, is_active
+            FROM biometric_agents
+            WHERE api_key = ?
+        ''', (api_key,))
+        
+        agent = cursor.fetchone()
+        
+        if not agent:
+            logger.warning(f"Agent push rejected: Invalid API key")
+            return jsonify({
+                'success': False,
+                'error': 'Invalid API key'
+            }), 401
+        
+        agent_id = agent[0]
+        agent_name = agent[1]
+        agent_school_id = agent[2]
+        is_active = agent[3]
+        
+        if not is_active:
+            return jsonify({
+                'success': False,
+                'error': f'Agent {agent_name} is inactive'
+            }), 403
+        
+        # Parse request data
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+        
+        device_id = data.get('device_id')
+        records = data.get('records', [])
+        
+        if not device_id:
+            return jsonify({
+                'success': False,
+                'error': 'Device ID required'
+            }), 400
+        
+        if not records:
+            return jsonify({
+                'success': False,
+                'error': 'No records provided'
+            }), 400
+        
+        logger.info(f"Agent push received from {agent_name} (Agent ID: {agent_id}): Device {device_id}, {len(records)} record(s)")
+        
+        # Validate device belongs to this agent's institution
+        cursor.execute('''
+            SELECT id, school_id, device_name, is_active
+            FROM biometric_devices
+            WHERE id = ? AND connection_type = 'Agent_LAN'
+        ''', (device_id,))
+        
+        device = cursor.fetchone()
+        
+        if not device:
+            logger.warning(f"Agent push rejected: Device {device_id} not found or not Agent_LAN type")
+            return jsonify({
+                'success': False,
+                'error': f'Device ID {device_id} not found or not configured for Agent_LAN'
+            }), 404
+        
+        device_db_id = device[0]
+        device_school_id = device[1]
+        device_name = device[2]
+        device_is_active = device[3]
+        
+        if not device_is_active:
+            return jsonify({
+                'success': False,
+                'error': f'Device {device_name} is inactive'
+            }), 403
+        
+        # INSTITUTION FIREWALL: Verify device belongs to agent's institution
+        if device_school_id != agent_school_id:
+            logger.error(
+                f"🚫 INSTITUTION MISMATCH: Agent {agent_name} (Institution: {agent_school_id}) "
+                f"attempted to push logs for device {device_name} (Institution: {device_school_id})"
+            )
+            return jsonify({
+                'success': False,
+                'error': 'Institution mismatch: Device does not belong to agent\'s institution'
+            }), 403
+        
+        # Process records using UnifiedAttendanceProcessor (same as ADMS)
+        from zk_biometric import UnifiedAttendanceProcessor
+        
+        processor = UnifiedAttendanceProcessor()
+        processed_count = 0
+        rejected_count = 0
+        ignored_count = 0
+        duplicate_count = 0
+        details = []
+        
+        for record in records:
+            try:
+                # Parse timestamp (ISO format from agent)
+                timestamp_str = record.get('timestamp')
+                
+                # Handle both ISO format and datetime string
+                try:
+                    timestamp = datetime.fromisoformat(timestamp_str)
+                except:
+                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                
+                user_id = record.get('user_id')
+                punch_code = record.get('punch_code', 0)
+                verify_method = record.get('verify_method', 1)
+                
+                # Map verify method: 1=fingerprint, 2=face, 3=password, 4=card
+                verify_method_map = {
+                    1: 'fingerprint',
+                    2: 'face',
+                    3: 'password',
+                    4: 'card'
+                }
+                verification_method = verify_method_map.get(verify_method, 'fingerprint')
+                
+                # DUPLICATE CHECK: Check if this exact log already exists (same as ADMS)
+                cursor.execute('''
+                    SELECT id FROM biometric_verifications
+                    WHERE staff_id IN (SELECT id FROM staff WHERE staff_id = ? AND school_id = ?)
+                    AND verification_time = ?
+                    AND verification_type = ?
+                ''', (
+                    user_id,
+                    device_school_id,
+                    timestamp,
+                    processor._map_punch_to_verification_type(punch_code)
+                ))
+                
+                existing_log = cursor.fetchone()
+                
+                if existing_log:
+                    # Skip duplicate - already processed
+                    duplicate_count += 1
+                    logger.debug(f"Skipping duplicate log: Staff {user_id}, Time {timestamp}")
+                    details.append({
+                        'user_id': user_id,
+                        'timestamp': timestamp_str,
+                        'action': 'skipped',
+                        'reason': 'duplicate_log',
+                        'message': 'Log already exists'
+                    })
+                    continue
+                
+                # Process the attendance punch
+                punch_result = processor.process_attendance_punch(
+                    device_id=device_db_id,
+                    user_id=user_id,
+                    timestamp=timestamp,
+                    punch_code=punch_code,
+                    verification_method=verification_method
+                )
+                
+                if punch_result['success']:
+                    if punch_result['action'] == 'ignored':
+                        ignored_count += 1
+                    else:
+                        processed_count += 1
+                else:
+                    rejected_count += 1
+                
+                details.append({
+                    'user_id': user_id,
+                    'timestamp': timestamp_str,
+                    'action': punch_result.get('action'),
+                    'message': punch_result.get('message'),
+                    'reason': punch_result.get('reason')
+                })
+                
+            except Exception as e:
+                logger.error(f"Error parsing agent record: {e}")
+                rejected_count += 1
+                details.append({
+                    'user_id': record.get('user_id', 'unknown'),
+                    'timestamp': record.get('timestamp', 'unknown'),
+                    'action': 'rejected',
+                    'reason': 'parse_error',
+                    'message': str(e)
+                })
+                continue
+        
+        # Update device sync status
+        from database import update_device_sync_status
+        update_device_sync_status(device_db_id, datetime.now(), 'success')
+        
+        # Update agent last seen
+        cursor.execute('''
+            UPDATE biometric_agents
+            SET last_seen = ?, status = 'active'
+            WHERE id = ?
+        ''', (datetime.now(), agent_id))
+        db.commit()
+        
+        logger.info(
+            f"Agent push processed from {agent_name}: Device {device_name}: "
+            f"{processed_count} processed, {rejected_count} rejected, "
+            f"{ignored_count} ignored, {duplicate_count} duplicates"
+        )
+        
+        return jsonify({
+            'success': True,
+            'agent_id': agent_id,
+            'agent_name': agent_name,
+            'device_id': device_db_id,
+            'device_name': device_name,
+            'school_id': device_school_id,
+            'records_received': len(records),
+            'processed': processed_count,
+            'rejected': rejected_count,
+            'ignored': ignored_count,
+            'duplicates': duplicate_count,
+            'message': f'Successfully processed {processed_count} attendance record(s), skipped {duplicate_count} duplicates'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error processing agent push: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@cloud_api.route('/agent/heartbeat', methods=['POST'])
+def agent_heartbeat():
+    """
+    Agent heartbeat endpoint - updates agent status
+    
+    Expected JSON payload:
+    {
+        "agent_name": "Agent-1",
+        "status": "active",
+        "devices": [...]
+    }
+    
+    Requires: Bearer token (API key) in Authorization header
+    """
+    try:
+        # Check API key authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({
+                'success': False,
+                'error': 'Missing or invalid Authorization header'
+            }), 401
+        
+        api_key = auth_header[7:]  # Remove 'Bearer ' prefix
+        
+        # Validate agent API key
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+            SELECT id, agent_name, is_active
+            FROM biometric_agents
+            WHERE api_key = ?
+        ''', (api_key,))
+        
+        agent = cursor.fetchone()
+        
+        if not agent:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid API key'
+            }), 401
+        
+        agent_id = agent[0]
+        agent_name = agent[1]
+        is_active = agent[2]
+        
+        if not is_active:
+            return jsonify({
+                'success': False,
+                'error': f'Agent {agent_name} is inactive'
+            }), 403
+        
+        # Parse request data
+        data = request.get_json()
+        status = data.get('status', 'active')
+        
+        # Update agent heartbeat
+        cursor.execute('''
+            UPDATE biometric_agents
+            SET last_seen = ?, status = ?
+            WHERE id = ?
+        ''', (datetime.now(), status, agent_id))
+        db.commit()
+        
+        logger.debug(f"Heartbeat received from agent {agent_name}")
+        
+        return jsonify({
+            'success': True,
+            'agent_id': agent_id,
+            'agent_name': agent_name,
+            'message': 'Heartbeat received',
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error processing agent heartbeat: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@cloud_api.route('/agent/info', methods=['GET'])
+def agent_info():
+    """
+    Get agent information
+    
+    Requires: Bearer token (API key) in Authorization header
+    """
+    try:
+        # Check API key authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({
+                'success': False,
+                'error': 'Missing or invalid Authorization header'
+            }), 401
+        
+        api_key = auth_header[7:]  # Remove 'Bearer ' prefix
+        
+        # Validate agent API key
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+            SELECT id, agent_name, school_id, status, last_seen, created_at
+            FROM biometric_agents
+            WHERE api_key = ? AND is_active = 1
+        ''', (api_key,))
+        
+        agent = cursor.fetchone()
+        
+        if not agent:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid API key'
+            }), 401
+        
+        return jsonify({
+            'success': True,
+            'agent_id': agent[0],
+            'agent_name': agent[1],
+            'school_id': agent[2],
+            'status': agent[3],
+            'last_seen': agent[4],
+            'created_at': agent[5]
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting agent info: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 # Error handlers
 @cloud_api.errorhandler(404)
 def not_found(error):

@@ -430,6 +430,16 @@ def init_db(app):
         )
         ''')
 
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS system_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            setting_key TEXT UNIQUE NOT NULL,
+            setting_value TEXT NOT NULL,
+            description TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+
         # Initialize default shift definitions
         cursor.execute('SELECT COUNT(*) FROM shift_definitions')
         if cursor.fetchone()[0] == 0:
@@ -1694,3 +1704,665 @@ def delete_position(position_id, school_id):
         if db:
             db.rollback()
         return {'success': False, 'message': f'Error deleting position: {str(e)}'}
+
+
+# =============================================================================
+# BIOMETRIC DEVICE MANAGEMENT FUNCTIONS
+# =============================================================================
+
+def get_device_for_institution(school_id, device_id=None):
+    """
+    Get biometric device(s) for an institution
+    
+    Args:
+        school_id: The institution ID
+        device_id: Optional specific device ID
+    
+    Returns:
+        Device dict or list of devices
+    """
+    db = get_db()
+    cursor = db.cursor()
+    
+    if device_id:
+        # Get specific device
+        cursor.execute('''
+            SELECT * FROM biometric_devices 
+            WHERE id = ? AND school_id = ? AND is_active = 1
+        ''', (device_id, school_id))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    else:
+        # Get all active devices for institution
+        cursor.execute('''
+            SELECT * FROM biometric_devices 
+            WHERE school_id = ? AND is_active = 1
+            ORDER BY device_name
+        ''', (school_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_primary_device_for_institution(school_id):
+    """
+    Get the first active device for an institution (for backward compatibility)
+    
+    Args:
+        school_id: The institution ID
+    
+    Returns:
+        Device dict or None
+    """
+    db = get_db()
+    cursor = db.cursor()
+    
+    cursor.execute('''
+        SELECT * FROM biometric_devices 
+        WHERE school_id = ? AND is_active = 1
+        ORDER BY id
+        LIMIT 1
+    ''', (school_id,))
+    
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def get_all_devices_with_details():
+    """
+    Get all biometric devices with institution and agent details
+    
+    Returns:
+        List of device dicts with joined data
+    """
+    db = get_db()
+    cursor = db.cursor()
+    
+    cursor.execute('''
+        SELECT 
+            d.id, d.device_name, d.connection_type, d.ip_address, d.port,
+            d.serial_number, d.is_active, d.last_sync, d.sync_status,
+            s.name as school_name, s.id as school_id,
+            a.agent_name, a.id as agent_id, a.is_active as agent_active
+        FROM biometric_devices d
+        LEFT JOIN schools s ON d.school_id = s.id
+        LEFT JOIN biometric_agents a ON d.agent_id = a.id
+        ORDER BY d.school_id, d.device_name
+    ''')
+    
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def create_biometric_device(school_id, device_name, connection_type, ip_address=None, 
+                            port=4370, serial_number=None, agent_id=None):
+    """
+    Create a new biometric device
+    
+    Args:
+        school_id: Institution ID
+        device_name: Display name for device
+        connection_type: 'Direct_LAN', 'ADMS', or 'Agent_LAN'
+        ip_address: IP address (for Direct_LAN or Agent_LAN)
+        port: Port number (default 4370)
+        serial_number: Serial number (for ADMS)
+        agent_id: Local agent ID (for Agent_LAN)
+    
+    Returns:
+        dict: {'success': bool, 'message': str, 'device_id': int}
+    """
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Validate connection_type
+        valid_types = ['Direct_LAN', 'ADMS', 'Agent_LAN']
+        if connection_type not in valid_types:
+            return {'success': False, 'message': f'Invalid connection type. Must be one of: {", ".join(valid_types)}'}
+        
+        # Validate required fields based on connection type
+        if connection_type == 'Direct_LAN' and not ip_address:
+            return {'success': False, 'message': 'IP address is required for Direct LAN connection'}
+        
+        if connection_type == 'ADMS' and not serial_number:
+            return {'success': False, 'message': 'Serial number is required for ADMS connection'}
+        
+        if connection_type == 'Agent_LAN' and not agent_id:
+            return {'success': False, 'message': 'Agent ID is required for Agent LAN connection'}
+        
+        # Check for duplicate device name in same institution
+        cursor.execute('''
+            SELECT id FROM biometric_devices 
+            WHERE school_id = ? AND device_name = ? AND is_active = 1
+        ''', (school_id, device_name))
+        
+        existing = cursor.fetchone()
+        if existing:
+            return {
+                'success': False, 
+                'message': f'Device name "{device_name}" already exists in this institution. Please use a different name (e.g., "{device_name} 2")'
+            }
+        
+        # Insert device
+        cursor.execute('''
+            INSERT INTO biometric_devices 
+            (school_id, device_name, connection_type, ip_address, port, 
+             serial_number, agent_id, is_active, sync_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending')
+        ''', (school_id, device_name, connection_type, ip_address, port, serial_number, agent_id))
+        
+        device_id = cursor.lastrowid
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f'Device "{device_name}" created successfully',
+            'device_id': device_id
+        }
+        
+    except Exception as e:
+        print(f"Error creating biometric device: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error creating device: {str(e)}'}
+
+
+def update_biometric_device(device_id, school_id, device_name=None, ip_address=None, 
+                            port=None, serial_number=None, agent_id=None):
+    """
+    Update biometric device details
+    
+    Args:
+        device_id: Device ID to update
+        school_id: Institution ID (for security)
+        device_name: New device name (optional)
+        ip_address: New IP address (optional)
+        port: New port (optional)
+        serial_number: New serial number (optional)
+        agent_id: New agent ID (optional)
+    
+    Returns:
+        dict: {'success': bool, 'message': str}
+    """
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Verify device belongs to institution
+        cursor.execute('''
+            SELECT id FROM biometric_devices 
+            WHERE id = ? AND school_id = ? AND is_active = 1
+        ''', (device_id, school_id))
+        
+        if not cursor.fetchone():
+            return {'success': False, 'message': 'Device not found or access denied'}
+        
+        # Check for duplicate device name if updating name
+        if device_name is not None:
+            cursor.execute('''
+                SELECT id FROM biometric_devices 
+                WHERE school_id = ? AND device_name = ? AND id != ? AND is_active = 1
+            ''', (school_id, device_name, device_id))
+            
+            if cursor.fetchone():
+                return {
+                    'success': False, 
+                    'message': f'Device name "{device_name}" already exists in this institution. Please use a different name.'
+                }
+        
+        # Build update query dynamically
+        updates = []
+        params = []
+        
+        if device_name is not None:
+            updates.append('device_name = ?')
+            params.append(device_name)
+        
+        if ip_address is not None:
+            updates.append('ip_address = ?')
+            params.append(ip_address)
+        
+        if port is not None:
+            updates.append('port = ?')
+            params.append(port)
+        
+        if serial_number is not None:
+            updates.append('serial_number = ?')
+            params.append(serial_number)
+        
+        if agent_id is not None:
+            updates.append('agent_id = ?')
+            params.append(agent_id)
+        
+        if not updates:
+            return {'success': False, 'message': 'No fields to update'}
+        
+        updates.append('updated_at = CURRENT_TIMESTAMP')
+        params.extend([device_id, school_id])
+        
+        query = f'''
+            UPDATE biometric_devices 
+            SET {', '.join(updates)}
+            WHERE id = ? AND school_id = ?
+        '''
+        
+        cursor.execute(query, params)
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': 'Device updated successfully'
+        }
+        
+    except Exception as e:
+        print(f"Error updating biometric device: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error updating device: {str(e)}'}
+
+
+def delete_biometric_device(device_id, school_id):
+    """
+    Soft delete a biometric device
+    
+    Args:
+        device_id: Device ID
+        school_id: Institution ID (for security)
+    
+    Returns:
+        dict: {'success': bool, 'message': str}
+    """
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Verify device belongs to institution
+        cursor.execute('''
+            SELECT device_name FROM biometric_devices 
+            WHERE id = ? AND school_id = ? AND is_active = 1
+        ''', (device_id, school_id))
+        
+        device = cursor.fetchone()
+        if not device:
+            return {'success': False, 'message': 'Device not found or already deleted'}
+        
+        device_name = device[0]
+        
+        # Soft delete
+        cursor.execute('''
+            UPDATE biometric_devices 
+            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND school_id = ?
+        ''', (device_id, school_id))
+        
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f'Device "{device_name}" deleted successfully'
+        }
+        
+    except Exception as e:
+        print(f"Error deleting biometric device: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error deleting device: {str(e)}'}
+
+
+def update_device_sync_status(device_id, last_sync=None, sync_status='success'):
+    """
+    Update device sync status and timestamp
+    
+    Args:
+        device_id: Device ID
+        last_sync: Last sync datetime (defaults to now in local time)
+        sync_status: Sync status ('success', 'failed', 'pending', 'unknown')
+    
+    Returns:
+        bool: Success status
+    """
+    db = None
+    try:
+        from datetime import datetime
+        db = get_db()
+        cursor = db.cursor()
+        
+        if last_sync is None:
+            # Use local time instead of UTC
+            last_sync = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        cursor.execute('''
+            UPDATE biometric_devices 
+            SET last_sync = ?, sync_status = ?
+            WHERE id = ?
+        ''', (last_sync, sync_status, device_id))
+        
+        db.commit()
+        return True
+        
+    except Exception as e:
+        print(f"Error updating device sync status: {e}")
+        if db:
+            db.rollback()
+        return False
+
+
+# =============================================================================
+# BIOMETRIC AGENT MANAGEMENT FUNCTIONS
+# =============================================================================
+
+def get_agents_for_institution(school_id):
+    """
+    Get all agents for an institution
+    
+    Args:
+        school_id: Institution ID
+    
+    Returns:
+        List of agent dicts
+    """
+    db = get_db()
+    cursor = db.cursor()
+    
+    cursor.execute('''
+        SELECT * FROM biometric_agents 
+        WHERE school_id = ? 
+        ORDER BY agent_name
+    ''', (school_id,))
+    
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def get_all_agents_with_details():
+    """
+    Get all agents with institution details
+    
+    Returns:
+        List of agent dicts with joined data
+    """
+    db = get_db()
+    cursor = db.cursor()
+    
+    cursor.execute('''
+        SELECT 
+            a.id, a.agent_name, a.api_key, a.is_active, 
+            a.last_heartbeat, a.created_at,
+            s.name as school_name, s.id as school_id,
+            COUNT(d.id) as device_count
+        FROM biometric_agents a
+        LEFT JOIN schools s ON a.school_id = s.id
+        LEFT JOIN biometric_devices d ON a.id = d.agent_id AND d.is_active = 1
+        GROUP BY a.id
+        ORDER BY a.school_id, a.agent_name
+    ''')
+    
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def create_biometric_agent(school_id, agent_name):
+    """
+    Create a new local agent
+    
+    Args:
+        school_id: Institution ID
+        agent_name: Display name for agent
+    
+    Returns:
+        dict: {'success': bool, 'message': str, 'agent_id': int, 'api_key': str}
+    """
+    db = None
+    try:
+        import secrets
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Generate unique API key
+        api_key = secrets.token_urlsafe(48)
+        
+        # Insert agent
+        cursor.execute('''
+            INSERT INTO biometric_agents 
+            (school_id, agent_name, api_key, is_active)
+            VALUES (?, ?, ?, 1)
+        ''', (school_id, agent_name, api_key))
+        
+        agent_id = cursor.lastrowid
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f'Agent "{agent_name}" created successfully',
+            'agent_id': agent_id,
+            'api_key': api_key
+        }
+        
+    except Exception as e:
+        print(f"Error creating biometric agent: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error creating agent: {str(e)}'}
+
+
+def update_agent_heartbeat(api_key):
+    """
+    Update agent last heartbeat timestamp
+    
+    Args:
+        api_key: Agent API key
+    
+    Returns:
+        dict: {'success': bool, 'agent_id': int, 'school_id': int}
+    """
+    db = None
+    try:
+        db = get_db()
+        import datetime
+        cursor = db.cursor()
+        
+        # Get current UTC timestamp
+        current_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Get agent info and update heartbeat
+        cursor.execute('''
+            UPDATE biometric_agents 
+            SET last_heartbeat = ?, updated_at = ?
+            WHERE api_key = ? AND is_active = 1
+        ''', (current_time, current_time, api_key))
+        
+        if cursor.rowcount == 0:
+            return {'success': False, 'message': 'Invalid API key or agent inactive'}
+        
+        # Get agent details
+        cursor.execute('''
+            SELECT id, school_id FROM biometric_agents 
+            WHERE api_key = ?
+        ''', (api_key,))
+        
+        row = cursor.fetchone()
+        db.commit()
+        
+        return {
+            'success': True,
+            'agent_id': row[0],
+            'school_id': row[1],
+            'last_heartbeat': current_time
+        }
+        
+    except Exception as e:
+        print(f"Error updating agent heartbeat: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error: {str(e)}'}
+
+
+def verify_agent_api_key(api_key):
+    """
+    Verify agent API key and return agent/school info
+    
+    Args:
+        api_key: Agent API key
+    
+    Returns:
+        dict: Agent info or None
+    """
+    db = get_db()
+    cursor = db.cursor()
+    
+    cursor.execute('''
+        SELECT a.id, a.school_id, a.agent_name, a.is_active,
+               s.name as school_name
+        FROM biometric_agents a
+        LEFT JOIN schools s ON a.school_id = s.id
+        WHERE a.api_key = ? AND a.is_active = 1
+    ''', (api_key,))
+    
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def deactivate_biometric_agent(agent_id, school_id):
+    """
+    Deactivate a local agent
+    
+    Args:
+        agent_id: Agent ID
+        school_id: Institution ID (for security)
+    
+    Returns:
+        dict: {'success': bool, 'message': str}
+    """
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Verify agent belongs to institution
+        cursor.execute('''
+            SELECT agent_name FROM biometric_agents 
+            WHERE id = ? AND school_id = ? AND is_active = 1
+        ''', (agent_id, school_id))
+        
+        agent = cursor.fetchone()
+        if not agent:
+            return {'success': False, 'message': 'Agent not found or already deactivated'}
+        
+        agent_name = agent[0]
+        
+        # Deactivate agent
+        cursor.execute('''
+            UPDATE biometric_agents 
+            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND school_id = ?
+        ''', (agent_id, school_id))
+        
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f'Agent "{agent_name}" deactivated successfully'
+        }
+        
+    except Exception as e:
+        print(f"Error deactivating agent: {e}")
+        if db:
+            db.rollback()
+        return {'success': False, 'message': f'Error deactivating agent: {str(e)}'}
+
+
+def get_all_schools():
+    """
+    Get list of all schools for dropdown menus
+    
+    Returns:
+        list: List of school dictionaries with id and name
+    """
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+            SELECT id, name 
+            FROM schools 
+            ORDER BY name
+        ''')
+        
+        schools = []
+        for row in cursor.fetchall():
+            schools.append({
+                'id': row[0],
+                'name': row[1]
+            })
+        
+        return schools
+        
+    except Exception as e:
+        print(f"Error fetching schools: {e}")
+        return []
+
+
+def get_system_setting(key, default_value=None):
+    """
+    Get a system setting value by key
+    
+    Args:
+        key: Setting key
+        default_value: Default value if setting doesn't exist
+    
+    Returns:
+        Setting value or default_value
+    """
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute('''
+            SELECT setting_value FROM system_settings 
+            WHERE setting_key = ?
+        ''', (key,))
+        
+        row = cursor.fetchone()
+        return row[0] if row else default_value
+        
+    except Exception as e:
+        print(f"Error getting system setting {key}: {e}")
+        return default_value
+
+
+def set_system_setting(key, value, description=None):
+    """
+    Set a system setting value
+    
+    Args:
+        key: Setting key
+        value: Setting value
+        description: Optional description
+    
+    Returns:
+        bool: Success status
+    """
+    db = None
+    try:
+        import datetime
+        db = get_db()
+        cursor = db.cursor()
+        
+        current_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        
+        cursor.execute('''
+            INSERT INTO system_settings (setting_key, setting_value, description, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                setting_value = excluded.setting_value,
+                description = COALESCE(excluded.description, description),
+                updated_at = excluded.updated_at
+        ''', (key, str(value), description, current_time))
+        
+        db.commit()
+        return True
+        
+    except Exception as e:
+        print(f"Error setting system setting {key}: {e}")
+        if db:
+            db.rollback()
+        return False

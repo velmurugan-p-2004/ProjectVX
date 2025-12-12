@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - VishnoRex</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
+    <link rel="shortcut icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/applogo.png') }}">
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -105,6 +111,16 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/print.css') }}" media="print">
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#0d6efd">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="VishnoRex">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/applogo.png') }}">
+    <link rel="apple-touch-startup-image" href="{{ url_for('static', filename='images/applogo.png') }}">
+    
 </head>
 <body>
     <!-- Mobile Sidebar Toggle -->
@@ -187,11 +203,12 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#biometricDeviceModal">
+                                <a class="nav-link" href="/biometric_devices">
                                     <div class="nav-icon">
                                         <i class="bi bi-fingerprint"></i>
                                     </div>
-                                    <span class="nav-text">Biometric Device</span>
+                                    <span class="nav-text">Biometric Devices</span>
+                                    <div class="nav-indicator"></div>
                                 </a>
                             </li>
                         </ul>
@@ -233,9 +250,9 @@
                             </div>
                         </div>
                         <div class="header-actions">
-                            <button type="button" class="btn btn-outline-primary" id="refreshDataBtn" title="Refresh data">
+                            <!-- <button type="button" class="btn btn-outline-primary" id="refreshDataBtn" title="Refresh data">
                                 <i class="bi bi-arrow-clockwise"></i> Refresh
-                            </button>
+                            </button> -->
                             <button type="button" class="btn btn-success" id="exportDashboardBtn" title="Export dashboard data">
                                 <i class="bi bi-download"></i> Export
                             </button>
@@ -257,22 +274,22 @@
                             <div class="results-stats">
                                 <div class="stat-item">
                                     <i class="bi bi-check-circle text-success"></i>
-                                    <span class="stat-value">{{ attendance_summary.present }}</span>
+                                    <span class="stat-value" data-stat="present">{{ attendance_summary.present }}</span>
                                     <span>Present</span>
                                 </div>
                                 <div class="stat-item">
                                     <i class="bi bi-x-circle text-danger"></i>
-                                    <span class="stat-value">{{ attendance_summary.absent }}</span>
+                                    <span class="stat-value" data-stat="absent">{{ attendance_summary.absent }}</span>
                                     <span>Absent</span>
                                 </div>
                                 <div class="stat-item">
                                     <i class="bi bi-clock text-warning"></i>
-                                    <span class="stat-value">{{ attendance_summary.late }}</span>
+                                    <span class="stat-value" data-stat="late">{{ attendance_summary.late }}</span>
                                     <span>Late</span>
                                 </div>
                                 <div class="stat-item">
                                     <i class="bi bi-calendar-x text-info"></i>
-                                    <span class="stat-value">{{ attendance_summary.on_leave }}</span>
+                                    <span class="stat-value" data-stat="on-leave">{{ attendance_summary.on_leave }}</span>
                                     <span>On Leave</span>
                                 </div>
                                 <div class="stat-item">
@@ -978,6 +995,91 @@
             if (confirm('Are you sure you want to logout?')) {
                 window.location.href = "{{ url_for('logout') }}";
             }
+        }
+
+        // Auto-refresh dashboard data every 30 seconds
+        function refreshDashboardData() {
+            // Refresh staff count
+            fetch('/get_staff_count')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.count !== undefined) {
+                        const totalStaffCountElement = document.getElementById('totalStaffCount');
+                        if (totalStaffCountElement) {
+                            totalStaffCountElement.textContent = data.count;
+                        }
+                    }
+                })
+                .catch(error => console.error('Error refreshing staff count:', error));
+
+            // Refresh password reset count
+            fetch('/api/password_reset_count')
+                .then(response => response.json())
+                .then(data => {
+                    const resetRequestBadge = document.getElementById('resetRequestCount');
+                    if (resetRequestBadge) {
+                        if (data.success && data.count > 0) {
+                            resetRequestBadge.textContent = data.count;
+                            resetRequestBadge.classList.remove('d-none');
+                        } else {
+                            resetRequestBadge.classList.add('d-none');
+                        }
+                    }
+                })
+                .catch(error => console.error('Error refreshing password reset count:', error));
+
+            // Refresh attendance statistics
+            fetch('/api/dashboard/attendance_stats')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Update present count
+                        const presentElement = document.querySelector('[data-stat="present"]');
+                        if (presentElement && data.present !== undefined) {
+                            presentElement.textContent = data.present;
+                        }
+                        
+                        // Update absent count
+                        const absentElement = document.querySelector('[data-stat="absent"]');
+                        if (absentElement && data.absent !== undefined) {
+                            absentElement.textContent = data.absent;
+                        }
+                        
+                        // Update late count
+                        const lateElement = document.querySelector('[data-stat="late"]');
+                        if (lateElement && data.late !== undefined) {
+                            lateElement.textContent = data.late;
+                        }
+                        
+                        // Update on-leave count
+                        const onLeaveElement = document.querySelector('[data-stat="on-leave"]');
+                        if (onLeaveElement && data.on_leave !== undefined) {
+                            onLeaveElement.textContent = data.on_leave;
+                        }
+
+                        console.log('Dashboard data refreshed:', new Date().toLocaleTimeString());
+                    }
+                })
+                .catch(error => console.error('Error refreshing attendance stats:', error));
+        }
+
+        // Start auto-refresh interval (30 seconds)
+        // Run once immediately on page load
+        refreshDashboardData();
+        
+        // Then refresh every 30 seconds
+        setInterval(refreshDashboardData, 30000);
+        console.log('✓ Auto-refresh enabled: Dashboard will update every 30 seconds');
+    </script>
+
+    <script>
+        // Register Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register("{{ url_for('static', filename='sw.js') }}")
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('Service Worker registration failed:', err));
+            });
         }
     </script>
 </body>

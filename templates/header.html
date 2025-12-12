@@ -8,12 +8,12 @@
                     <img src="{{ logo_url }}" 
                          alt="School Logo" 
                          style="height: 50px; margin-right: 15px;"
-                         onerror="this.src='{{ url_for('static', filename='images/logo.png') }}'">
+                         onerror="this.src='{{ url_for('static', filename='images/applogo.png') }}'">
                 {% else %}
-                    <img src="{{ url_for('static', filename='images/logo.png') }}" 
+                    <img src="{{ url_for('static', filename='images/applogo.png') }}" 
                          alt="VishnoRex Logo" 
                          style="height: 50px; margin-right: 15px;"
-                         onerror="this.src='{{ url_for('static', filename='images/logo.png') }}'">
+                         onerror="this.src='{{ url_for('static', filename='images/applogo.png') }}'">
                 {% endif %}
                 <div>
                     <h4 class="mb-0 text-primary">VISHNOREX</h4>
