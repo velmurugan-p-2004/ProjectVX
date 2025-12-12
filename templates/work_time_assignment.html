@@ -973,12 +973,21 @@
             <nav class="col-md-2 enhanced-sidebar" id="enhanced-sidebar">
                 <div class="sidebar-header">
                     <div class="brand-logo">
-                        <div class="logo-icon">
-                            <i class="bi bi-clock-history"></i>
-                        </div>
+                        {% if institution.branding_enabled and institution.logo_path %}
+                            <img src="/{{ institution.logo_path }}" alt="Institution Logo" class="institution-logo">
+                        {% else %}
+                            <div class="logo-icon">
+                                <i class="bi bi-clock-history"></i>
+                            </div>
+                        {% endif %}
                         <div class="brand-text">
-                            <h6 class="brand-title">VishnoRex</h6>
-                            <small class="brand-subtitle">Admin Panel</small>
+                            {% if institution.branding_enabled and institution.name %}
+                                <h6 class="brand-title">{{ institution.name }}</h6>
+                                <small class="brand-subtitle">Admin Panel</small>
+                            {% else %}
+                                <h6 class="brand-title">VishnoRex</h6>
+                                <small class="brand-subtitle">Admin Panel</small>
+                            {% endif %}
                         </div>
                     </div>
                 </div>

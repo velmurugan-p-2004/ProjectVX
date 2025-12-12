@@ -37,12 +37,21 @@
             <nav class="col-md-2 d-none d-md-block enhanced-sidebar">
                 <div class="sidebar-header">
                     <div class="brand-logo">
-                        <div class="logo-icon">
-                            <i class="bi bi-building-gear"></i>
-                        </div>
+                        {% if institution.branding_enabled and institution.logo_path %}
+                            <img src="/{{ institution.logo_path }}" alt="Institution Logo" class="institution-logo">
+                        {% else %}
+                            <div class="logo-icon">
+                                <i class="bi bi-building-gear"></i>
+                            </div>
+                        {% endif %}
                         <div class="brand-text">
-                            <h6 class="brand-title">VishnoRex</h6>
-                            <small class="brand-subtitle">Admin Panel</small>
+                            {% if institution.branding_enabled and institution.name %}
+                                <h6 class="brand-title">{{ institution.name }}</h6>
+                                <small class="brand-subtitle">Admin Panel</small>
+                            {% else %}
+                                <h6 class="brand-title">VishnoRex</h6>
+                                <small class="brand-subtitle">Admin Panel</small>
+                            {% endif %}
                         </div>
                     </div>
                 </div>

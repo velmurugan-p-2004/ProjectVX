@@ -119,6 +119,34 @@ def datetimeformat_filter(datetime_obj, format='%Y-%m-%d %I:%M %p'):
                 return datetime_obj  # Return as-is if can't parse
     return datetime_obj.strftime(format)
 
+# Context processor for dynamic institution branding
+@app.context_processor
+def inject_institution_branding():
+    """Make institution branding data available to all templates"""
+    institution = {
+        'name': None,
+        'logo_path': None,
+        'branding_enabled': True
+    }
+    
+    # If user is logged in and we have school_id in session
+    if 'school_id' in session:
+        try:
+            db = get_db()
+            school = db.execute(
+                'SELECT name, logo_path, branding_enabled FROM schools WHERE id = ?',
+                (session['school_id'],)
+            ).fetchone()
+            
+            if school:
+                institution['name'] = school['name']
+                institution['logo_path'] = school['logo_path'] if school['logo_path'] else None
+                institution['branding_enabled'] = bool(school['branding_enabled'])
+        except Exception as e:
+            logger.error(f"Error loading institution branding: {e}")
+    
+    return {'institution': institution}
+
 @app.template_filter('capitalize_first')
 def capitalize_first_filter(text):
     """Capitalize first letter of text"""
@@ -649,6 +677,17 @@ def handle_school_login():
         session['school_id'] = admin['school_id']
         session['user_type'] = 'admin'
         session['full_name'] = admin['full_name']
+        
+        # Load institution branding data
+        school = db.execute(
+            'SELECT name, logo_path, branding_enabled FROM schools WHERE id = ?',
+            (admin['school_id'],)
+        ).fetchone()
+        if school:
+            session['institution_name'] = school['name']
+            session['institution_logo'] = school['logo_path']
+            session['branding_enabled'] = school['branding_enabled']
+        
         return jsonify({'redirect': url_for('admin_dashboard')})
 
     # Check staff - using username as staff_id
@@ -668,6 +707,17 @@ def handle_school_login():
             session['school_id'] = staff['school_id']
             session['user_type'] = 'staff'
             session['full_name'] = staff['full_name']
+            
+            # Load institution branding data
+            school = db.execute(
+                'SELECT name, logo_path, branding_enabled FROM schools WHERE id = ?',
+                (staff['school_id'],)
+            ).fetchone()
+            if school:
+                session['institution_name'] = school['name']
+                session['institution_logo'] = school['logo_path']
+                session['branding_enabled'] = school['branding_enabled']
+            
             return jsonify({'redirect': url_for('staff_dashboard')})
         elif not password_hash:
             print("Staff has no password set")  # Debug log
@@ -7756,18 +7806,19 @@ def add_school():
     db = get_db()
 
     # Handle logo upload
-    logo_url = None
+    logo_path = None
     if 'logo' in request.files:
         logo = request.files['logo']
         if logo.filename != '' and allowed_file(logo.filename):
             try:
-                upload_dir = os.path.join(app.static_folder, 'school_logos')
+                upload_dir = os.path.join(app.static_folder, 'uploads', 'logos')
                 os.makedirs(upload_dir, exist_ok=True)
 
                 ext = os.path.splitext(logo.filename)[1]
-                filename = f"school_{int(time.time())}{ext}"
-                logo_url = os.path.join('school_logos', filename)
-                logo.save(os.path.join(app.static_folder, logo_url))
+                safe_name = secure_filename(name).replace(' ', '_').lower()
+                filename = f"{safe_name}_logo_{int(time.time())}{ext}"
+                logo_path = f"static/uploads/logos/{filename}"
+                logo.save(os.path.join(upload_dir, filename))
             except Exception as e:
                 print(f"Error saving logo: {e}")
                 return jsonify({'success': False, 'error': 'Failed to save school logo'})
@@ -7779,9 +7830,9 @@ def add_school():
 
         # Add school
         cursor.execute('''
-            INSERT INTO schools (name, address, contact_email, contact_phone, logo_url)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (name, address, contact_email, contact_phone, logo_url))
+            INSERT INTO schools (name, address, contact_email, contact_phone, logo_path, branding_enabled)
+            VALUES (?, ?, ?, ?, ?, 1)
+        ''', (name, address, contact_email, contact_phone, logo_path))
         school_id = cursor.lastrowid
 
         # Add initial admin for the school
@@ -7796,6 +7847,91 @@ def add_school():
     except sqlite3.IntegrityError:
         db.rollback()
         return jsonify({'success': False, 'error': 'School or admin username already exists'})
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_school/<int:school_id>', methods=['GET'])
+def get_school(school_id):
+    if 'user_id' not in session or session['user_type'] != 'company_admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    db = get_db()
+    school = db.execute('SELECT * FROM schools WHERE id = ?', (school_id,)).fetchone()
+    
+    if not school:
+        return jsonify({'success': False, 'error': 'School not found'})
+    
+    return jsonify({
+        'success': True,
+        'school': {
+            'id': school['id'],
+            'name': school['name'],
+            'address': school['address'],
+            'contact_email': school['contact_email'],
+            'contact_phone': school['contact_phone'],
+            'logo_path': school['logo_path'],
+            'branding_enabled': school['branding_enabled']
+        }
+    })
+
+@app.route('/edit_school/<int:school_id>', methods=['POST'])
+def edit_school(school_id):
+    if 'user_id' not in session or session['user_type'] != 'company_admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'})
+
+    name = request.form.get('name')
+    address = request.form.get('address')
+    contact_email = request.form.get('contact_email')
+    contact_phone = request.form.get('contact_phone')
+    branding_enabled = request.form.get('branding_enabled', '1')
+
+    db = get_db()
+    
+    # Get current school data
+    school = db.execute('SELECT logo_path FROM schools WHERE id = ?', (school_id,)).fetchone()
+    if not school:
+        return jsonify({'success': False, 'error': 'School not found'})
+    
+    logo_path = school['logo_path']
+
+    # Handle logo upload
+    if 'logo' in request.files:
+        logo = request.files['logo']
+        if logo.filename != '' and allowed_file(logo.filename):
+            try:
+                upload_dir = os.path.join(app.static_folder, 'uploads', 'logos')
+                os.makedirs(upload_dir, exist_ok=True)
+
+                # Delete old logo if exists
+                if logo_path:
+                    old_logo_full_path = os.path.join(os.getcwd(), logo_path)
+                    if os.path.exists(old_logo_full_path):
+                        os.remove(old_logo_full_path)
+
+                ext = os.path.splitext(logo.filename)[1]
+                safe_name = secure_filename(name).replace(' ', '_').lower()
+                filename = f"{safe_name}_logo_{int(time.time())}{ext}"
+                logo_path = f"static/uploads/logos/{filename}"
+                logo.save(os.path.join(upload_dir, filename))
+            except Exception as e:
+                print(f"Error saving logo: {e}")
+                return jsonify({'success': False, 'error': 'Failed to save school logo'})
+        elif logo.filename != '':
+            return jsonify({'success': False, 'error': 'Invalid file type. Only PNG, JPG, JPEG, and GIF files are allowed.'})
+
+    try:
+        cursor = db.cursor()
+        cursor.execute('''
+            UPDATE schools 
+            SET name = ?, address = ?, contact_email = ?, contact_phone = ?, 
+                logo_path = ?, branding_enabled = ?
+            WHERE id = ?
+        ''', (name, address, contact_email, contact_phone, logo_path, branding_enabled, school_id))
+        
+        db.commit()
+        return jsonify({'success': True, 'message': 'School updated successfully'})
 
     except Exception as e:
         db.rollback()

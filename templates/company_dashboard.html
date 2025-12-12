@@ -466,6 +466,9 @@
                                                 <button type="button" class="btn btn-sm btn-outline-primary view-school" data-school-id="{{ school.id }}" title="View Details">
                                                     <i class="bi bi-eye"></i>
                                                 </button>
+                                                <button type="button" class="btn btn-sm btn-outline-success edit-school" data-school-id="{{ school.id }}" title="Edit School">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
                                                 <button type="button" class="btn btn-sm btn-outline-secondary hide-school" data-school-id="{{ school.id }}" title="Archive">
                                                     <i class="bi bi-archive"></i>
                                                 </button>
@@ -612,6 +615,100 @@
                     </button>
                     <button type="button" class="btn btn-primary" id="saveSchool">
                         <i class="bi bi-check-circle"></i> Create School
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit School Modal -->
+    <div class="modal fade" id="editSchoolModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-pencil-square"></i> Edit School
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editSchoolForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <input type="hidden" id="editSchoolId" name="school_id">
+                        
+                        <!-- School Information Section -->
+                        <div class="section-header">
+                            <div class="section-icon">
+                                <i class="bi bi-building"></i>
+                            </div>
+                            <div class="section-title">
+                                <h6>School Information</h6>
+                                <small class="text-muted">Update school details and logo</small>
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="editSchoolName" class="form-label">
+                                    <i class="bi bi-building me-1"></i>School Name *
+                                </label>
+                                <input type="text" class="form-control" id="editSchoolName" required placeholder="Enter school name">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="editSchoolAddress" class="form-label">
+                                    <i class="bi bi-geo-alt me-1"></i>Address
+                                </label>
+                                <input type="text" class="form-control" id="editSchoolAddress" placeholder="Enter school address">
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="editSchoolEmail" class="form-label">
+                                    <i class="bi bi-envelope me-1"></i>Contact Email
+                                </label>
+                                <input type="email" class="form-control" id="editSchoolEmail" placeholder="school@example.com">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="editSchoolPhone" class="form-label">
+                                    <i class="bi bi-telephone me-1"></i>Contact Phone
+                                </label>
+                                <input type="tel" class="form-control" id="editSchoolPhone" placeholder="+1 (555) 123-4567">
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-image me-1"></i>Current Logo
+                            </label>
+                            <div id="currentLogoPreview" class="mb-2">
+                                <img id="currentLogoImage" src="" alt="Current Logo" style="max-height: 80px; display: none; border: 1px solid #ddd; padding: 5px; border-radius: 4px;">
+                                <p id="noLogoText" class="text-muted" style="display: none;">No logo uploaded</p>
+                            </div>
+                            <label for="editSchoolLogo" class="form-label">
+                                <i class="bi bi-upload me-1"></i>Update Logo
+                            </label>
+                            <input type="file" class="form-control" id="editSchoolLogo" name="logo" accept="image/*">
+                            <div class="form-text">Upload a new logo to replace the current one (optional)</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="editBrandingEnabled" checked>
+                                <label class="form-check-label" for="editBrandingEnabled">
+                                    <i class="bi bi-palette me-1"></i>Enable Custom Branding
+                                </label>
+                                <div class="form-text">When enabled, school logo and name will appear in admin/staff panels</div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle"></i> Cancel
+                    </button>
+                    <button type="button" class="btn btn-success" id="updateSchool">
+                        <i class="bi bi-check-circle"></i> Update School
                     </button>
                 </div>
             </div>

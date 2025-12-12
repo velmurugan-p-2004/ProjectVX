@@ -80,6 +80,7 @@ document.getElementById('schoolSearch')?.addEventListener('input', function() {
         const schoolAddress = document.getElementById('schoolAddress').value;
         const schoolEmail = document.getElementById('schoolEmail').value;
         const schoolPhone = document.getElementById('schoolPhone').value;
+        const schoolLogo = document.getElementById('schoolLogo').files[0];
 
         const adminUsername = document.getElementById('adminUsername').value;
         const adminPassword = document.getElementById('adminPassword').value;
@@ -91,12 +92,24 @@ document.getElementById('schoolSearch')?.addEventListener('input', function() {
             return;
         }
 
+        const formData = new FormData();
+        formData.append('name', schoolName);
+        formData.append('address', schoolAddress);
+        formData.append('contact_email', schoolEmail);
+        formData.append('contact_phone', schoolPhone);
+        formData.append('admin_username', adminUsername);
+        formData.append('admin_password', adminPassword);
+        formData.append('admin_full_name', adminFullName);
+        formData.append('admin_email', adminEmail);
+        formData.append('csrf_token', getCSRFToken());
+        
+        if (schoolLogo) {
+            formData.append('logo', schoolLogo);
+        }
+
         fetch('/add_school', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: `name=${encodeURIComponent(schoolName)}&address=${encodeURIComponent(schoolAddress)}&contact_email=${schoolEmail}&contact_phone=${schoolPhone}&admin_username=${adminUsername}&admin_password=${encodeURIComponent(adminPassword)}&admin_full_name=${encodeURIComponent(adminFullName)}&admin_email=${adminEmail}&csrf_token=${encodeURIComponent(getCSRFToken())}`
+            body: formData
         })
             .then(response => response.json())
             .then(data => {
@@ -107,6 +120,100 @@ document.getElementById('schoolSearch')?.addEventListener('input', function() {
                 } else {
                     alert(data.error || 'Failed to add school');
                 }
+            });
+    });
+
+    // Edit school
+    document.querySelectorAll('.edit-school').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const schoolId = this.getAttribute('data-school-id');
+            
+            // Fetch school data
+            fetch(`/get_school/${schoolId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const school = data.school;
+                        
+                        // Populate form
+                        document.getElementById('editSchoolId').value = school.id;
+                        document.getElementById('editSchoolName').value = school.name || '';
+                        document.getElementById('editSchoolAddress').value = school.address || '';
+                        document.getElementById('editSchoolEmail').value = school.contact_email || '';
+                        document.getElementById('editSchoolPhone').value = school.contact_phone || '';
+                        document.getElementById('editBrandingEnabled').checked = school.branding_enabled == 1;
+                        
+                        // Show current logo
+                        const logoImage = document.getElementById('currentLogoImage');
+                        const noLogoText = document.getElementById('noLogoText');
+                        
+                        if (school.logo_path) {
+                            logoImage.src = '/' + school.logo_path;
+                            logoImage.style.display = 'block';
+                            noLogoText.style.display = 'none';
+                        } else {
+                            logoImage.style.display = 'none';
+                            noLogoText.style.display = 'block';
+                        }
+                        
+                        // Show modal
+                        const editModal = new bootstrap.Modal(document.getElementById('editSchoolModal'));
+                        editModal.show();
+                    } else {
+                        alert(data.error || 'Failed to load school data');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to load school data');
+                });
+        });
+    });
+
+    // Update school
+    document.getElementById('updateSchool')?.addEventListener('click', function () {
+        const schoolId = document.getElementById('editSchoolId').value;
+        const schoolName = document.getElementById('editSchoolName').value;
+        const schoolAddress = document.getElementById('editSchoolAddress').value;
+        const schoolEmail = document.getElementById('editSchoolEmail').value;
+        const schoolPhone = document.getElementById('editSchoolPhone').value;
+        const schoolLogo = document.getElementById('editSchoolLogo').files[0];
+        const brandingEnabled = document.getElementById('editBrandingEnabled').checked ? '1' : '0';
+
+        if (!schoolName) {
+            alert('School Name is required');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('name', schoolName);
+        formData.append('address', schoolAddress);
+        formData.append('contact_email', schoolEmail);
+        formData.append('contact_phone', schoolPhone);
+        formData.append('branding_enabled', brandingEnabled);
+        formData.append('csrf_token', getCSRFToken());
+        
+        if (schoolLogo) {
+            formData.append('logo', schoolLogo);
+        }
+
+        fetch(`/edit_school/${schoolId}`, {
+            method: 'POST',
+            body: formData
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('School updated successfully! Logo changes will appear when admin/staff log in again.');
+                    bootstrap.Modal.getInstance(document.getElementById('editSchoolModal')).hide();
+                    location.reload();
+                } else {
+                    alert(data.error || 'Failed to update school');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to update school');
             });
     });
 
