@@ -8,7 +8,7 @@
 }
 .enhanced-sidebar .sidebar-header {
     padding: 1rem 1.5rem;
-    border-bottom: 1px solid #343a40;
+    border-bottom: 1px solid #ffffff;
     text-align: center;
 }
 
@@ -42,7 +42,7 @@
     display: flex;
     align-items: center;
     padding: 1rem 1.5rem;
-    border-bottom: 1px solid #343a40;
+    border-bottom: 1px solid #ffffff;
 }
 .enhanced-sidebar .user-avatar {
     font-size: 2rem;
@@ -109,3 +109,5 @@
         padding-top: 0.5rem;
     }
 }
+
+

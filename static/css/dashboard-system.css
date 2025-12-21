@@ -134,7 +134,7 @@
 }
 
 .dashboard-card.featured {
-    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    background: #221e66, var(--secondary-color));
     color: var(--white);
     border: none;
 }
@@ -167,14 +167,14 @@
     left: 0;
     right: 0;
     height: 4px;
-    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    background: #221e66, var(--secondary-color));
 }
 
 .stat-icon {
     width: 64px;
     height: 64px;
     border-radius: var(--radius-2xl);
-    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    background: #221e66, var(--secondary-color));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -337,7 +337,7 @@
     width: 40px;
     height: 40px;
     border-radius: var(--radius-full);
-    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    background: #221e66, var(--secondary-color));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -619,3 +619,5 @@
         border-width: 3px;
     }
 }
+
+

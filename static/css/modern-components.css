@@ -13,7 +13,7 @@
     left: 0;
     width: 280px;
     height: 100vh;
-    background: linear-gradient(180deg, #1a1d29 0%, #252a3a 100%);
+    background: #221e66;
     backdrop-filter: blur(20px);
     border-right: 1px solid rgba(255, 255, 255, 0.1);
     z-index: var(--z-fixed);
@@ -53,17 +53,17 @@
 .brand-logo {
     width: 40px;
     height: 40px;
-    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    background: #221e66, var(--secondary-color));
     border-radius: var(--radius-lg);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
+    color: #ffffff;
     font-size: var(--font-size-xl);
 }
 
 .brand-text {
-    color: white;
+    color: #ffffff;
 }
 
 .brand-title {
@@ -130,7 +130,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    background: #221e66, var(--secondary-color));
     opacity: 0;
     transition: opacity var(--transition-fast);
 }
@@ -142,7 +142,7 @@
 
 .nav-link:hover,
 .nav-link.active {
-    color: white;
+    color: #ffffff;
     transform: translateX(4px);
 }
 
@@ -169,7 +169,7 @@
 }
 
 .logout-nav-link::before {
-    background: linear-gradient(135deg, #dc3545, #c82333) !important;
+    background: #221e66 !important;
 }
 
 .logout-nav-link:hover::before {
@@ -203,11 +203,11 @@
     width: 40px;
     height: 40px;
     border-radius: var(--radius-full);
-    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    background: #221e66, var(--secondary-color));
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
+    color: #ffffff;
     font-weight: 600;
 }
 
@@ -219,7 +219,7 @@
 .user-name {
     font-size: var(--font-size-sm);
     font-weight: 600;
-    color: white;
+    color: #ffffff;
     margin: 0;
     white-space: nowrap;
     overflow: hidden;
@@ -249,8 +249,8 @@
 
 /* Content Header */
 .content-header {
-    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-    color: white;
+    background: #221e66, var(--secondary-color));
+    color: #ffffff;
     padding: var(--space-8) var(--space-6);
     margin-bottom: var(--space-6);
     position: relative;
@@ -330,7 +330,7 @@
     left: 0;
     right: 0;
     height: 4px;
-    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    background: #221e66, var(--secondary-color));
     opacity: 0;
     transition: opacity var(--transition-fast);
 }
@@ -342,7 +342,7 @@
 .card-header-modern {
     padding: var(--space-6);
     border-bottom: 1px solid var(--gray-100);
-    background: linear-gradient(135deg, var(--gray-50), var(--white));
+    background: #221e66, var(--white));
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -354,11 +354,11 @@
     width: 48px;
     height: 48px;
     border-radius: var(--radius-xl);
-    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    background: #221e66, var(--secondary-color));
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
+    color: #ffffff;
     font-size: var(--font-size-xl);
     flex-shrink: 0;
 }
@@ -410,7 +410,7 @@
 }
 
 .modern-table thead th {
-    background: linear-gradient(135deg, var(--gray-50), var(--gray-100));
+    background: #221e66, var(--gray-100));
     padding: var(--space-4) var(--space-6);
     text-align: left;
     font-weight: 600;
@@ -518,7 +518,7 @@
 }
 
 .btn-primary-modern {
-    background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+    background: #221e66, var(--primary-dark));
     color: var(--white);
     box-shadow: var(--shadow-md);
 }
@@ -541,13 +541,13 @@
 }
 
 .btn-success-modern {
-    background: linear-gradient(135deg, var(--success-color), #0ea54e);
+    background: #221e66, #0ea54e);
     color: var(--white);
     box-shadow: var(--shadow-md);
 }
 
 .btn-danger-modern {
-    background: linear-gradient(135deg, var(--danger-color), #dc2626);
+    background: #221e66, #dc2626);
     color: var(--white);
     box-shadow: var(--shadow-md);
 }
@@ -767,7 +767,7 @@
    ========================================================================== */
 
 .loading-skeleton {
-    background: linear-gradient(90deg, var(--gray-200) 25%, var(--gray-100) 50%, var(--gray-200) 75%);
+    background: #221e66 25%, var(--gray-100) 50%, var(--gray-200) 75%);
     background-size: 200% 100%;
     animation: skeleton-loading 1.5s infinite;
     border-radius: var(--radius-md);
@@ -836,3 +836,5 @@
     from { transform: translateY(20px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
+
+

@@ -13,8 +13,8 @@
 }
 
 .kpi-card {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: #221e66;
+    color: #ffffff;
     text-align: center;
     padding: 30px 20px;
 }
@@ -52,7 +52,7 @@
     justify-content: center;
     font-size: 12px;
     font-weight: bold;
-    color: white;
+    color: #ffffff;
     cursor: pointer;
     transition: transform 0.2s;
 }
@@ -88,12 +88,12 @@
 
 .loading-content {
     text-align: center;
-    color: white;
+    color: #ffffff;
 }
 
 .chart-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: #221e66;
+    color: #ffffff;
     padding: 15px 20px;
     border-radius: 15px 15px 0 0;
 }
@@ -219,12 +219,12 @@
 
 .calendar-day.weekend {
     background-color: #6c757d;
-    color: white;
+    color: #ffffff;
 }
 
 .calendar-day.excellent {
     background-color: #28a745;
-    color: white;
+    color: #ffffff;
 }
 
 .calendar-day.good {
@@ -234,7 +234,7 @@
 
 .calendar-day.poor {
     background-color: #dc3545;
-    color: white;
+    color: #ffffff;
 }
 
 .calendar-day.no-data {
@@ -322,3 +322,5 @@
         font-size: 0.75rem;
     }
 }
+
+

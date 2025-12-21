@@ -296,13 +296,13 @@ a:hover {
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+    background: #221e66, var(--primary-dark));
     color: var(--white);
     border-color: var(--primary-color);
 }
 
 .btn-primary:hover {
-    background: linear-gradient(135deg, var(--primary-dark), var(--primary-color));
+    background: #221e66, var(--primary-color));
     transform: translateY(-1px);
     box-shadow: var(--shadow-lg);
 }
@@ -653,3 +653,5 @@ a:hover {
         padding: 0 !important;
     }
 }
+
+

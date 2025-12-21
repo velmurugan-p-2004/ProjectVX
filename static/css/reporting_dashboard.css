@@ -14,8 +14,8 @@
 }
 
 .report-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: #221e66;
+    color: #ffffff;
     padding: 20px;
     text-align: center;
 }
@@ -98,7 +98,7 @@
 .quick-filter-btn:hover,
 .quick-filter-btn.active {
     background: #667eea;
-    color: white;
+    color: #ffffff;
     border-color: #667eea;
 }
 
@@ -191,8 +191,8 @@
 }
 
 .export-section {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: #221e66;
+    color: #ffffff;
     border-radius: 15px;
     padding: 25px;
     text-align: center;
@@ -214,7 +214,7 @@
 .export-btn {
     background: rgba(255,255,255,0.2);
     border: 2px solid rgba(255,255,255,0.3);
-    color: white;
+    color: #ffffff;
     padding: 12px 24px;
     border-radius: 25px;
     cursor: pointer;
@@ -228,7 +228,7 @@
 .export-btn:hover {
     background: rgba(255,255,255,0.3);
     border-color: rgba(255,255,255,0.5);
-    color: white;
+    color: #ffffff;
     text-decoration: none;
 }
 
@@ -426,3 +426,5 @@
 .report-preview-hidden {
     display: none !important;
 }
+
+

@@ -13,7 +13,7 @@
 }
 
 .salary-summary-card {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #221e66;
     color: white;
     text-align: center;
     padding: 25px 20px;
@@ -40,7 +40,7 @@
 }
 
 .salary-table th {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #221e66;
     color: white;
     font-weight: 600;
     padding: 15px 12px;
@@ -171,14 +171,14 @@
 
 /* Enhanced Salary Management Styles */
 :root {
-    --salary-primary: #667eea;
-    --salary-secondary: #764ba2;
+    --salary-primary: #221e66;
+    --salary-secondary: #221e66;
     --salary-success: #28a745;
     --salary-warning: #ffc107;
     --salary-danger: #dc3545;
     --salary-info: #17a2b8;
     --salary-light: #f8f9fa;
-    --salary-dark: #343a40;
+    --salary-dark: #ffffff;
     --salary-border: #dee2e6;
     --salary-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     --salary-shadow-hover: 0 4px 20px rgba(0, 0, 0, 0.15);
@@ -196,7 +196,7 @@
 
 /* Enhanced Header */
 .salary-header {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     border-radius: var(--salary-border-radius);
     padding: 2rem;
     margin-bottom: 2rem;
@@ -288,7 +288,7 @@
 .salary-filters-card .card-header,
 .salary-rules-card .card-header,
 .salary-results-card .card-header {
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    background: #221e66;
     border: none;
     padding: 1.5rem;
     display: flex;
@@ -299,7 +299,7 @@
 }
 
 .card-header .header-icon {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     color: white;
     width: 40px;
     height: 40px;
@@ -376,7 +376,7 @@
 }
 
 .btn-calculate {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     border: none;
     color: white;
     padding: 0.75rem 1.5rem;
@@ -486,7 +486,7 @@
 }
 
 .btn-update-rules {
-    background: linear-gradient(135deg, var(--salary-success) 0%, #20c997 100%);
+    background: #221e66;
     border: none;
     color: white;
     padding: 0.75rem 1.5rem;
@@ -568,7 +568,7 @@
 }
 
 .salary-results-table th {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     color: white;
     font-weight: 600;
     border: none;
@@ -669,7 +669,7 @@
 
 /* Enhanced Badge Styles */
 .earnings-badge {
-    background: linear-gradient(135deg, var(--salary-success) 0%, #20c997 100%);
+    background: #221e66;
     color: white;
     padding: 0.4rem 0.8rem;
     border-radius: 20px;
@@ -678,7 +678,7 @@
 }
 
 .deductions-badge {
-    background: linear-gradient(135deg, var(--salary-warning) 0%, #fd7e14 100%);
+    background: #221e66;
     color: white;
     padding: 0.4rem 0.8rem;
     border-radius: 20px;
@@ -687,7 +687,7 @@
 }
 
 .net-salary-badge {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     color: white;
     padding: 0.4rem 0.8rem;
     border-radius: 20px;
@@ -797,7 +797,7 @@
 }
 
 .btn-view-details {
-    background: linear-gradient(135deg, var(--salary-info) 0%, #138496 100%);
+    background: #221e66;
     border: none;
     color: white;
     padding: 0.4rem 0.8rem;
@@ -961,7 +961,7 @@
 
 /* Enhanced Sidebar Styles */
 .enhanced-sidebar {
-    background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
+    background: #221e66;
     color: white;
     min-height: 100vh;
     padding: 0;
@@ -999,7 +999,7 @@
 }
 
 .logo-icon {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     width: 40px;
     height: 40px;
     border-radius: 8px;
@@ -1124,7 +1124,7 @@
 }
 
 .nav-link.active {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     color: white;
     box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
@@ -1420,7 +1420,7 @@
     font-weight: 700;
     color: var(--salary-dark);
     margin-bottom: 1rem;
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -1484,7 +1484,7 @@
 }
 
 .coming-soon-actions .btn-primary {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     border: none;
 }
 
@@ -1499,7 +1499,7 @@
 
 /* Quick Action Active State */
 .quick-action-btn.active {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     color: white;
     border-color: var(--salary-primary);
 }
@@ -1958,7 +1958,7 @@
 }
 
 .calculation-summary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #221e66;
     color: white;
     border-radius: 15px;
     padding: 20px;
@@ -2055,7 +2055,7 @@
 
 /* Company Dashboard Specific Styles */
 .school-avatar {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     color: white;
     width: 40px;
     height: 40px;
@@ -2126,7 +2126,7 @@
 }
 
 .section-icon {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     color: white;
     width: 40px;
     height: 40px;
@@ -2268,7 +2268,7 @@
 }
 
 .user-avatar {
-    background: linear-gradient(135deg, var(--salary-primary) 0%, var(--salary-secondary) 100%);
+    background: #221e66;
     color: white;
     width: 35px;
     height: 35px;
@@ -2431,3 +2431,4 @@
     color: #adb5bd;
     margin-bottom: 1.5rem;
 }
+
